@@ -33,9 +33,7 @@ SHOW_TX = False
 ALIASES = {
     "8dbc": "TjülüTjülü",
     "dd4c": "Funkfeuer",
-    "8b55": "Salzgitter Lichtenberg",
-    "abba": "DatenScheune",
-    "2e6f": "DN9AD Solar Repeater"
+    "abba": "DatenScheune"
 }
 
 
