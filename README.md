@@ -1,0 +1,209 @@
+# MeshCore OnAir
+
+Lokaler, kompakter MQTT-Netzmonitor für den MeshCore Observer.
+
+## Start
+
+Python 3.10 oder neuer, im Projektverzeichnis:
+
+```bash
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m uvicorn onair_web:app --host 127.0.0.1 --port 8000
+```
+
+Im Browser **http://127.0.0.1:8000** öffnen. Der Webserver startet den MQTT-Monitor
+mit der bisherigen Terminal-Ausgabe. Ctrl+C beendet beide sauber. Einen einzelnen
+Uvicorn-Worker verwenden, damit alle Browser denselben Paketspeicher sehen.
+
+Der bisherige reine Terminal-Modus bleibt verfügbar:
+
+```bash
+.venv/bin/python onair_mqtt.py
+```
+
+Broker und Topic stehen weiterhin in `onair_mqtt.py`: `192.168.88.40:1883`,
+`meshcore/#`. Der Monitor subscribiert ausschließlich; er publiziert nichts und
+ändert weder Observer noch BSMesh. Jede Instanz hat eine eigene MQTT-Client-ID.
+Der Webmodus versucht bei Ausfällen automatisch die Verbindung wiederherzustellen.
+Die Kopfzeile unterscheidet MQTT-Ausfall und WebSocket-Ausfall.
+
+## Liveansicht
+
+Die Tabs **Live**, **Channels**, **Archiv**, **Nodes** und **Noise Floor** zeigen jeweils einen
+Bereich; beim Öffnen ist **Live** ausgewählt. Suchfelder und Ergebnisse bleiben
+beim Wechsel erhalten, der Empfang läuft weiter. Die Tabs sind auch per
+Pfeiltasten sowie Pos1/Ende bedienbar.
+
+**Channels** bietet die beim Serverstart aus `channels.json` geladenen Kanäle
+einschließlich des Standardkanals **Public** zur Auswahl. Beim Kanalwechsel werden
+die neuesten 50 gespeicherten Textempfänge angezeigt; ältere lassen sich nachladen.
+**Aktualisieren** lädt die neuesten Empfänge nach dem Datenbank-Commit. Empfänge mit
+demselben Observer-Hash werden zu einer Nachricht mit aufklappbaren Empfangsdetails
+zusammengefasst, auch über nachgeladene Seiten hinweg. Ohne Hash bleiben Empfänge
+einzeln. Die Zähler beziehen sich auf die bisher geladenen Empfänge.
+Die Auswahl-API `/api/channels` liefert nur Namen,
+keine Schlüssel. Nach Änderungen an `channels.json` den Server neu starten und die
+Seite neu laden.
+
+Zeit | Typ | Route | Inhalt | Last Hop | RSSI | SNR | Hops | Hash / Repeat
+
+Bei `GRP_TXT` zeigt Inhalt den Kanal und Nachrichtentext samt Absendernamen.
+Bei `ADVERT` zeigt Inhalt den Node-Namen, Typ (Chat, Repeater, Room-Server oder
+Sensor) und die Position, sofern enthalten. Die Empfangsdetails enthalten außerdem
+Public Key, Advert-Zeitstempel, Flags, optionale Feature-Felder und die Signatur.
+Die Ed25519-Signatur wird geprüft und ihr Ergebnis angezeigt. Ungültige oder nicht unterstützte
+ADVERT-Payloads werden entsprechend markiert; die Rohdaten bleiben verfügbar.
+Lange Texte und Zeilenumbrüche vergrößern die Zeile automatisch.
+Der öffentliche Standardkanal wird automatisch entschlüsselt. Eigene Kanäle
+in `channels.json` neben den Python-Dateien eintragen, beispielsweise:
+
+```json
+{
+  "#dein-kanal": null,
+  "Mein privater Kanal": "HIER_HEX_ODER_BASE64_SCHLUESSEL_EINTRAGEN"
+}
+```
+
+`channels.example.json` dient als Vorlage. Nicht benötigte Einträge entfernen
+und den Platzhalter durch den tatsächlichen Kanalschlüssel ersetzen (16 oder
+32 Byte, als Hex oder Base64). Bei Hashtag-Kanälen reicht der exakte Name mit
+`#` und der Wert `null`; daraus wird der Schlüssel abgeleitet.
+Nach Änderungen den Server neu starten. `channels.json` wird von Git ignoriert;
+Schlüssel werden nicht an den Browser übertragen. Ohne passenden Schlüssel
+erscheint „Nicht entschlüsselbar“; Raw- und Payload-Hex bleiben in den Details.
+Die Implementierung folgt dem [MeshCore-Payloadformat](https://github.com/meshcore-dev/MeshCore/blob/main/docs/payloads.md)
+und der [MeshCore-Verschlüsselung](https://github.com/meshcore-dev/MeshCore/blob/main/src/Utils.cpp).
+
+Auf die Zeit klicken, um die einzelnen Empfänge mit vollständigem Pfad,
+Transport-Code, Raw-Hex, Payload-Hex, Header und weiteren Decoder-Feldern zu sehen.
+Die Hauptzeile zeigt den neuesten Empfang der Gruppe. Gleiche Observer-Hashes
+(ohne Beachtung der Groß-/Kleinschreibung) werden zusammengefasst, auch wenn sich
+Route oder Messwerte ändern. Ohne Hash wird jeder Empfang separat angezeigt.
+Unter `REPEAT x…` steht pro gespeichertem Empfang der letzte Hop untereinander,
+mit Namensauflösung über `ALIASES` in `onair_mqtt.py`. Wiederholte Repeater bleiben
+als eigene Zeilen erhalten; ein Empfang ohne Hops erscheint als `direct`.
+Angezeigt werden die bis zu 50 gespeicherten Empfänge.
+Die Webansicht nimmt nur Nachrichten mit `direction: rx` auf.
+
+Maximal 500 zuletzt aktive Gruppen und 50 letzte Empfänge je Gruppe bleiben im RAM.
+Der Gruppenzähler zählt auch bereits entfernte Empfangsdetails; nach Verdrängung
+der gesamten Gruppe beginnt er bei erneutem Empfang neu. Der Terminal-Zähler
+hält separat maximal 5000 Hashes. Die Liveansicht beginnt beim Neustart leer; das Archiv bleibt erhalten.
+Die Übergabe von MQTT ist auf 2048 wartende Pakete begrenzt; verworfene Web-Empfänge
+werden in der Werkzeugleiste gezählt. Langsame Browser erhalten einen aktuellen
+Snapshot. Nach einer WebSocket-Neuverbindung wird die Ansicht ebenfalls synchronisiert.
+„Ansicht pausieren“ friert nur die Darstellung ein; der Empfang läuft weiter.
+
+Ein-Byte-Hop-Hashes werden niemals auf Aliase abgebildet. Bekannte Präfixe ab zwei
+Byte bleiben wie im vorhandenen Parser aufgelöst. Die Tabellenzeit kommt vom
+Observer; die Details enthalten zusätzlich die lokale Empfangszeit mit Zeitzone.
+Die Radioangaben im Kopf sind die konfigurierte Vorgabe, keine Live-Telemetrie.
+Andere Payload-Typen werden weiterhin als Hex in den Details angezeigt.
+
+## SQLite-Archiv und gelernte Namen
+
+Das Widget **Noise Floor · Raw / Step** zeigt die letzten 500 gültigen
+`stats.noise_floor`-Messungen als Step-Plot mit sichtbaren Messpunkten. Jede
+Statusmeldung bleibt als eigener Messpunkt erhalten, auch bei identischen Werten.
+Es gibt keine Glättung, Mittelung oder lineare Interpolation: Die Linie hält den
+Wert bis zur nächsten Meldung und springt dort vertikal auf den neuen Wert.
+Hover, Berührung oder Tastaturfokus auf einem Punkt zeigen den exakten
+ISO-Zeitstempel mit Zeitzone und den ganzzahligen dBm-Wert. Die Zeit ist die lokale
+MQTT-Empfangszeit, kein vom Heltec gelieferter Messzeitstempel.
+
+Web- und Terminal-Modus speichern diese Werte dauerhaft in der SQLite-Tabelle
+`noise_samples`; die vorhandene Datenbank wird automatisch ergänzt. Nach einem
+Neustart oder Browser-Reconnect lädt das Widget wieder die letzten 500 Werte.
+Ältere Messungen bleiben in SQLite erhalten. Fehlende, nicht endliche und nicht
+ganzzahlige Werte werden ausgelassen, ohne sie zu runden oder durch null zu ersetzen.
+Die Ansichtspause gilt auch für den Graphen; der Empfang und die Speicherung laufen
+weiter. Die Historie bleibt bei Verbindungsabbrüchen sichtbar; die Kopfzeile zeigt
+den Verbindungsstatus. Es werden keine zusätzlichen Messpunkte erzeugt.
+
+Web- und Terminal-Modus speichern jeden erfolgreich geparsten RX-Empfang inklusive
+Wiederholungen, Raw-Paket, decodierter Inhalte, Pfad und Messwerten. Fehlerhafte
+Raw-Pakete, die der bisherige Decoder verwirft, werden weiterhin nur protokolliert.
+Die Datei `onair.sqlite3` wird beim Start neben den Python-Dateien angelegt.
+Ein anderer Speicherort lässt sich für eine spätere SSD-Migration einstellen:
+
+```bash
+ONAIR_DB_PATH=/pfad/auf/ssd/onair.sqlite3 .venv/bin/python -m uvicorn onair_web:app --host 127.0.0.1 --port 8000
+```
+
+Ein eigener Schreibthread bündelt maximal 100 Empfänge oder fünf Sekunden in einer
+Transaktion. SQLite verwendet WAL und die voreingestellte FULL-Synchronisierung.
+Beim sauberen Beenden wird der Rest geschrieben. Bei Stromausfall können noch
+gepufferte Empfänge fehlen. Bei Schreibfehlern wird erneut versucht; maximal
+10.000 weitere Empfänge warten im RAM. Überläufe und Schreibfehler werden im
+Terminal und in der Live-Werkzeugleiste gemeldet. Ein fehlgeschlagenes abschließendes
+Speichern wird als Fehler gemeldet. Liveansicht und Archiv haben getrennte Puffer.
+
+Im Bereich **Archiv** nach Text, Hop, gespeichertem Node-Namen oder Hash suchen;
+Typ, Kanal und lokalen Zeitraum optional einschränken. Ergebnisse erscheinen als
+einzelne Empfänge in Seiten zu 50 Einträgen, Details durch Aufklappen. Neue Empfänge
+sind nach dem nächsten Commit suchbar. Namen und Texte werden in ihrem Zustand zum
+Empfang gespeichert; spätere Namensänderungen verändern alte Einträge nicht.
+Die Suche durchsucht auch entschlüsselte Kanaltexte, die in der Datenbank im
+Klartext liegen. Es gibt zunächst keine automatische Löschung oder Größenbegrenzung.
+Für ein einfaches Backup den Monitor sauber stoppen und die Datenbankdatei kopieren;
+bei laufendem Betrieb die SQLite-Backup-Funktion verwenden, nicht nur die Hauptdatei.
+
+Gültig signierte ADVERTs speichern Public Key, Namen und erste/letzte Empfangszeit
+in `nodes`. Nur neuere Advert-Zeitstempel aktualisieren den Namen. Nach dem Commit
+werden Namen für folgende Pakete aufgelöst: manuelle `ALIASES` zuerst, danach ein
+passender eindeutiger Public-Key-Präfix aus SQLite. Ein-Byte-Hashes und mehrdeutige
+Präfixe bleiben unaufgelöst. Die Signaturprüfung folgt
+[MeshCore Mesh.cpp](https://github.com/meshcore-dev/MeshCore/blob/main/src/Mesh.cpp).
+Die Datenbank samt WAL/SHM-Dateien wird von Git ignoriert. Bestehende Live-Pakete aus
+der Zeit vor der Umstellung werden nicht nachträglich importiert.
+
+Im Bereich **Nodes** nach Namen oder einem Teil des Public Keys suchen, ohne
+Beachtung der Groß-/Kleinschreibung. Eine leere Suche zeigt alle gespeicherten Nodes,
+sortiert nach Public Key, mit jeweils 50 Treffern pro Seite. Jeder Node erscheint
+einmal mit seinem aktuellen gespeicherten Namen, vollständigem Public Key und
+erster/letzter ADVERT-Empfangszeit in lokaler Zeit. Diese Zeiten sind kein Online-Status.
+Neue Einträge sind nach dem nächsten Datenbank-Commit suchbar. Die Suche ist auch
+über `GET /api/nodes?q=…` verfügbar; `next_after` dient als `after` für die Folgeseite.
+
+## Aufbau und Prüfung
+
+### Öffentlicher Betrieb: lesende Schnittstellen
+
+Die HTTP-Routen lesen Archivdaten bzw. liefern statische Dateien und Kanalnamen.
+Es gibt keine POST-/PUT-/PATCH-/DELETE-Routen und keinen MQTT-Publish- oder
+MeshCore-Sendepfad im Anwendungscode. Die SQLite-Schreibpfade werden durch den
+internen MQTT-Empfang angesteuert, nicht durch Besucheranfragen.
+
+`/ws` ist auf Anwendungsebene ein reiner Server-Datenstream. Eine eingehende
+Text- oder Binärnachricht, auch eine leere, beendet die betreffende Verbindung
+mit Code `1008` und Grund `Server-only stream`. Client-Inhalte werden weder
+interpretiert noch weitergeleitet oder gespeichert. Der Empfangspfad bleibt
+für das Erkennen von Verbindungsabbrüchen und das Abweisen solcher Nachrichten
+erhalten; WebSocket ist auf Transportebene weiterhin bidirektional.
+
+nginx `limit_except GET { deny all; }` begrenzt HTTP-Methoden (GET schließt dabei
+HEAD ein), aber keine WebSocket-Nachrichten nach dem Upgrade. Die Abweisung
+erfolgt deshalb zusätzlich im Backend. Siehe die nginx-Dokumentation zu
+[limit_except](https://nginx.org/en/docs/http/ngx_http_core_module.html#limit_except)
+und [WebSocket-Proxying](https://nginx.org/en/docs/http/websocket.html).
+
+Die Tests prüfen Client-Daten einschließlich leerer Text-/Binärnachrichten,
+Close-Code, Listener-Cleanup, ausbleibende MQTT-Aufrufe und Archiv-Einträge sowie
+die Ablehnung schreibender HTTP-Methoden. Snapshot und Live-Updates werden
+ebenfalls geprüft. Dies ist eine Prüfung des Anwendungscodes; nginx-,
+WireGuard-, Firewall- und Broker-ACL-Konfiguration sind damit nicht verifiziert.
+
+- `onair_mqtt.py`: unveränderter Raw-Decoder, `Packet`-Dataclass, Terminal und MQTT.
+- `onair_channels.py`: lokale Kanalkonfiguration und GRP_TXT-Entschlüsselung.
+- `onair_advert.py`: ADVERT-Decoder mit Signaturprüfung.
+- `onair_archive.py`: SQLite-Speicherung, Namensauflösung und Archivsuche.
+- `onair_web.py`: FastAPI-Lebenszyklus, begrenzter Gruppenspeicher, WebSocket.
+- `static/`: lokale Webseite ohne CDN oder Build-Schritt.
+- `tests/test_onair.py`: Decoder, Aliasgrenzen, Wiederholungen, ungültige Eingaben,
+  Speichergrenzen sowie HTTP/WebSocket mit simuliertem MQTT-Client.
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+Statistiken sind für einen späteren Schritt vorgesehen.
