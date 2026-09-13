@@ -7,6 +7,7 @@ function selectTab(selected) {
     document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
   }
   if (selected.id === 'tab-channels' && !channelsReady) loadChannelMessages();
+  if (selected.id === 'tab-repeaters') loadRepeaters();
 }
 for (const [index, tab] of tabs.entries()) {
   tab.addEventListener('click', () => selectTab(tab));
@@ -138,9 +139,69 @@ document.getElementById('pause').onclick = event => {
   paused = !paused;
   event.target.textContent = paused ? 'Live fortsetzen' : 'Ansicht pausieren';
   event.target.setAttribute('aria-pressed', String(paused));
-  if (!paused) render();
+  if (!paused) {
+    render();
+    if (!document.getElementById('panel-repeaters').hidden) loadRepeaters();
+  }
 };
 connect();
+
+let repeatersLoading = false;
+async function loadRepeaters() {
+  if (repeatersLoading || paused) return;
+  repeatersLoading = true;
+  const message = document.getElementById('repeaters-status');
+  try {
+    const response = await fetch('/api/repeaters');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const {items} = await response.json();
+    if (paused) return;
+    const fragment = document.createDocumentFragment();
+    const position = value => `${Math.max(0, Math.min(100, (value + 140) / 120 * 100))}%`;
+    for (const item of items) {
+      const row = text('article', '', 'repeater-row');
+      const identity = text('div', '', 'repeater-identity');
+      identity.append(text('strong', item.name));
+      identity.append(text('div', item.id, 'muted'));
+      identity.title = `Empfangene Kennungen: ${item.tokens.join(', ')}`;
+      const signal = text('div', '', 'repeater-signal');
+      signal.append(text('div', `RSSI ${measurement(item.rssi, 'dBm')}`, 'repeater-reading'));
+      const track = text('div', '', 'signal-track');
+      track.setAttribute('role', 'img');
+      track.setAttribute('aria-label', `RSSI ${measurement(item.rssi, 'dBm')}, Minimum ${measurement(item.min_rssi, 'dBm')}, Maximum ${measurement(item.max_rssi, 'dBm')}`);
+      if (item.rssi != null) {
+        const fill = text('span', '', 'signal-fill');
+        fill.style.width = position(item.rssi);
+        track.append(fill);
+      }
+      for (const [field, title] of [['min_rssi', 'Minimum'], ['max_rssi', 'Maximum']]) {
+        if (item[field] == null) continue;
+        const marker = text('span', '', `signal-marker ${field}`);
+        marker.style.left = position(item[field]);
+        marker.title = `${title}: ${measurement(item[field], 'dBm')}`;
+        track.append(marker);
+      }
+      signal.append(track);
+      signal.append(text('div', `Min ${measurement(item.min_rssi, 'dBm')} · Max ${measurement(item.max_rssi, 'dBm')}`, 'muted'));
+      const details = text('div', '', 'repeater-details');
+      details.append(text('div', `${item.count.toLocaleString('de-DE')} Empfänge gesamt`));
+      details.append(text('div', `Zuletzt: ${new Date(item.last_seen * 1000).toLocaleString('de-DE')}`, 'muted'));
+      row.append(identity, signal, details);
+      fragment.append(row);
+    }
+    document.getElementById('repeaters-results').replaceChildren(fragment);
+    message.textContent = items.length
+      ? `${items.length} Repeater / Hop-Kennungen · Stand: ${new Date().toLocaleTimeString('de-DE')}`
+      : 'Noch keine direkten Repeater-Empfänge archiviert.';
+  } catch (error) {
+    message.textContent = `Repeater konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; vorhandene Werte bleiben stehen.`;
+  } finally {
+    repeatersLoading = false;
+  }
+}
+setInterval(() => {
+  if (!document.getElementById('panel-repeaters').hidden) loadRepeaters();
+}, 5000);
 
 const archiveForm = document.getElementById('archive-search');
 const archiveResults = document.getElementById('archive-results');

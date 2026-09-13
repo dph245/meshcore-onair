@@ -206,4 +206,23 @@ WireGuard-, Firewall- und Broker-ACL-Konfiguration sind damit nicht verifiziert.
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Statistiken sind für einen späteren Schritt vorgesehen.
+Der Tab **Repeater** zeigt direkt empfangene Sender mit horizontalem RSSI-Balken,
+Minimum/Maximum, letzter lokaler Empfangszeit und Gesamtzahl der Empfänge.
+Gezählt werden letzte Hops von RX-Flood-Paketen (auch TC_FLOOD) und gültig
+signierte Repeater-ADVERTs ohne Hop. Zielrouten (DIRECT/TC_DIRECT) werden nicht
+als Senderpfad ausgewertet. Wiederholungen zählen als einzelne Empfänge;
+fehlende RSSI-Werte zählen mit, verändern aber Min/Max nicht.
+
+Die Statistik liegt dauerhaft in SQLite; vorhandene Archivdaten werden beim
+ersten Start nach dem Update einmalig übernommen. `/api/repeaters` liefert die
+Übersicht, der sichtbare Tab lädt sie alle fünf Sekunden nach (zuzüglich der
+Archiv-Schreibverzögerung). „Ansicht pausieren“ pausiert auch diese Anzeige.
+Die Balkenskala reicht von −140 bis −20 dBm, Werte außerhalb werden nur grafisch
+begrenzt. Die Zahlen bleiben unverändert. Im Repeater-Tab werden passende
+1-, 2- und 3-Byte-Hop-Präfixe anhand längerer empfangener Kennungen und
+gespeicherter Nodes zusammengefasst, wenn die Zuordnung unter den bekannten
+Kennungen eindeutig ist. Dafür ist kein ADVERT erforderlich. Zähler und Min/Max
+werden kombiniert, RSSI und Empfangszeit stammen vom neuesten Empfang.
+Mehrdeutige Hashes bleiben separat. Die einzelnen Hash-Statistiken bleiben in
+SQLite erhalten, sodass später erkannte Kollisionen wieder getrennt angezeigt
+werden können. Die Aliasauflösung in der Paketansicht bleibt unverändert.

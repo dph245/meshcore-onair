@@ -8,6 +8,7 @@ import sqlite3
 from threading import Thread, Event
 import time
 from datetime import datetime
+from onair_repeaters import record_repeater, repeater_summary
 
 
 def database_path():
@@ -42,8 +43,17 @@ class Archive:
                 CREATE TABLE IF NOT EXISTS noise_samples (
                     id INTEGER PRIMARY KEY, received_at TEXT NOT NULL,
                     noise_floor INTEGER NOT NULL);
-                PRAGMA user_version=2;
             ''')
+            with db:
+                if db.execute('PRAGMA user_version').fetchone()[0] < 3:
+                    db.execute('''CREATE TABLE IF NOT EXISTS repeater_receptions (
+                        token TEXT PRIMARY KEY, count INTEGER NOT NULL,
+                        rssi INTEGER, min_rssi INTEGER, max_rssi INTEGER,
+                        last_seen REAL NOT NULL)''')
+                    db.execute('DELETE FROM repeater_receptions')
+                    for (raw,) in db.execute('SELECT packet_json FROM packets ORDER BY id'):
+                        record_repeater(db, json.loads(raw))
+                    db.execute('PRAGMA user_version=3')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -84,6 +94,7 @@ class Archive:
                                (sample['received_at'], sample['noise_floor']))
                     continue
                 d = p['decoded']
+                record_repeater(db, p)
                 a = d.get('advert')
                 received = datetime.fromisoformat(p['received_at']).timestamp()
                 search = ' '.join(str(v) for v in (p['observer_hash'] or '', p['path'],
@@ -107,6 +118,14 @@ class Archive:
             rows = db.execute('SELECT received_at,noise_floor FROM noise_samples ORDER BY id DESC LIMIT ?',
                               (limit,)).fetchall()
         return [{'received_at': row[0], 'noise_floor': row[1]} for row in reversed(rows)]
+
+    def repeaters(self):
+        from onair_mqtt import node_label
+        with self.connect() as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute('SELECT * FROM repeater_receptions').fetchall()
+            names = dict(db.execute('SELECT public_key,name FROM nodes'))
+        return {'items': repeater_summary(rows, names, node_label)}
 
     def _run(self):
         batch = []

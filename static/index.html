@@ -6,12 +6,20 @@
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
 <div class="tabs" role="tablist" aria-label="Ansichten">
 <button id="tab-live" type="button" role="tab" aria-controls="panel-live" aria-selected="true">Live</button>
+<button id="tab-repeaters" type="button" role="tab" aria-controls="panel-repeaters" aria-selected="false" tabindex="-1">Repeater</button>
 <button id="tab-channels" type="button" role="tab" aria-controls="panel-channels" aria-selected="false" tabindex="-1">Channels</button>
 <button id="tab-archive" type="button" role="tab" aria-controls="panel-archive" aria-selected="false" tabindex="-1">Archiv</button>
 <button id="tab-nodes" type="button" role="tab" aria-controls="panel-nodes" aria-selected="false" tabindex="-1">Nodes</button>
 <button id="tab-noise" type="button" role="tab" aria-controls="panel-noise" aria-selected="false" tabindex="-1">Noise Floor</button>
 </div>
 <main>
+<section id="panel-repeaters" class="archive" role="tabpanel" aria-labelledby="tab-repeaters" tabindex="0" hidden>
+<h2>Direkt empfangene Repeater</h2>
+<p class="muted">Letzter Hop von Flood-Paketen und direkte Repeater-ADVERTs · alle archivierten RX-Empfänge einschließlich Wiederholungen · automatische Aktualisierung alle 5 Sekunden.</p>
+<p class="muted">Balken: zuletzt empfangener RSSI · Marker: Minimum (orange) und Maximum (hell) · Skala −140 bis −20 dBm. Passende 1-, 2- und 3-Byte-Hop-Hashes werden zusammengefasst, sofern nur eine längere Kennung bekannt ist. Mehrdeutige Hashes bleiben separat.</p>
+<p id="repeaters-status" role="status">Noch keine Daten geladen.</p>
+<div id="repeaters-results"></div>
+</section>
 <section id="panel-channels" class="archive" role="tabpanel" aria-labelledby="tab-channels" tabindex="0" hidden>
 <h2>Channels</h2>
 <form id="channels-search">

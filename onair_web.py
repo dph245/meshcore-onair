@@ -184,6 +184,11 @@ def list_channels():
     return {'channels': list(onair_channels.CHANNELS)}
 
 
+@app.get("/api/repeaters")
+def list_repeaters():
+    return app.state.archive.repeaters()
+
+
 @app.get("/api/nodes")
 def search_nodes(q: str = Query('', max_length=200),
                  after: str | None = Query(None, min_length=64, max_length=64, pattern='^[0-9a-fA-F]{64}$'),
