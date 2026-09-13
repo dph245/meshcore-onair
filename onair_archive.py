@@ -8,7 +8,7 @@ import sqlite3
 from threading import Thread, Event
 import time
 from datetime import datetime
-from onair_repeaters import record_repeater, repeater_summary
+from onair_repeaters import record_repeater, repeater_summary, repeater_token
 
 
 def database_path():
@@ -45,6 +45,7 @@ class Archive:
                     noise_floor INTEGER NOT NULL);
             ''')
             with db:
+                db.execute('BEGIN')
                 if db.execute('PRAGMA user_version').fetchone()[0] < 3:
                     db.execute('''CREATE TABLE IF NOT EXISTS repeater_receptions (
                         token TEXT PRIMARY KEY, count INTEGER NOT NULL,
@@ -54,6 +55,13 @@ class Archive:
                     for (raw,) in db.execute('SELECT packet_json FROM packets ORDER BY id'):
                         record_repeater(db, json.loads(raw))
                     db.execute('PRAGMA user_version=3')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 4:
+                    db.execute('ALTER TABLE packets ADD COLUMN repeater_token TEXT')
+                    for packet_id, raw in db.execute('SELECT id,packet_json FROM packets'):
+                        db.execute('UPDATE packets SET repeater_token=? WHERE id=?',
+                                   (repeater_token(json.loads(raw)), packet_id))
+                    db.execute('CREATE INDEX packets_repeater_received ON packets(repeater_token,received,id)')
+                    db.execute('PRAGMA user_version=4')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -100,9 +108,9 @@ class Archive:
                 search = ' '.join(str(v) for v in (p['observer_hash'] or '', p['path'],
                     ' '.join(d['hops']), d.get('group_text') or '', d.get('group_channel') or '',
                     a.get('name') or '' if a else '', a.get('public_key') or '' if a else '')).casefold()
-                db.execute('INSERT INTO packets(received,kind,channel,observer_hash,search_text,packet_json) VALUES(?,?,?,?,?,?)',
+                db.execute('INSERT INTO packets(received,kind,channel,observer_hash,search_text,packet_json,repeater_token) VALUES(?,?,?,?,?,?,?)',
                     (received, d['payload_name'], d.get('group_channel'), p['observer_hash'], search,
-                     json.dumps(p, ensure_ascii=False)))
+                     json.dumps(p, ensure_ascii=False), repeater_token(p)))
                 if a and not d.get('advert_status') and a.get('signature_status') == 'Gültig':
                     db.execute('''INSERT INTO nodes VALUES(?,?,?,?,?) ON CONFLICT(public_key) DO UPDATE SET
                         name=CASE WHEN excluded.advert_time > nodes.advert_time THEN excluded.name ELSE nodes.name END,
@@ -126,6 +134,21 @@ class Archive:
             rows = db.execute('SELECT * FROM repeater_receptions').fetchall()
             names = dict(db.execute('SELECT public_key,name FROM nodes'))
         return {'items': repeater_summary(rows, names, node_label)}
+
+    def repeater_history(self, identity, hours=24, limit=500):
+        item = next((item for item in self.repeaters()['items'] if item['id'] == identity), None)
+        if item is None:
+            return {'items': [], 'has_more': False}
+        tokens = item['tokens']
+        placeholders = ','.join('?' for _ in tokens)
+        since = time.time() - hours * 3600 if hours else 0
+        with self.connect() as db:
+            rows = db.execute(f'''SELECT received, json_extract(packet_json, '$.rssi')
+                FROM packets WHERE repeater_token IN ({placeholders}) AND received >= ?
+                AND json_extract(packet_json, '$.rssi') IS NOT NULL
+                ORDER BY received DESC,id DESC LIMIT ?''', tokens + [since, limit + 1]).fetchall()
+        return {'items': [{'received': row[0], 'rssi': row[1]} for row in reversed(rows[:limit])],
+                'has_more': len(rows) > limit}
 
     def _run(self):
         batch = []

@@ -2,7 +2,7 @@
 from datetime import datetime
 
 
-def record_repeater(db, packet):
+def repeater_token(packet):
     d = packet['decoded']
     # A direct route contains a destination path, not a transmitter history.
     if packet.get('direction') != 'rx' or d['route_type'] not in (0, 1):
@@ -15,6 +15,13 @@ def record_repeater(db, packet):
                 or a.get('signature_status') != 'Gültig'):
             return
         token = a['public_key']
+    return token
+
+
+def record_repeater(db, packet):
+    token = repeater_token(packet)
+    if token is None:
+        return
     db.execute('''INSERT INTO repeater_receptions
         VALUES(?,1,?,?,?,?) ON CONFLICT(token) DO UPDATE SET
         count=count+1,

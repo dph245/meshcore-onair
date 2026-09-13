@@ -189,6 +189,12 @@ def list_repeaters():
     return app.state.archive.repeaters()
 
 
+@app.get("/api/repeater-history")
+def repeater_history(identity: str = Query(..., pattern='^(?:[0-9a-fA-F]{2}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{64})$'),
+                     hours: int = Query(24, ge=0, le=8760)):
+    return app.state.archive.repeater_history(identity.lower(), hours)
+
+
 @app.get("/api/nodes")
 def search_nodes(q: str = Query('', max_length=200),
                  after: str | None = Query(None, min_length=64, max_length=64, pattern='^[0-9a-fA-F]{64}$'),

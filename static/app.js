@@ -156,10 +156,12 @@ async function loadRepeaters() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const {items} = await response.json();
     if (paused) return;
-    const fragment = document.createDocumentFragment();
+    const results = document.getElementById('repeaters-results');
     const position = value => `${Math.max(0, Math.min(100, (value + 140) / 120 * 100))}%`;
     for (const item of items) {
-      const row = text('article', '', 'repeater-row');
+      const view = repeaterView(item);
+      const row = view.summary;
+      row.replaceChildren();
       const identity = text('div', '', 'repeater-identity');
       identity.append(text('strong', item.name));
       identity.append(text('div', item.id, 'muted'));
@@ -187,9 +189,18 @@ async function loadRepeaters() {
       details.append(text('div', `${item.count.toLocaleString('de-DE')} Empfänge gesamt`));
       details.append(text('div', `Zuletzt: ${new Date(item.last_seen * 1000).toLocaleString('de-DE')}`, 'muted'));
       row.append(identity, signal, details);
-      fragment.append(row);
     }
-    document.getElementById('repeaters-results').replaceChildren(fragment);
+    for (const [id, view] of repeaterViews) {
+      if (!items.some(item => item.id === id)) {
+        view.element.remove();
+        repeaterViews.delete(id);
+      }
+    }
+    items.forEach((item, index) => {
+      const view = repeaterViews.get(item.id);
+      if (results.children[index] !== view.element) results.insertBefore(view.element, results.children[index] || null);
+      loadRepeaterHistory(view);
+    });
     message.textContent = items.length
       ? `${items.length} Repeater / Hop-Kennungen · Stand: ${new Date().toLocaleTimeString('de-DE')}`
       : 'Noch keine direkten Repeater-Empfänge archiviert.';
