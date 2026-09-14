@@ -202,6 +202,11 @@ def search_nodes(q: str = Query('', max_length=200),
     return app.state.archive.search_nodes(q.strip(), after.lower() if after else None, limit)
 
 
+@app.get("/api/map-nodes")
+def map_nodes():
+    return app.state.archive.map_nodes()
+
+
 @app.websocket("/ws")
 async def websocket(websocket: WebSocket):
     await websocket.accept()

@@ -237,3 +237,25 @@ Offene Verläufe werden automatisch aktualisiert und berücksichtigen dieselbe
 Hash-Zusammenfassung wie die Übersicht. `/api/repeater-history` ist der zugehörige
 Lese-Endpunkt. Beim ersten Start wird automatisch eine indizierte Hop-Zuordnung
 in der Pakettabelle ergänzt und aus vorhandenen Archivdaten befüllt (Schema 4).
+
+Der Tab **Map** zeigt alle bekannten Nodes mit letzter bekannter Position auf
+OpenStreetMap: Repeater (grün), Rooms (orange), Companions (blau) und weitere
+Typen (violett). Repeater sind dauerhaft als `Funkfeuer [dd42cf]` beschriftet;
+die sechs Hex-Zeichen sind die ersten drei Bytes des Public Keys. Maus oder
+Tastaturfokus zeigen Details, Klick/Touch öffnet ein Popup mit Public Key,
+Koordinaten, Zeitpunkt der Position und erster/letzter Empfangszeit.
+Nodes ohne Position werden gezählt, aber nicht auf der Karte eingezeichnet.
+
+`/api/map-nodes` liefert alle positionierten Nodes ohne Seitengrenze. Gültig
+signierte ADVERTs bestimmen Typ und Position; ältere Positionsmeldungen
+überschreiben keine neueren. ADVERTs ohne Koordinaten lassen die letzte bekannte
+Position bestehen. Beim ersten Start werden die zusätzlichen Node-Felder aus
+dem bestehenden Archiv befüllt (Schema 5). Die Anzeige aktualisiert sich alle
+fünf Sekunden und berücksichtigt „Ansicht pausieren“. Der Kartenausschnitt
+bleibt bei Updates erhalten; „Alle Nodes anzeigen“ passt ihn wieder an.
+
+Leaflet 1.9.4 wird inklusive Lizenz lokal unter `static/vendor/leaflet/`
+ausgeliefert, ohne CDN oder Build-Schritt. Nur die Kartenkacheln werden beim
+Öffnen des Map-Tabs direkt von `tile.openstreetmap.org` geladen und benötigen
+eine Internetverbindung. Quellen: [Leaflet-Dokumentation](https://leafletjs.com/reference.html)
+und [OpenStreetMap-Kachelrichtlinie](https://operations.osmfoundation.org/policies/tiles/).

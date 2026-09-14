@@ -62,6 +62,14 @@ class Archive:
                                    (repeater_token(json.loads(raw)), packet_id))
                     db.execute('CREATE INDEX packets_repeater_received ON packets(repeater_token,received,id)')
                     db.execute('PRAGMA user_version=4')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 5:
+                    columns = {row[1] for row in db.execute('PRAGMA table_info(nodes)')}
+                    for column in ('node_type INTEGER', 'latitude REAL', 'longitude REAL', 'position_time INTEGER'):
+                        if column.split()[0] not in columns:
+                            db.execute('ALTER TABLE nodes ADD COLUMN ' + column)
+                    for (raw,) in db.execute("SELECT packet_json FROM packets WHERE kind='ADVERT' ORDER BY id"):
+                        self._record_node(db, json.loads(raw))
+                    db.execute('PRAGMA user_version=5')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -111,15 +119,39 @@ class Archive:
                 db.execute('INSERT INTO packets(received,kind,channel,observer_hash,search_text,packet_json,repeater_token) VALUES(?,?,?,?,?,?,?)',
                     (received, d['payload_name'], d.get('group_channel'), p['observer_hash'], search,
                      json.dumps(p, ensure_ascii=False), repeater_token(p)))
-                if a and not d.get('advert_status') and a.get('signature_status') == 'Gültig':
-                    db.execute('''INSERT INTO nodes VALUES(?,?,?,?,?) ON CONFLICT(public_key) DO UPDATE SET
-                        name=CASE WHEN excluded.advert_time > nodes.advert_time THEN excluded.name ELSE nodes.name END,
-                        advert_time=MAX(nodes.advert_time,excluded.advert_time),
-                        last_seen=MAX(nodes.last_seen,excluded.last_seen)''',
-                        (a['public_key'], a['name'], a['timestamp'], received, received))
+                self._record_node(db, p)
             names = dict(db.execute('SELECT public_key, name FROM nodes'))
         self.saved += sum('noise_sample' not in p for p in batch)
         self.names = names
+
+    @staticmethod
+    def _record_node(db, packet):
+        decoded = packet['decoded']
+        a = decoded.get('advert')
+        if not a or decoded.get('advert_status') or a.get('signature_status') != 'Gültig':
+            return
+        received = datetime.fromisoformat(packet['received_at']).timestamp()
+        position_time = a['timestamp'] if a.get('latitude') is not None and a.get('longitude') is not None else None
+        db.execute('''INSERT INTO nodes
+            (public_key,name,advert_time,first_seen,last_seen,node_type,latitude,longitude,position_time)
+            VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(public_key) DO UPDATE SET
+            name=CASE WHEN excluded.advert_time > nodes.advert_time THEN excluded.name ELSE nodes.name END,
+            node_type=CASE WHEN excluded.advert_time >= nodes.advert_time THEN excluded.node_type ELSE nodes.node_type END,
+            advert_time=MAX(nodes.advert_time,excluded.advert_time),
+            first_seen=MIN(nodes.first_seen,excluded.first_seen),
+            last_seen=MAX(nodes.last_seen,excluded.last_seen),
+            latitude=CASE WHEN excluded.position_time >= COALESCE(nodes.position_time,-1) THEN excluded.latitude ELSE nodes.latitude END,
+            longitude=CASE WHEN excluded.position_time >= COALESCE(nodes.position_time,-1) THEN excluded.longitude ELSE nodes.longitude END,
+            position_time=CASE WHEN excluded.position_time >= COALESCE(nodes.position_time,-1) THEN excluded.position_time ELSE nodes.position_time END''',
+            (a['public_key'], a.get('name'), a['timestamp'], received, received,
+             a.get('node_type'), a.get('latitude'), a.get('longitude'), position_time))
+
+    def map_nodes(self):
+        with self.connect() as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute('SELECT * FROM nodes ORDER BY public_key').fetchall()
+        items = [dict(row) for row in rows if row['latitude'] is not None and row['longitude'] is not None]
+        return {'items': items, 'without_position': len(rows) - len(items)}
 
     def noise_history(self, limit=500):
         with self.connect() as db:

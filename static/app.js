@@ -8,6 +8,7 @@ function selectTab(selected) {
   }
   if (selected.id === 'tab-channels' && !channelsReady) loadChannelMessages();
   if (selected.id === 'tab-repeaters') loadRepeaters();
+  if (selected.id === 'tab-map') showNodeMap();
 }
 for (const [index, tab] of tabs.entries()) {
   tab.addEventListener('click', () => selectTab(tab));
@@ -142,6 +143,7 @@ document.getElementById('pause').onclick = event => {
   if (!paused) {
     render();
     if (!document.getElementById('panel-repeaters').hidden) loadRepeaters();
+    if (!document.getElementById('panel-map').hidden) loadMapNodes();
   }
 };
 connect();

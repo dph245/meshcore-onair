@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><link rel="stylesheet" href="/static/style.css"><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <header><h1>MeshCore <span>OnAir</span></h1><span id="connection" role="status">WebSocket verbindet …</span><span id="noise-floor">Noise Floor: —</span><span class="radio">869.618 MHz · BW 62.5 · SF8 · CR4/8</span></header>
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
@@ -10,9 +10,18 @@
 <button id="tab-channels" type="button" role="tab" aria-controls="panel-channels" aria-selected="false" tabindex="-1">Channels</button>
 <button id="tab-archive" type="button" role="tab" aria-controls="panel-archive" aria-selected="false" tabindex="-1">Archiv</button>
 <button id="tab-nodes" type="button" role="tab" aria-controls="panel-nodes" aria-selected="false" tabindex="-1">Nodes</button>
+<button id="tab-map" type="button" role="tab" aria-controls="panel-map" aria-selected="false" tabindex="-1">Map</button>
 <button id="tab-noise" type="button" role="tab" aria-controls="panel-noise" aria-selected="false" tabindex="-1">Noise Floor</button>
 </div>
 <main>
+<section id="panel-map" class="archive" role="tabpanel" aria-labelledby="tab-map" tabindex="0" hidden>
+<h2>Map</h2>
+<p class="muted">Letzte bekannte Positionen aus gültig signierten ADVERTs · Details mit Maus, Klick oder Touch · Aktualisierung alle 5 Sekunden.</p>
+<div class="map-toolbar"><span class="map-legend repeater">● Repeater</span><span class="map-legend room">■ Room</span><span class="map-legend companion">● Companion</span><span class="map-legend other">◆ Weitere Nodes</span><button id="map-fit" type="button">Alle Nodes anzeigen</button></div>
+<p id="map-status" role="status">Noch keine Daten geladen.</p>
+<p id="map-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden. Bitte Internetverbindung prüfen.</p>
+<div id="node-map" aria-label="OpenStreetMap mit bekannten MeshCore-Nodes"></div>
+</section>
 <section id="panel-repeaters" class="archive" role="tabpanel" aria-labelledby="tab-repeaters" tabindex="0" hidden>
 <h2>Direkt empfangene Repeater</h2>
 <p class="muted">Letzter Hop von Flood-Paketen und direkte Repeater-ADVERTs · alle archivierten RX-Empfänge einschließlich Wiederholungen · automatische Aktualisierung alle 5 Sekunden.</p>
