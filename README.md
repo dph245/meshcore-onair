@@ -252,7 +252,8 @@ signierte ADVERTs bestimmen Typ und Position; ältere Positionsmeldungen
 Position bestehen. Beim ersten Start werden die zusätzlichen Node-Felder aus
 dem bestehenden Archiv befüllt (Schema 5). Die Anzeige aktualisiert sich alle
 fünf Sekunden und berücksichtigt „Ansicht pausieren“. Der Kartenausschnitt
-bleibt bei Updates erhalten; „Alle Nodes anzeigen“ passt ihn wieder an.
+startet bei Wolfenbüttel mit Zoom 10 und bleibt bei Updates erhalten;
+„Alle Nodes anzeigen“ passt ihn an das gesamte Netz an.
 
 Leaflet 1.9.4 wird inklusive Lizenz lokal unter `static/vendor/leaflet/`
 ausgeliefert, ohne CDN oder Build-Schritt. Nur die Kartenkacheln werden beim

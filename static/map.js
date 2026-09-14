@@ -1,4 +1,4 @@
-let nodeMap, mapLoading = false, mapFitted = false;
+let nodeMap, mapLoading = false;
 const mapMarkers = new Map();
 const mapTypes = {1: ['Companion', 'companion', '●'], 2: ['Repeater', 'repeater', '●'],
   3: ['Room', 'room', '■']};
@@ -7,7 +7,6 @@ function fitMapNodes() {
   if (!nodeMap || !mapMarkers.size) return;
   nodeMap.fitBounds(L.latLngBounds([...mapMarkers.values()].map(view => view.marker.getLatLng())),
     {padding: [45, 45], maxZoom: 14});
-  mapFitted = true;
 }
 
 function showNodeMap() {
@@ -16,7 +15,7 @@ function showNodeMap() {
     return;
   }
   if (!nodeMap) {
-    nodeMap = L.map('node-map').setView([51, 10], 6);
+    nodeMap = L.map('node-map').setView([52.163, 10.54], 10);
     const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(nodeMap);
@@ -84,7 +83,6 @@ async function loadMapNodes() {
     for (const [key, view] of mapMarkers) {
       if (!keys.has(key)) { view.marker.remove(); mapMarkers.delete(key); }
     }
-    if (!mapFitted) fitMapNodes();
     message.textContent = `${mapMarkers.size} Nodes auf der Karte · ${result.without_position} ohne bekannte Position · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
   } catch (error) {
     message.textContent = `Nodes konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; vorhandene Marker bleiben stehen.`;
