@@ -59,14 +59,35 @@ function fitMapNodes() {
     {padding: [45, 45], maxZoom: 14});
 }
 
+function savedMapView() {
+  try {
+    const view = JSON.parse(localStorage.getItem('onair-map-view'));
+    if (Array.isArray(view?.center) && view.center.length === 2 &&
+        view.center.every(Number.isFinite) && Math.abs(view.center[0]) <= 90 &&
+        Number.isInteger(view.zoom) && view.zoom >= 0 && view.zoom <= 19) return view;
+  } catch { /* Use the default view when storage is unavailable or invalid. */ }
+  return {center: [52.163, 10.54], zoom: 10};
+}
+
+function saveMapView() {
+  const center = nodeMap.getCenter();
+  try {
+    localStorage.setItem('onair-map-view', JSON.stringify({
+      center: [center.lat, center.lng], zoom: nodeMap.getZoom()
+    }));
+  } catch { /* The map also works when browser storage is unavailable. */ }
+}
+
 function showNodeMap() {
   if (!window.L) {
     document.getElementById('map-status').textContent = 'Kartenbibliothek konnte nicht geladen werden. Bitte Seite neu laden.';
     return;
   }
   if (!nodeMap) {
-    nodeMap = L.map('node-map').setView([52.163, 10.54], 10);
+    const view = savedMapView();
+    nodeMap = L.map('node-map').setView(view.center, view.zoom);
     nodeMap.on('zoomend', layoutMapNodes);
+    nodeMap.on('moveend', saveMapView);
     const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(nodeMap);
@@ -115,7 +136,12 @@ async function loadMapNodes() {
       const label = `${item.name || 'Ohne Namen'} [${item.public_key.slice(0, 6)}]`;
       const icon = text('div', '', 'map-marker-content');
       icon.append(mapNodeSymbol(style));
-      if (item.node_type === 2) icon.append(text('span', label, 'map-repeater-label'));
+      if (item.node_type === 2) {
+        const nodeLabel = text('span', '', 'map-repeater-label');
+        nodeLabel.append(text('span', item.name || 'Ohne Namen'),
+          text('span', `[${item.public_key.slice(0, 6)}]`));
+        icon.append(nodeLabel);
+      }
       const markerIcon = L.divIcon({html: icon, className: 'map-marker', iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18]});
       if (!view) {
         const marker = L.marker([item.latitude, item.longitude], {icon: markerIcon,
