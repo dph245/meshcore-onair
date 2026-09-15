@@ -29,6 +29,10 @@ Die Kopfzeile unterscheidet MQTT-Ausfall und WebSocket-Ausfall.
 
 ## Liveansicht
 
+Der Schalter **Lightmode / Darkmode** in der Kopfzeile wechselt die Darstellung.
+Die Auswahl wird im Browser gespeichert; ohne gespeicherte Auswahl gilt die
+Systemeinstellung.
+
 Die Tabs **Live**, **Channels**, **Archiv**, **Nodes** und **Noise Floor** zeigen jeweils einen
 Bereich; beim Öffnen ist **Live** ausgewählt. Suchfelder und Ergebnisse bleiben
 beim Wechsel erhalten, der Empfang läuft weiter. Die Tabs sind auch per
@@ -245,6 +249,11 @@ die sechs Hex-Zeichen sind die ersten drei Bytes des Public Keys. Maus oder
 Tastaturfokus zeigen Details, Klick/Touch öffnet ein Popup mit Public Key,
 Koordinaten, Zeitpunkt der Position und erster/letzter Empfangszeit.
 Nodes ohne Position werden gezählt, aber nicht auf der Karte eingezeichnet.
+Nodes mit exakt gleichen Koordinaten werden mit festem Bildschirmabstand
+untereinander angeordnet, damit Symbole und Repeater-Beschriftungen einzeln
+erreichbar bleiben. Verbindungslinien zeigen ihren tatsächlichen Standort;
+die Koordinaten in den Details bleiben unverändert. Beim Zoomen und bei
+Aktualisierungen wird die Anordnung automatisch angepasst.
 
 `/api/map-nodes` liefert alle positionierten Nodes ohne Seitengrenze. Gültig
 signierte ADVERTs bestimmen Typ und Position; ältere Positionsmeldungen

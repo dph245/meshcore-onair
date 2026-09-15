@@ -3,6 +3,37 @@ const mapMarkers = new Map();
 const mapTypes = {1: ['Companion', 'companion', '●'], 2: ['Repeater', 'repeater', '●'],
   3: ['Room', 'room', '■']};
 
+// Recompute pixel spacing at every zoom; stored coordinates remain untouched.
+function layoutMapNodes() {
+  if (!nodeMap) return;
+  const positions = new Map();
+  for (const [key, view] of mapMarkers) {
+    const positionKey = JSON.stringify(view.position);
+    if (!positions.has(positionKey)) positions.set(positionKey, []);
+    positions.get(positionKey).push({key, view});
+  }
+  for (const group of positions.values()) {
+    group.sort((a, b) => a.key.localeCompare(b.key));
+    const origin = group[0].view.position;
+    const center = nodeMap.project(origin);
+    group.forEach(({view}, index) => {
+      const offset = group.length > 1 ? L.point(30, (index - (group.length - 1) / 2) * 32) : L.point(0, 0);
+      const displayed = group.length > 1 ? nodeMap.unproject(center.add(offset)) : origin;
+      view.marker.setLatLng(displayed);
+      if (group.length > 1) {
+        if (!view.line) {
+          view.line = L.polyline([origin, displayed], {
+            className: 'map-position-link', weight: 1.5, opacity: 0.8, interactive: false
+          }).addTo(nodeMap);
+        } else view.line.setLatLngs([origin, displayed]);
+      } else if (view.line) {
+        view.line.remove();
+        view.line = null;
+      }
+    });
+  }
+}
+
 function fitMapNodes() {
   if (!nodeMap || !mapMarkers.size) return;
   nodeMap.fitBounds(L.latLngBounds([...mapMarkers.values()].map(view => view.marker.getLatLng())),
@@ -16,6 +47,7 @@ function showNodeMap() {
   }
   if (!nodeMap) {
     nodeMap = L.map('node-map').setView([52.163, 10.54], 10);
+    nodeMap.on('zoomend', layoutMapNodes);
     const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(nodeMap);
@@ -78,11 +110,13 @@ async function loadMapNodes() {
         view.marker.getElement().title = `${type}: ${label}`;
         view.marker.setTooltipContent(mapNodeInfo(item)).setPopupContent(mapNodeInfo(item));
       }
+      view.position = [item.latitude, item.longitude];
       view.signature = signature;
     }
     for (const [key, view] of mapMarkers) {
-      if (!keys.has(key)) { view.marker.remove(); mapMarkers.delete(key); }
+      if (!keys.has(key)) { view.marker.remove(); view.line?.remove(); mapMarkers.delete(key); }
     }
+    layoutMapNodes();
     message.textContent = `${mapMarkers.size} Nodes auf der Karte · ${result.without_position} ohne bekannte Position · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
   } catch (error) {
     message.textContent = `Nodes konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; vorhandene Marker bleiben stehen.`;
