@@ -243,8 +243,9 @@ Lese-Endpunkt. Beim ersten Start wird automatisch eine indizierte Hop-Zuordnung
 in der Pakettabelle ergänzt und aus vorhandenen Archivdaten befüllt (Schema 4).
 
 Der Tab **Map** zeigt alle bekannten Nodes mit letzter bekannter Position auf
-OpenStreetMap: Repeater (grün), Rooms (orange), Companions (blau) und weitere
-Typen (violett). Repeater sind dauerhaft als `Funkfeuer [dd42cf]` beschriftet;
+OpenStreetMap: Repeater als Funkturm (grün), RoomServer als drei Figuren
+(orange), Companions als Handfunkgerät (magenta) und weitere Typen als Raute
+(violett). Die Symbole haben einen weißen Hintergrund und eine Größe von 36 Pixeln. Repeater sind dauerhaft als `Funkfeuer [dd42cf]` beschriftet;
 die sechs Hex-Zeichen sind die ersten drei Bytes des Public Keys. Maus oder
 Tastaturfokus zeigen Details, Klick/Touch öffnet ein Popup mit Public Key,
 Koordinaten, Zeitpunkt der Position und erster/letzter Empfangszeit.

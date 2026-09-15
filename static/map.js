@@ -1,7 +1,26 @@
 let nodeMap, mapLoading = false;
 const mapMarkers = new Map();
-const mapTypes = {1: ['Companion', 'companion', '●'], 2: ['Repeater', 'repeater', '●'],
-  3: ['Room', 'room', '■']};
+const mapTypes = {1: ['Companion', 'companion'], 2: ['Repeater', 'repeater'],
+  3: ['RoomServer', 'room']};
+const mapSymbolPaths = {
+  companion: '<path d="M8 10V2m8 8V7"/><rect x="6" y="10" width="13" height="19" rx="3"/><path d="M10 15h5m-5 4h5m-5 4h5"/>',
+  repeater: '<circle cx="16" cy="9" r="2"/><path d="M16 11L9 29m7-18 7 18M12 23h8m-10 6h12M11 5a6 6 0 0 0 0 8m10-8a6 6 0 0 1 0 8M7 2a10 10 0 0 0 0 14M25 2a10 10 0 0 1 0 14"/>',
+  room: '<circle cx="16" cy="9" r="3"/><circle cx="6" cy="12" r="2.5"/><circle cx="26" cy="12" r="2.5"/><path d="M11 28v-8a5 5 0 0 1 10 0v8ZM3 26v-6a3 3 0 0 1 6 0v6Zm20 0v-6a3 3 0 0 1 6 0v6Z"/>',
+  other: '<path d="m16 4 12 12-12 12L4 16Z"/><circle cx="16" cy="16" r="2"/>'
+};
+
+function mapNodeSymbol(style) {
+  const badge = document.createElement('span');
+  badge.className = `map-node-symbol ${style}`;
+  badge.setAttribute('aria-hidden', 'true');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 32 32');
+  svg.setAttribute('focusable', 'false');
+  // Only fixed, local SVG paths are used here, never node data.
+  svg.innerHTML = mapSymbolPaths[style] || mapSymbolPaths.other;
+  badge.append(svg);
+  return badge;
+}
 
 // Recompute pixel spacing at every zoom; stored coordinates remain untouched.
 function layoutMapNodes() {
@@ -17,7 +36,7 @@ function layoutMapNodes() {
     const origin = group[0].view.position;
     const center = nodeMap.project(origin);
     group.forEach(({view}, index) => {
-      const offset = group.length > 1 ? L.point(30, (index - (group.length - 1) / 2) * 32) : L.point(0, 0);
+      const offset = group.length > 1 ? L.point(40, (index - (group.length - 1) / 2) * 46) : L.point(0, 0);
       const displayed = group.length > 1 ? nodeMap.unproject(center.add(offset)) : origin;
       view.marker.setLatLng(displayed);
       if (group.length > 1) {
@@ -92,16 +111,16 @@ async function loadMapNodes() {
       let view = mapMarkers.get(item.public_key);
       const signature = JSON.stringify(item);
       if (view?.signature === signature) continue;
-      const [type, style, symbol] = mapTypes[item.node_type] || ['Weiterer Node', 'other', '◆'];
+      const [type, style] = mapTypes[item.node_type] || ['Weiterer Node', 'other'];
       const label = `${item.name || 'Ohne Namen'} [${item.public_key.slice(0, 6)}]`;
       const icon = text('div', '', 'map-marker-content');
-      icon.append(text('span', symbol, `map-dot ${style}`));
+      icon.append(mapNodeSymbol(style));
       if (item.node_type === 2) icon.append(text('span', label, 'map-repeater-label'));
-      const markerIcon = L.divIcon({html: icon, className: 'map-marker', iconSize: [20, 20], iconAnchor: [10, 10]});
+      const markerIcon = L.divIcon({html: icon, className: 'map-marker', iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18]});
       if (!view) {
         const marker = L.marker([item.latitude, item.longitude], {icon: markerIcon,
           title: `${type}: ${label}`, alt: `${type}: ${label}`, riseOnHover: true}).addTo(nodeMap);
-        marker.bindTooltip(mapNodeInfo(item), {direction: 'top', offset: [0, -10]});
+        marker.bindTooltip(mapNodeInfo(item), {direction: 'top', offset: [0, -18]});
         marker.bindPopup(mapNodeInfo(item));
         view = {marker};
         mapMarkers.set(item.public_key, view);
@@ -125,6 +144,9 @@ async function loadMapNodes() {
   }
 }
 
+for (const legend of document.querySelectorAll('.map-legend[data-node-style]')) {
+  legend.prepend(mapNodeSymbol(legend.dataset.nodeStyle));
+}
 document.getElementById('map-fit').addEventListener('click', fitMapNodes);
 setInterval(() => {
   if (!document.getElementById('panel-map').hidden) loadMapNodes();
