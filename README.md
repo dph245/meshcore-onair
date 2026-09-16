@@ -245,18 +245,28 @@ in der Pakettabelle ergänzt und aus vorhandenen Archivdaten befüllt (Schema 4)
 Der Tab **Map** zeigt alle bekannten Nodes mit letzter bekannter Position auf
 OpenStreetMap: Repeater als Funkturm (grün), RoomServer als drei Figuren
 (orange), Companions als Handfunkgerät (magenta) und weitere Typen als Raute
-(violett). Die Symbole haben einen weißen Hintergrund und eine Größe von 36 Pixeln. Repeater sind dauerhaft als `Funkfeuer [dd42cf]` beschriftet;
-die sechs Hex-Zeichen sind die ersten drei Bytes des Public Keys. Maus oder
+(violett). Die Symbole haben einen weißen Hintergrund und eine Größe von 36 Pixeln.
+Repeater sind als `Funkfeuer [dd42cf]` beschriftet; die sechs Hex-Zeichen sind
+die ersten drei Bytes des Public Keys. Ab Zoom 12 erscheinen die Labels in
+normaler Größe, bei Zoom 10–11 kleiner und unter Zoom 10 bleiben nur die Icons.
+Die Details sind bei jeder Zoomstufe erreichbar. Maus oder
 Tastaturfokus zeigen Details, Klick/Touch öffnet ein Popup mit Public Key,
 Koordinaten, Zeitpunkt der Position und erster/letzter Empfangszeit.
-Nodes ohne Position werden gezählt, aber nicht auf der Karte eingezeichnet.
+Nodes ohne Position oder mit dem exakten Koordinatenpaar 0/0 werden gezählt,
+aber nicht auf der Karte eingezeichnet. Nodes, deren letzter Empfang mindestens
+28 Tage zurückliegt, werden ebenfalls ausgeblendet und separat gezählt.
+Maßgeblich ist `last_seen`, also der letzte Empfang eines gültig signierten ADVERTs.
+Alle Einträge bleiben in der Datenbank; bei erneutem Empfang erscheinen Nodes
+mit bekannter Position wieder auf der Karte.
 Nodes mit exakt gleichen Koordinaten werden mit festem Bildschirmabstand
 untereinander angeordnet, damit Symbole und Repeater-Beschriftungen einzeln
 erreichbar bleiben. Verbindungslinien zeigen ihren tatsächlichen Standort;
 die Koordinaten in den Details bleiben unverändert. Beim Zoomen und bei
 Aktualisierungen wird die Anordnung automatisch angepasst.
 
-`/api/map-nodes` liefert alle positionierten Nodes ohne Seitengrenze. Gültig
+`/api/map-nodes` liefert die innerhalb der letzten 28 Tage gehörten Nodes mit
+Position ungleich 0/0 ohne Seitengrenze. `inactive` zählt ausgeblendete alte Nodes,
+`without_position` die übrigen Nodes ohne nutzbare Position. Gültig
 signierte ADVERTs bestimmen Typ und Position; ältere Positionsmeldungen
 überschreiben keine neueren. ADVERTs ohne Koordinaten lassen die letzte bekannte
 Position bestehen. Beim ersten Start werden die zusätzlichen Node-Felder aus

@@ -150,8 +150,18 @@ class Archive:
         with self.connect() as db:
             db.row_factory = sqlite3.Row
             rows = db.execute('SELECT * FROM nodes ORDER BY public_key').fetchall()
-        items = [dict(row) for row in rows if row['latitude'] is not None and row['longitude'] is not None]
-        return {'items': items, 'without_position': len(rows) - len(items)}
+        cutoff = time.time() - 28 * 24 * 60 * 60
+        items = []
+        without_position = inactive = 0
+        for row in rows:
+            if row['last_seen'] <= cutoff:
+                inactive += 1
+            elif (row['latitude'] is None or row['longitude'] is None or
+                  (row['latitude'] == 0 and row['longitude'] == 0)):
+                without_position += 1
+            else:
+                items.append(dict(row))
+        return {'items': items, 'without_position': without_position, 'inactive': inactive}
 
     def noise_history(self, limit=500):
         with self.connect() as db:

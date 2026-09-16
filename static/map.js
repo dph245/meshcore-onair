@@ -78,6 +78,13 @@ function saveMapView() {
   } catch { /* The map also works when browser storage is unavailable. */ }
 }
 
+function updateMapLabels() {
+  const zoom = nodeMap.getZoom();
+  const container = nodeMap.getContainer();
+  container.classList.toggle('map-labels-small', zoom >= 10 && zoom < 12);
+  container.classList.toggle('map-labels-hidden', zoom < 10);
+}
+
 function showNodeMap() {
   if (!window.L) {
     document.getElementById('map-status').textContent = 'Kartenbibliothek konnte nicht geladen werden. Bitte Seite neu laden.';
@@ -87,6 +94,8 @@ function showNodeMap() {
     const view = savedMapView();
     nodeMap = L.map('node-map').setView(view.center, view.zoom);
     nodeMap.on('zoomend', layoutMapNodes);
+    nodeMap.on('zoomend', updateMapLabels);
+    updateMapLabels();
     nodeMap.on('moveend', saveMapView);
     const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -162,7 +171,7 @@ async function loadMapNodes() {
       if (!keys.has(key)) { view.marker.remove(); view.line?.remove(); mapMarkers.delete(key); }
     }
     layoutMapNodes();
-    message.textContent = `${mapMarkers.size} Nodes auf der Karte · ${result.without_position} ohne bekannte Position · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
+    message.textContent = `${mapMarkers.size} Nodes auf der Karte · ${result.without_position} ohne bekannte Position · ${result.inactive} seit mindestens 4 Wochen nicht gehört · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
   } catch (error) {
     message.textContent = `Nodes konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; vorhandene Marker bleiben stehen.`;
   } finally {

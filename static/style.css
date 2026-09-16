@@ -22,3 +22,5 @@ tr.packet td{vertical-align:top}td.message{white-space:pre-wrap;overflow-wrap:an
 
 #theme-toggle{white-space:nowrap}a{color:var(--accent)}
 #node-map .map-position-link{stroke:var(--secondary)}
+#node-map.map-labels-small .map-repeater-label{font-size:10px;line-height:13px;padding:1px 4px}
+#node-map.map-labels-hidden .map-repeater-label{display:none}
