@@ -49,6 +49,18 @@ Die Auswahl-API `/api/channels` liefert nur Namen,
 keine Schlüssel. Nach Änderungen an `channels.json` den Server neu starten und die
 Seite neu laden.
 
+Im Tab **Live** filtert **Repeater filtern** sofort nach Hash oder Namen, auch nach
+Teilen davon und unabhängig von Groß-/Kleinschreibung. Gesucht wird im letzten Hop
+von Flood-Paketen sowie im Public Key und Namen gültiger direkter Repeater-ADVERTs.
+Namen stammen aus der vorhandenen Namensauflösung zum Empfangszeitpunkt;
+Zielrouten (DIRECT/TC_DIRECT) zählen nicht als Senderpfad.
+Bei gruppierten Paketen erscheinen nur passende gespeicherte Empfänge; Hauptzeile,
+RSSI und Sortierung beziehen sich auf den neuesten Treffer. Der Gesamtzähler
+`REPEAT` bleibt erhalten, die Zahl passender Empfänge wird zusätzlich angezeigt.
+**Zurücksetzen** zeigt wieder alle Pakete. Der Filter bleibt beim Tabwechsel und
+WebSocket-Reconnect erhalten und funktioniert auch in der pausierten Ansicht.
+Empfang und Archivierung laufen unabhängig vom Filter weiter.
+
 Zeit | Typ | Route | Inhalt | Last Hop | RSSI | SNR | Hops | Hash / Repeat
 
 Bei `GRP_TXT` zeigt Inhalt den Kanal und Nachrichtentext samt Absendernamen.

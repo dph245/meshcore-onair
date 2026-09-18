@@ -71,7 +71,15 @@
 <div id="archive-results"></div>
 <button id="archive-more" type="button" hidden>Weitere Empfänge laden</button>
 </section>
-<section id="panel-live" role="tabpanel" aria-labelledby="tab-live" tabindex="0"><table><thead><tr><th>Zeit</th><th>Typ</th><th>Route</th><th>Inhalt</th><th>Last Hop</th><th>RSSI</th><th>SNR</th><th>Hops</th><th>Hash / Repeat</th></tr></thead><tbody id="packets"></tbody></table><p id="empty">Noch keine RX-Pakete empfangen. Die Ansicht aktualisiert sich automatisch.</p></section>
+<section id="panel-live" role="tabpanel" aria-labelledby="tab-live" tabindex="0">
+<div class="live-filter">
+<label for="live-repeater">Repeater filtern</label>
+<input id="live-repeater" type="search" placeholder="Hash oder Name (auch Teile)" maxlength="200" aria-describedby="live-filter-help" autocomplete="off">
+<button id="live-filter-reset" type="button">Zurücksetzen</button>
+<p id="live-filter-help" class="muted">Letzter Hop bei Flood-Paketen oder direkte Repeater-ADVERTs · Groß-/Kleinschreibung egal.</p>
+<p id="live-filter-status" role="status"></p>
+</div>
+<table><thead><tr><th>Zeit</th><th>Typ</th><th>Route</th><th>Inhalt</th><th>Last Hop</th><th>RSSI</th><th>SNR</th><th>Hops</th><th>Hash / Repeat</th></tr></thead><tbody id="packets"></tbody></table><p id="empty">Noch keine RX-Pakete empfangen. Die Ansicht aktualisiert sich automatisch.</p></section>
 </main>
 <footer>Lokaler MQTT-Monitor · maximal 500 Paketgruppen / 50 letzte Empfänge je Gruppe · Liveansicht im Arbeitsspeicher, Archiv in SQLite · Zeit in der Liste vom Observer</footer>
 </body></html>

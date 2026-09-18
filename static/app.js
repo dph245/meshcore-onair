@@ -35,11 +35,38 @@ const text = (tag, value, className) => {
   return node;
 };
 const measurement = (value, unit) => value == null ? '—' : `${value} ${unit}`;
-function render() {
-  if (paused) return;
-  renderNoise(status.noise_history || []);
+const liveFilter = document.getElementById('live-repeater');
+let displayedGroups = [], displayedStatus = {};
+function matchesRepeater(packet, query) {
+  const d = packet.decoded;
+  // DIRECT paths describe destinations, not the transmitting repeater.
+  if (packet.direction !== 'rx' || ![0, 1].includes(d.route_type)) return false;
+  if (d.hops.length) {
+    return [d.hops[d.hops.length - 1], packet.last_hop]
+      .some(value => value.toLowerCase().includes(query));
+  }
+  const a = d.advert;
+  return Boolean(a && !d.advert_status && a.node_type === 2 && a.signature_status === 'Gültig'
+    && [a.public_key, a.name || ''].some(value => value.toLowerCase().includes(query)));
+}
+function filteredLiveGroups(source, query) {
+  return source.flatMap(group => {
+    if (!query) return [group];
+    const receptions = group.receptions.filter(packet => matchesRepeater(packet, query));
+    if (!receptions.length) return [];
+    return [{...group, receptions, latest: receptions[receptions.length - 1]}];
+  }).sort((a, b) => b.latest.number - a.latest.number);
+}
+function render(force = false) {
+  if (paused && !force) return;
+  if (!paused) {
+    displayedGroups = [...groups.values()];
+    displayedStatus = status;
+    renderNoise(status.noise_history || []);
+  }
+  const query = liveFilter.value.trim().toLowerCase();
   const fragment = document.createDocumentFragment();
-  const sorted = [...groups.values()].sort((a, b) => b.latest.number - a.latest.number);
+  const sorted = filteredLiveGroups(displayedGroups, query);
   for (const group of sorted) {
     const p = group.latest, d = p.decoded, open = expanded.has(group.id);
     const row = text('tr', '', 'packet');
@@ -47,7 +74,7 @@ function render() {
     const toggle = text('button', `${open ? '▾' : '▸'} ${p.time}`, 'expand');
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', `Paket ${p.observer_hash || p.number}: Details`);
-    toggle.onclick = () => { open ? expanded.delete(group.id) : expanded.add(group.id); render(); };
+    toggle.onclick = () => { open ? expanded.delete(group.id) : expanded.add(group.id); render(true); };
     time.append(toggle); row.append(time);
     for (const value of [d.payload_name, d.route_name]) row.append(text('td', value));
     const content = text('td', '', 'message');
@@ -73,6 +100,7 @@ function render() {
       measurement(p.rssi, 'dBm'), measurement(p.snr, 'dB'), d.hop_count]) row.append(text('td', value));
     const repeats = text('td', '');
     repeats.append(text('div', `${p.observer_hash || 'ohne Hash'}${group.count > 1 ? ` · REPEAT x${group.count}` : ''}`));
+    if (query) repeats.append(text('div', `${group.receptions.length} passende gespeicherte Empfänge`, 'muted'));
     if (group.count > 1) {
       const hopList = text('div', '', 'muted');
       hopList.title = 'Letzter Hop pro gespeichertem Empfang (maximal 50)';
@@ -85,7 +113,7 @@ function render() {
     fragment.append(row);
     if (open) {
       const detail = text('tr', '', 'detail'), cell = text('td', ''); cell.colSpan = 9;
-      cell.append(text('div', `${group.count} Empfänge in dieser Gruppe · ${group.receptions.length} gespeichert · zuerst lokal: ${group.first_seen}`, 'muted'));
+      cell.append(text('div', `${group.count} Empfänge in dieser Gruppe · ${group.receptions.length} ${query ? 'passende gespeichert' : 'gespeichert'} · zuerst lokal: ${group.first_seen}`, 'muted'));
       for (const reception of [...group.receptions].reverse()) {
         const decoded = reception.decoded, block = text('section', '', 'reception');
         block.append(text('div', `#${reception.number} · ${reception.time} · ${decoded.route_name} · ${measurement(reception.rssi, 'dBm')} · ${measurement(reception.snr, 'dB')}`));
@@ -105,15 +133,26 @@ function render() {
     }
   }
   body.replaceChildren(fragment);
-  document.getElementById('empty').hidden = groups.size > 0;
-  document.getElementById('counts').textContent = `${groups.size} Paketgruppen · ${status.received || 0} RX seit Start · ${status.dropped || 0} bei Überlast verworfen`;
-  if (status.archive) {
-    document.getElementById('counts').textContent += ` · ${status.archive.saved} archiviert seit Start`;
-    if (status.archive.error || status.archive.dropped) {
-      document.getElementById('counts').textContent += ` · Archivproblem: ${status.archive.error || ''} · ${status.archive.dropped} verworfen`;
+  document.getElementById('empty').hidden = sorted.length > 0;
+  document.getElementById('empty').textContent = query
+    ? 'Keine passenden Empfänge im Live-Puffer. Filter ändern oder zurücksetzen.'
+    : 'Noch keine RX-Pakete empfangen. Die Ansicht aktualisiert sich automatisch.';
+  document.getElementById('live-filter-status').textContent = query
+    ? `${sorted.length} von ${displayedGroups.length} Paketgruppen · nur passende gespeicherte Empfänge${paused ? ' · Ansicht pausiert' : ''}` : '';
+  document.getElementById('counts').textContent = `${displayedGroups.length} Paketgruppen · ${displayedStatus.received || 0} RX seit Start · ${displayedStatus.dropped || 0} bei Überlast verworfen`;
+  if (displayedStatus.archive) {
+    document.getElementById('counts').textContent += ` · ${displayedStatus.archive.saved} archiviert seit Start`;
+    if (displayedStatus.archive.error || displayedStatus.archive.dropped) {
+      document.getElementById('counts').textContent += ` · Archivproblem: ${displayedStatus.archive.error || ''} · ${displayedStatus.archive.dropped} verworfen`;
     }
   }
 }
+liveFilter.addEventListener('input', () => render(true));
+document.getElementById('live-filter-reset').onclick = () => {
+  liveFilter.value = '';
+  render(true);
+  liveFilter.focus();
+};
 function connection() {
   const online = socket.readyState === WebSocket.OPEN;
   const node = document.getElementById('connection');

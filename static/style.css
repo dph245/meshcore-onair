@@ -24,3 +24,5 @@ tr.packet td{vertical-align:top}td.message{white-space:pre-wrap;overflow-wrap:an
 #node-map .map-position-link{stroke:var(--secondary)}
 #node-map.map-labels-small .map-repeater-label{font-size:10px;line-height:13px;padding:1px 4px}
 #node-map.map-labels-hidden .map-repeater-label{display:none}
+
+.live-filter{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 18px}.live-filter input{font:inherit;background:var(--surface);color:var(--fg);border:1px solid var(--control-border);padding:5px;max-width:100%;width:280px}.live-filter p{flex-basis:100%;margin:0}.live-filter p:empty{display:none}
