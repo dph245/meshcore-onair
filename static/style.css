@@ -26,3 +26,5 @@ tr.packet td{vertical-align:top}td.message{white-space:pre-wrap;overflow-wrap:an
 #node-map.map-labels-hidden .map-repeater-label{display:none}
 
 .live-filter{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 18px}.live-filter input{font:inherit;background:var(--surface);color:var(--fg);border:1px solid var(--control-border);padding:5px;max-width:100%;width:280px}.live-filter p{flex-basis:100%;margin:0}.live-filter p:empty{display:none}
+
+.snr-reading{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}.snr-bars{display:inline-flex;align-items:flex-end;gap:2px;height:14px}.snr-bars>span{width:4px;height:5px;background:var(--track);border-radius:1px}.snr-bars>span:nth-child(2){height:9px}.snr-bars>span:nth-child(3){height:14px}.snr-level-1{color:#f87171}.snr-level-2{color:#fb923c}.snr-level-3{color:#4ade80}.snr-bars>.active{background:currentColor}:root[data-theme="light"] .snr-level-1{color:#c62828}:root[data-theme="light"] .snr-level-2{color:#b45309}:root[data-theme="light"] .snr-level-3{color:#15803d}

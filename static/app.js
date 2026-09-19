@@ -35,6 +35,22 @@ const text = (tag, value, className) => {
   return node;
 };
 const measurement = (value, unit) => value == null ? '—' : `${value} ${unit}`;
+// Central thresholds for the live SNR indicator; values are in dB.
+const snrThresholds = { low: -2, high: 0 };
+function snrMeasurement(value) {
+  const display = text('span', '', 'snr-reading');
+  display.append(text('span', measurement(Number.isFinite(value) ? value : null, 'dB')));
+  if (!Number.isFinite(value)) return display;
+  const level = value < snrThresholds.low ? 1 : value <= snrThresholds.high ? 2 : 3;
+  const bars = text('span', '', `snr-bars snr-level-${level}`);
+  bars.setAttribute('aria-hidden', 'true');
+  display.title = `SNR: ${value} dB · ${level} von 3 Balken`;
+  for (let index = 1; index <= 3; index++) {
+    bars.append(text('span', '', index <= level ? 'active' : ''));
+  }
+  display.append(bars);
+  return display;
+}
 function scopeLabel(decoded) {
   if (decoded.scope_label) return decoded.scope_label;
   if (![0, 3].includes(decoded.route_type)) return 'Kein Scope';
@@ -106,8 +122,10 @@ function render(force = false) {
       if (d.advert_status) content.append(text('div', d.advert_status, 'muted'));
     }
     row.append(content);
-    for (const value of [p.last_hop,
-      measurement(p.rssi, 'dBm'), measurement(p.snr, 'dB'), d.hop_count]) row.append(text('td', value));
+    for (const value of [p.last_hop, measurement(p.rssi, 'dBm')]) row.append(text('td', value));
+    const snrCell = text('td', '');
+    snrCell.append(snrMeasurement(p.snr));
+    row.append(snrCell, text('td', d.hop_count));
     const repeats = text('td', '');
     repeats.append(text('div', `${p.observer_hash || 'ohne Hash'}${group.count > 1 ? ` · REPEAT x${group.count}` : ''}`));
     if (query) repeats.append(text('div', `${group.receptions.length} passende gespeicherte Empfänge`, 'muted'));
@@ -126,7 +144,9 @@ function render(force = false) {
       cell.append(text('div', `${group.count} Empfänge in dieser Gruppe · ${group.receptions.length} ${query ? 'passende gespeichert' : 'gespeichert'} · zuerst lokal: ${group.first_seen}`, 'muted'));
       for (const reception of [...group.receptions].reverse()) {
         const decoded = reception.decoded, block = text('section', '', 'reception');
-        block.append(text('div', `#${reception.number} · ${reception.time} · ${decoded.route_name} · ${measurement(reception.rssi, 'dBm')} · ${measurement(reception.snr, 'dB')}`));
+        const receptionSummary = text('div', `#${reception.number} · ${reception.time} · ${decoded.route_name} · ${measurement(reception.rssi, 'dBm')} · `);
+        receptionSummary.append(snrMeasurement(reception.snr));
+        block.append(receptionSummary);
         block.append(text('div', `Pfad: ${reception.path}`));
         block.append(text('div', `Scope: ${scopeLabel(decoded)}`));
         if (decoded.advert) {

@@ -63,6 +63,12 @@ Empfang und Archivierung laufen unabhängig vom Filter weiter.
 
 Zeit | Typ | Route | Scope | Inhalt | Last Hop | RSSI | SNR | Hops | Hash / Repeat
 
+**SNR** zeigt in der Liveansicht neben dem dB-Wert eine dreistufige Balkenanzeige,
+auch in den aufgeklappten Empfangsdetails: unter −2 dB ein roter Balken,
+von −2 bis einschließlich 0 dB zwei orange Balken, über 0 dB drei grüne Balken.
+Ohne Messwert erscheinen keine Balken. Die Grenzwerte stehen zentral als
+`snrThresholds` in `static/app.js`; eine Einstellungsoberfläche gibt es dafür noch nicht.
+
 **Scope** ist in Live, Archiv, Channels und der Terminal-Ausgabe sichtbar.
 Pakete ohne Transport-Codes erscheinen als **Kein Scope**; bei `TC_FLOOD` und
 `TC_DIRECT` wird der Regionsname durch Abgleich des Transport-Codes erkannt.
