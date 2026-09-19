@@ -275,7 +275,7 @@ async function loadRepeaters() {
     });
     message.textContent = items.length
       ? `${items.length} Repeater / Hop-Kennungen · Stand: ${new Date().toLocaleTimeString('de-DE')}`
-      : 'Noch keine direkten Repeater-Empfänge archiviert.';
+      : 'Keine direkten Repeater-Empfänge in den letzten 8 Stunden.';
   } catch (error) {
     message.textContent = `Repeater konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; vorhandene Werte bleiben stehen.`;
   } finally {

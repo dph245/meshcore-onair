@@ -249,6 +249,10 @@ WireGuard-, Firewall- und Broker-ACL-Konfiguration sind damit nicht verifiziert.
 
 Der Tab **Repeater** zeigt direkt empfangene Sender mit horizontalem RSSI-Balken,
 Minimum/Maximum, letzter lokaler Empfangszeit und Gesamtzahl der Empfänge.
+Angezeigt werden nur Repeater, die in den letzten acht Stunden empfangen wurden.
+Nach acht Stunden ohne Empfang verschwinden sie bei der nächsten Aktualisierung;
+bei erneutem Empfang erscheinen sie wieder. Gesamtzähler, Min/Max und gespeicherte
+Verläufe beziehen sich weiterhin auf das gesamte Archiv.
 Gezählt werden letzte Hops von RX-Flood-Paketen (auch TC_FLOOD) und gültig
 signierte Repeater-ADVERTs ohne Hop. Zielrouten (DIRECT/TC_DIRECT) werden nicht
 als Senderpfad ausgewertet. Wiederholungen zählen als einzelne Empfänge;

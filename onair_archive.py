@@ -170,16 +170,21 @@ class Archive:
                               (limit,)).fetchall()
         return [{'received_at': row[0], 'noise_floor': row[1]} for row in reversed(rows)]
 
-    def repeaters(self):
+    def repeaters(self, hours=8):
         from onair_mqtt import node_label
         with self.connect() as db:
             db.row_factory = sqlite3.Row
             rows = db.execute('SELECT * FROM repeater_receptions').fetchall()
             names = dict(db.execute('SELECT public_key,name FROM nodes'))
-        return {'items': repeater_summary(rows, names, node_label)}
+        items = repeater_summary(rows, names, node_label)
+        # Resolve identities using all known tokens before filtering activity.
+        if hours:
+            since = time.time() - hours * 3600
+            items = [item for item in items if item['last_seen'] >= since]
+        return {'items': items}
 
     def repeater_history(self, identity, hours=24, limit=500):
-        item = next((item for item in self.repeaters()['items'] if item['id'] == identity), None)
+        item = next((item for item in self.repeaters(hours=0)['items'] if item['id'] == identity), None)
         if item is None:
             return {'items': [], 'has_more': False}
         tokens = item['tokens']
