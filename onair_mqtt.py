@@ -9,6 +9,7 @@ import paho.mqtt.client as mqtt
 
 from onair_channels import decode_group_text
 from onair_advert import decode_advert
+from onair_scopes import scope_label
 
 
 # ============================================================
@@ -329,6 +330,7 @@ def build_packet(data):
     if not isinstance(raw_hex, str) or not raw_hex:
         raise ValueError("Packet ohne gültiges raw-Feld")
     decoded = decode_raw_packet(raw_hex)
+    decoded['scope_label'] = scope_label(decoded)
     decoded["hop_labels"] = [node_label(hop) for hop in decoded["hops"]]
     if decoded["payload_type"] == 0x04:
         if decoded["payload_ver"] == 0:
@@ -440,6 +442,7 @@ def print_packet(packet):
         f"Path hash size: {decoded['hash_size']} byte"
     )
 
+    print(f"Scope: {scope_label(decoded)}")
     if decoded["transport_code"]:
         print(
             f"Transport code: {decoded['transport_code']}"

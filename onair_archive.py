@@ -9,6 +9,7 @@ from threading import Thread, Event
 import time
 from datetime import datetime
 from onair_repeaters import record_repeater, repeater_summary, repeater_token
+from onair_scopes import scope_label
 
 
 def database_path():
@@ -260,4 +261,7 @@ class Archive:
         with self.connect() as db:
             rows = db.execute('SELECT id,packet_json FROM packets' + where + ' ORDER BY id DESC LIMIT ?', args + [limit + 1]).fetchall()
         items = [dict(id=row[0], packet=json.loads(row[1])) for row in rows[:limit]]
+        for item in items:
+            decoded = item['packet']['decoded']
+            decoded['scope_label'] = scope_label(decoded)
         return {'items': items, 'next_before': items[-1]['id'] if len(rows) > limit else None}

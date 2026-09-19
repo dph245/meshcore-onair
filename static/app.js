@@ -35,6 +35,15 @@ const text = (tag, value, className) => {
   return node;
 };
 const measurement = (value, unit) => value == null ? '—' : `${value} ${unit}`;
+function scopeLabel(decoded) {
+  if (decoded.scope_label) return decoded.scope_label;
+  if (![0, 3].includes(decoded.route_type)) return 'Kein Scope';
+  // Transport code 1 is a packet-dependent uint16 in little-endian order.
+  // Derive this from the existing field so archived receptions work as well.
+  const raw = decoded.transport_code;
+  if (typeof raw !== 'string' || !/^[0-9a-f]{8}$/i.test(raw)) return 'Unbekannt';
+  return `Unbekannt (0x${(raw.slice(2, 4) + raw.slice(0, 2)).toUpperCase()})`;
+}
 const liveFilter = document.getElementById('live-repeater');
 let displayedGroups = [], displayedStatus = {};
 function matchesRepeater(packet, query) {
@@ -77,6 +86,7 @@ function render(force = false) {
     toggle.onclick = () => { open ? expanded.delete(group.id) : expanded.add(group.id); render(true); };
     time.append(toggle); row.append(time);
     for (const value of [d.payload_name, d.route_name]) row.append(text('td', value));
+    row.append(text('td', scopeLabel(d)));
     const content = text('td', '', 'message');
     if (d.payload_name === 'GRP_TXT') {
       if (d.group_text != null) {
@@ -112,12 +122,13 @@ function render(force = false) {
     row.append(repeats);
     fragment.append(row);
     if (open) {
-      const detail = text('tr', '', 'detail'), cell = text('td', ''); cell.colSpan = 9;
+      const detail = text('tr', '', 'detail'), cell = text('td', ''); cell.colSpan = 10;
       cell.append(text('div', `${group.count} Empfänge in dieser Gruppe · ${group.receptions.length} ${query ? 'passende gespeichert' : 'gespeichert'} · zuerst lokal: ${group.first_seen}`, 'muted'));
       for (const reception of [...group.receptions].reverse()) {
         const decoded = reception.decoded, block = text('section', '', 'reception');
         block.append(text('div', `#${reception.number} · ${reception.time} · ${decoded.route_name} · ${measurement(reception.rssi, 'dBm')} · ${measurement(reception.snr, 'dB')}`));
         block.append(text('div', `Pfad: ${reception.path}`));
+        block.append(text('div', `Scope: ${scopeLabel(decoded)}`));
         if (decoded.advert) {
           const a = decoded.advert;
           block.append(text('div', `Advert: ${a.name || 'Ohne Namen'} · ${a.node_type_name}`));
@@ -287,7 +298,7 @@ async function searchArchive(more = false) {
       const content = d.payload_name === 'GRP_TXT'
         ? (d.group_text ?? d.group_text_status ?? 'Nicht entschlüsselbar')
         : ((a && a.name) || d.advert_status || '');
-      entry.append(text('summary', `${new Date(p.received_at).toLocaleString()} · ${d.payload_name} · ${d.group_channel || ''} · ${content} · ${p.last_hop}`));
+      entry.append(text('summary', `${new Date(p.received_at).toLocaleString()} · ${d.payload_name} · ${d.group_channel || ''} · Scope: ${scopeLabel(d)} · ${content} · ${p.last_hop}`));
       entry.append(text('div', `Pfad: ${p.path} · RSSI: ${measurement(p.rssi, 'dBm')} · SNR: ${measurement(p.snr, 'dB')} · Hash: ${p.observer_hash || '—'}`));
       entry.append(text('pre', JSON.stringify(p, null, 2)));
       archiveResults.append(entry);
@@ -370,20 +381,25 @@ function appendChannelReception(item) {
     const entry = text('article', '', 'reception');
     entry.append(text('div', new Date(p.received_at).toLocaleString(), 'muted'));
     entry.append(text('div', p.decoded.group_text ?? p.decoded.group_text_status ?? 'Nicht entschlüsselbar', 'channel-message'));
+    const scopes = text('div', '', 'muted');
+    entry.append(scopes);
     const details = text('details', '');
     const summary = text('summary', '');
     details.append(summary);
     entry.append(details);
     channelsResults.append(entry);
-    group = {details, summary, count: 0};
+    group = {details, summary, scopes, scopeLabels: new Set(), count: 0};
     channelGroups.set(key, group);
   }
   group.count += 1;
+  group.scopeLabels.add(scopeLabel(p.decoded));
+  group.scopes.textContent = `Scope: ${[...group.scopeLabels].join(' · ')}`;
   group.summary.textContent = group.count === 1
     ? '1 Empfang · Details'
     : `${group.count} Empfänge · ${group.count - 1} Duplikate · Details`;
   const reception = text('div', '', 'reception');
   reception.append(text('div', new Date(p.received_at).toLocaleString(), 'muted'));
+  reception.append(text('div', `Scope: ${scopeLabel(p.decoded)}`));
   reception.append(text('div', `Last Hop: ${p.last_hop} · Pfad: ${p.path} · RSSI: ${measurement(p.rssi, 'dBm')} · SNR: ${measurement(p.snr, 'dB')} · Hash: ${p.observer_hash || '—'}`));
   group.details.append(reception);
 }

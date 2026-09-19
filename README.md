@@ -61,7 +61,26 @@ RSSI und Sortierung beziehen sich auf den neuesten Treffer. Der Gesamtzähler
 WebSocket-Reconnect erhalten und funktioniert auch in der pausierten Ansicht.
 Empfang und Archivierung laufen unabhängig vom Filter weiter.
 
-Zeit | Typ | Route | Inhalt | Last Hop | RSSI | SNR | Hops | Hash / Repeat
+Zeit | Typ | Route | Scope | Inhalt | Last Hop | RSSI | SNR | Hops | Hash / Repeat
+
+**Scope** ist in Live, Archiv, Channels und der Terminal-Ausgabe sichtbar.
+Pakete ohne Transport-Codes erscheinen als **Kein Scope**; bei `TC_FLOOD` und
+`TC_DIRECT` wird der Regionsname durch Abgleich des Transport-Codes erkannt.
+Die bekannten öffentlichen Scopes sind in `onair_scopes.py` hinterlegt:
+`de`, `de-ni`, `de-ni-wf`, `bsmesh`, `de-mitte`, `de-nord` und `de-harz`.
+Die Schlüsselableitung verwendet das implizite `#` vor dem Namen gemäß MeshCore.
+Nach Änderungen den Server neu starten. Nicht erkannte Regionen erscheinen als
+**Unbekannt (0x…)** mit dem ersten Transport-Code als 16-Bit-Hexwert (Little Endian).
+Mehrere passende Namen werden als **Mehrdeutig** angezeigt. Der Regionsname wird
+nicht im Paket übertragen; der berechnete Code ist keine stabile Regions-ID.
+Grundlage sind die
+[MeshCore-Scope-Berechnung](https://github.com/meshcore-dev/MeshCore/blob/main/src/helpers/TransportKeyStore.cpp)
+und das
+[MeshCore-Paketformat](https://github.com/meshcore-dev/MeshCore/blob/main/docs/packet_format.md).
+In Live zeigt die Hauptzeile den neuesten passenden Empfang, die Details zeigen
+den Scope jedes einzelnen Empfangs. Channels zeigt alle unterschiedlichen
+Scope-Anzeigen der geladenen Empfänge einer Nachricht. Die Anzeige funktioniert
+auch für bestehende Archiveinträge ohne Datenbankmigration.
 
 Bei `GRP_TXT` zeigt Inhalt den Kanal und Nachrichtentext samt Absendernamen.
 Bei `ADVERT` zeigt Inhalt den Node-Namen, Typ (Chat, Repeater, Room-Server oder
