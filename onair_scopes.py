@@ -6,7 +6,7 @@ import hashlib
 import hmac
 
 
-SCOPES = ('de', 'de-ni', 'de-ni-wf', 'bsmesh', 'de-mitte', 'de-nord', 'de-harz')
+SCOPES = ('de', 'de-ni', 'de-ni-wf', 'bsmesh', 'de-mitte', 'de-nord', 'de-harz', 'de-ni-h')
 SCOPE_KEYS = {name: hashlib.sha256(('#' + name).encode()).digest()[:16]
               for name in SCOPES}
 

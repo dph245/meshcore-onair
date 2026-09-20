@@ -55,7 +55,7 @@ von Flood-Paketen sowie im Public Key und Namen gültiger direkter Repeater-ADVE
 Namen stammen aus der vorhandenen Namensauflösung zum Empfangszeitpunkt;
 Zielrouten (DIRECT/TC_DIRECT) zählen nicht als Senderpfad.
 Bei gruppierten Paketen erscheinen nur passende gespeicherte Empfänge; Hauptzeile,
-RSSI und Sortierung beziehen sich auf den neuesten Treffer. Der Gesamtzähler
+RSSI und Reihenfolge der Paketgruppen beziehen sich auf den neuesten Treffer. Der Gesamtzähler
 der Empfangsgruppe bleibt erhalten, die Zahl passender Empfänge wird zusätzlich angezeigt.
 **Zurücksetzen** zeigt wieder alle Pakete. Der Filter bleibt beim Tabwechsel und
 WebSocket-Reconnect erhalten und funktioniert auch in der pausierten Ansicht.
@@ -63,8 +63,14 @@ Empfang und Archivierung laufen unabhängig vom Filter weiter.
 
 Zeit | Typ | Route | Scope | Inhalt | Last Hop | RSSI | SNR | Hops | Hash / Empfänge
 
+Bei mehreren Empfängen zeigt **Hash / Empfänge** für jeden gespeicherten Empfang
+Last Hop und Observer. Die zugehörigen Messwerte stehen auf gleicher Höhe in den
+Spalten **RSSI** und **SNR**. Die oberste Zeile zeigt die Werte des neuesten Empfangs.
+Die Empfangsliste und die aufgeklappten Details sind nach SNR absteigend sortiert.
+Bei gleichem SNR steht der neueste Empfang zuerst; fehlende Messwerte stehen am Ende.
+
 **SNR** zeigt in der Liveansicht neben dem dB-Wert eine dreistufige Balkenanzeige,
-auch in den aufgeklappten Empfangsdetails: unter −2 dB ein roter Balken,
+auch in der Empfangsliste und den aufgeklappten Empfangsdetails: unter −2 dB ein roter Balken,
 von −2 bis einschließlich 0 dB zwei orange Balken, über 0 dB drei grüne Balken.
 Ohne Messwert erscheinen keine Balken. Die Grenzwerte stehen zentral als
 `snrThresholds` in `static/app.js`; eine Einstellungsoberfläche gibt es dafür noch nicht.

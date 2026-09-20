@@ -83,6 +83,13 @@ function filteredLiveGroups(source, query) {
     return [{...group, receptions, latest: receptions[receptions.length - 1]}];
   }).sort((a, b) => b.latest.number - a.latest.number);
 }
+function receptionsBySnr(receptions) {
+  return [...receptions].sort((a, b) => {
+    const aSnr = Number.isFinite(a.snr) ? a.snr : -Infinity;
+    const bSnr = Number.isFinite(b.snr) ? b.snr : -Infinity;
+    return aSnr === bSnr ? b.number - a.number : bSnr - aSnr;
+  });
+}
 function render(force = false) {
   if (paused && !force) return;
   if (!paused) {
@@ -95,6 +102,7 @@ function render(force = false) {
   const sorted = filteredLiveGroups(displayedGroups, query);
   for (const group of sorted) {
     const p = group.latest, d = p.decoded, open = expanded.has(group.id);
+    const receptions = receptionsBySnr(group.receptions);
     const row = text('tr', '', 'packet');
     const time = text('td', '');
     const toggle = text('button', `${open ? '▾' : '▸'} ${p.time}`, 'expand');
@@ -123,20 +131,31 @@ function render(force = false) {
       if (d.advert_status) content.append(text('div', d.advert_status, 'muted'));
     }
     row.append(content);
-    for (const value of [p.last_hop, measurement(p.rssi, 'dBm')]) row.append(text('td', value));
+    row.append(text('td', p.last_hop));
+    const rssiCell = text('td', '');
+    rssiCell.append(text('div', measurement(p.rssi, 'dBm'), 'live-reception-line'));
     const snrCell = text('td', '');
-    snrCell.append(snrMeasurement(p.snr));
-    row.append(snrCell, text('td', d.hop_count));
+    const latestSnr = text('div', '', 'live-reception-line');
+    latestSnr.append(snrMeasurement(p.snr));
+    snrCell.append(latestSnr);
+    row.append(rssiCell, snrCell, text('td', d.hop_count));
     const repeats = text('td', '');
-    const hashLabel = text('div', `${p.observer_hash?.slice(0, 6) || 'ohne Hash'} · ${group.count} ${group.count === 1 ? 'Empfang' : 'Empfänge'}`);
+    const hashLabel = text('div', `${p.observer_hash?.slice(0, 6) || 'ohne Hash'} · ${group.count} ${group.count === 1 ? 'Empfang' : 'Empfänge'}`, 'live-reception-line');
     hashLabel.title = `${p.observer_hash || 'ohne Hash'} · Empfangsbeobachtungen über alle Observer, keine Anzahl von Weiterleitungen`;
     repeats.append(hashLabel);
-    if (query) repeats.append(text('div', `${group.receptions.length} passende gespeicherte Empfänge`, 'muted'));
+    if (query) {
+      repeats.append(text('div', `${group.receptions.length} passende gespeicherte Empfänge`, 'muted live-reception-line'));
+      for (const cell of [rssiCell, snrCell]) cell.append(text('div', '', 'live-reception-line'));
+    }
     if (group.count > 1) {
       const hopList = text('div', '', 'muted');
-      hopList.title = 'Letzter Hop pro gespeichertem Empfang (maximal 50)';
-      for (const reception of group.receptions) {
-        const hop = text('div', `${reception.last_hop} via Observer ${observerLabel(reception, true)}`);
+      hopList.title = 'Empfänge nach SNR absteigend (maximal 50); Messwerte in den RSSI- und SNR-Spalten';
+      for (const reception of receptions) {
+        const hop = text('div', `${reception.last_hop} via Observer ${observerLabel(reception, true)}`, 'live-reception-line');
+        rssiCell.append(text('div', measurement(reception.rssi, 'dBm'), 'live-reception-line'));
+        const snr = text('div', '', 'live-reception-line');
+        snr.append(snrMeasurement(reception.snr));
+        snrCell.append(snr);
         hop.title = observerLabel(reception);
         hopList.append(hop);
       }
@@ -147,7 +166,7 @@ function render(force = false) {
     if (open) {
       const detail = text('tr', '', 'detail'), cell = text('td', ''); cell.colSpan = 10;
       cell.append(text('div', `${group.count} Empfänge in dieser Gruppe · ${group.receptions.length} ${query ? 'passende gespeichert' : 'gespeichert'} · zuerst lokal: ${group.first_seen}`, 'muted'));
-      for (const reception of [...group.receptions].reverse()) {
+      for (const reception of receptions) {
         const decoded = reception.decoded, block = text('section', '', 'reception');
         const receptionSummary = text('div', `#${reception.number} · ${reception.time} · ${decoded.route_name} · ${measurement(reception.rssi, 'dBm')} · `);
         receptionSummary.append(snrMeasurement(reception.snr));
