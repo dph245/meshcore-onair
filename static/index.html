@@ -1,11 +1,12 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <header><h1>MeshCore <span>OnAir</span></h1><span id="connection" role="status">WebSocket verbindet …</span><span id="noise-floor">Noise Floor: —</span><span class="radio">869.618 MHz · BW 62.5 · SF8 · CR4/8</span><button id="theme-toggle" type="button" aria-pressed="false">Lightmode</button></header>
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
 <div class="tabs" role="tablist" aria-label="Ansichten">
 <button id="tab-live" type="button" role="tab" aria-controls="panel-live" aria-selected="true">Live</button>
+<button id="tab-observers" type="button" role="tab" aria-controls="panel-observers" aria-selected="false" tabindex="-1">Observer / Ost–West</button>
 <button id="tab-repeaters" type="button" role="tab" aria-controls="panel-repeaters" aria-selected="false" tabindex="-1">Repeater</button>
 <button id="tab-channels" type="button" role="tab" aria-controls="panel-channels" aria-selected="false" tabindex="-1">Channels</button>
 <button id="tab-archive" type="button" role="tab" aria-controls="panel-archive" aria-selected="false" tabindex="-1">Archiv</button>
@@ -14,6 +15,17 @@
 <button id="tab-noise" type="button" role="tab" aria-controls="panel-noise" aria-selected="false" tabindex="-1">Noise Floor</button>
 </div>
 <main>
+<section id="panel-observers" class="archive" role="tabpanel" aria-labelledby="tab-observers" tabindex="0" hidden>
+<h2>Observer Comparison · Ost / West</h2>
+<p class="muted">Gesamtes Archiv einschließlich Wiederholungen · letzter Hop von Flood-Paketen oder direkt empfangene, gültig signierte ADVERTs aller Node-Typen. Mehrdeutige Hop-Kennungen bleiben separat. RSSI und SNR sind unabhängige Bestwerte; sie können aus verschiedenen Empfängen stammen.</p>
+<form id="observers-select">
+<label>Ost <select id="observer-east"><option value="">Observer auswählen …</option></select></label>
+<label>West <select id="observer-west"><option value="">Observer auswählen …</option></select></label>
+<label>Sichtbarkeit <select id="observer-filter"><option value="all">Alle</option><option value="east">Nur Ost</option><option value="west">Nur West</option><option value="both">Beide</option></select></label>
+</form>
+<p id="observers-status" role="status">Noch keine Daten geladen.</p>
+<div id="observers-results" class="noise-scroll"></div>
+</section>
 <section id="panel-map" class="archive" role="tabpanel" aria-labelledby="tab-map" tabindex="0" hidden>
 <h2>Map</h2>
 <p class="muted">Letzte bekannte Positionen aus gültig signierten ADVERTs · Details mit Maus, Klick oder Touch · Aktualisierung alle 5 Sekunden. Nodes an identischer Position werden auseinandergezogen; Linien markieren den tatsächlichen Standort.</p>
@@ -35,17 +47,17 @@
 <label>Kanal <select id="channels-select" name="channel" disabled><option value="">Kanäle werden geladen …</option></select></label>
 <button type="submit">Aktualisieren</button>
 </form>
-<p class="muted">Konfigurierte Kanäle einschließlich Public · neueste Nachrichten zuerst · Duplikate aufklappbar · Zähler beziehen sich auf die geladenen Empfänge.</p>
+<p class="muted">Konfigurierte Kanäle einschließlich Public · neueste Nachrichten zuerst · Einzelne Empfänge aufklappbar · Zähler beziehen sich auf die geladenen Empfänge.</p>
 <p id="channels-status" role="status">Kanal auswählen, um Nachrichten zu laden.</p>
 <div id="channels-results"></div>
 <button id="channels-more" type="button" hidden>Ältere Empfänge laden</button>
 </section>
 <section id="panel-noise" class="noise-widget" role="tabpanel" aria-labelledby="tab-noise" tabindex="0" hidden>
 <h2 id="noise-heading">Noise Floor · Raw / Step</h2>
-<p class="muted">Letzte 500 MQTT-Statusmessungen · lokale Empfangszeit · Punkte sind echte Messwerte, Stufen halten den letzten Wert bis zur nächsten Meldung.</p>
-<p id="noise-empty">Noch keine Noise-Floor-Messungen gespeichert.</p>
-<div class="noise-scroll"><svg id="noise-chart" viewBox="0 0 1000 240" role="group" aria-label="Noise Floor in dBm als Step-Plot mit Messpunkten" hidden></svg></div>
-<p id="noise-tooltip" role="status">Messpunkt berühren, mit der Maus zeigen oder per Tab auswählen: exakte Empfangszeit und dBm.</p>
+<p class="muted">Je Observer die letzten 500 MQTT-Statusmessungen · getrennte Messreihen mit eigener Skala · lokale Empfangszeit · Punkte sind echte Messwerte, Stufen halten den letzten Wert bis zur nächsten Meldung desselben Observers. Historische Messwerte ohne Observer-ID bleiben unzugeordnet.</p>
+<p class="muted">Observer ohne Noise-Floor-Statusmeldung innerhalb der letzten 24 Stunden werden ausgeblendet. Bei erneutem Empfang erscheinen sie wieder; archivierte Messwerte bleiben erhalten.</p>
+<p id="noise-empty">Keine Observer mit Noise-Floor-Statusmeldung in den letzten 24 Stunden.</p>
+<div id="noise-charts"></div>
 </section>
 <section id="panel-nodes" class="archive" role="tabpanel" aria-labelledby="tab-nodes" tabindex="0" hidden>
 <h2>Nodes</h2>
@@ -79,7 +91,7 @@
 <p id="live-filter-help" class="muted">Letzter Hop bei Flood-Paketen oder direkte Repeater-ADVERTs · Groß-/Kleinschreibung egal.</p>
 <p id="live-filter-status" role="status"></p>
 </div>
-<table><thead><tr><th>Zeit</th><th>Typ</th><th>Route</th><th title="Scope des Empfangs; bei unbekannter Region wird Transport-Code 1 angezeigt">Scope</th><th>Inhalt</th><th>Last Hop</th><th>RSSI</th><th>SNR</th><th>Hops</th><th>Hash / Repeat</th></tr></thead><tbody id="packets"></tbody></table><p id="empty">Noch keine RX-Pakete empfangen. Die Ansicht aktualisiert sich automatisch.</p></section>
+<table><thead><tr><th>Zeit</th><th>Typ</th><th>Route</th><th title="Scope des Empfangs; bei unbekannter Region wird Transport-Code 1 angezeigt">Scope</th><th>Inhalt</th><th>Last Hop</th><th>RSSI</th><th>SNR</th><th>Hops</th><th>Hash / Empfänge</th></tr></thead><tbody id="packets"></tbody></table><p id="empty">Noch keine RX-Pakete empfangen. Die Ansicht aktualisiert sich automatisch.</p></section>
 </main>
 <footer>Lokaler MQTT-Monitor · maximal 500 Paketgruppen / 50 letzte Empfänge je Gruppe · Liveansicht im Arbeitsspeicher, Archiv in SQLite · Zeit in der Liste vom Observer</footer>
 </body></html>

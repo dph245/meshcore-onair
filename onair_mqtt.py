@@ -3,7 +3,7 @@ import math
 import uuid
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
@@ -80,7 +80,7 @@ packet_number = 0
 seen_hashes = OrderedDict()
 MAX_SEEN_HASHES = 5000
 
-last_noise_floor = None
+last_noise_floor = {}
 learned_alias = None
 
 
@@ -143,8 +143,26 @@ def noise_sample(data):
     number = parse_float(value)
     if number is None or not number.is_integer():
         return None
-    return {'received_at': datetime.now().astimezone().isoformat(),
-            'noise_floor': int(number)}
+    sample = {'received_at': datetime.now().astimezone().isoformat(),
+              'noise_floor': int(number)}
+    timestamp = data.get('timestamp')
+    try:
+        status_at = datetime.fromisoformat(timestamp) if isinstance(timestamp, str) else None
+    except ValueError:
+        status_at = None
+    if status_at is not None:
+        # Observer timestamps without an offset are UTC, not browser local time.
+        if status_at.tzinfo is None:
+            status_at = status_at.replace(tzinfo=timezone.utc)
+        sample['status_at'] = status_at.isoformat()
+    elif data.get('_mqtt_retained'):
+        # A retained message without a usable source time cannot prove activity.
+        return None
+    for field in ('origin_id', 'origin'):
+        value = data.get(field)
+        if isinstance(value, str) and value.strip():
+            sample[field] = value
+    return sample
 
 
 def decode_raw_packet(raw_hex):
@@ -283,16 +301,19 @@ def handle_status(data):
 
     # Nicht jede identische Statusmeldung ins Terminal kippen.
     # Wir zeigen sie, wenn sich der Noise Floor verändert.
-    if noise_floor == last_noise_floor:
+    origin_id = data.get('origin_id')
+    origin_id = origin_id if isinstance(origin_id, str) and origin_id.strip() else None
+    if noise_floor == last_noise_floor.get(origin_id):
         return
 
-    last_noise_floor = noise_floor
+    last_noise_floor[origin_id] = noise_floor
 
     now = datetime.now().strftime("%H:%M:%S")
 
     print()
     print(
         f"{now}  STATUS      "
+        f"Observer {data.get('origin') or origin_id or 'Unzugeordnet'} [{origin_id or 'ohne ID'}]   "
         f"NF {noise_floor} dBm   "
         f"Battery {battery_mv} mV   "
         f"RX {received}   "
@@ -318,6 +339,8 @@ class Packet:
     decoded: dict
     path: str
     last_hop: str
+    origin_id: str | None = None
+    origin: str | None = None
 
     def to_dict(self):
         return asdict(self)
@@ -360,6 +383,8 @@ def build_packet(data):
         time=str(data.get("time") or now.strftime("%H:%M:%S")),
         direction=str(data.get("direction", "?")).lower(),
         observer_hash=observer_hash,
+        origin_id=data.get('origin_id') if isinstance(data.get('origin_id'), str) and data['origin_id'].strip() else None,
+        origin=data.get('origin') if isinstance(data.get('origin'), str) and data['origin'].strip() else None,
         group_id=observer_hash or f"unhashed-{uuid.uuid4().hex}",
         repeat_count=entry["count"], first_number=entry["first_number"],
         rssi=parse_int(data.get("RSSI")), snr=parse_float(data.get("SNR")),
@@ -517,6 +542,7 @@ def on_message(client, userdata, msg):
         return
 
     if msg.topic.endswith("/status"):
+        data['_mqtt_retained'] = bool(getattr(msg, 'retain', False))
         handle_status(data)
         status_sink = userdata.get("status_sink") if isinstance(userdata, dict) else None
         if status_sink is not None:

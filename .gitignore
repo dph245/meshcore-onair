@@ -4,6 +4,10 @@ __pycache__/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
-tests/
+tests/*
+!tests/test_observers.py
+!tests/test_observers_ui.js
+!tests/test_noise_observers.py
+!tests/test_noise_ui.js
 *.log
 .env

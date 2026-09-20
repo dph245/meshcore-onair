@@ -51,7 +51,9 @@ class Dashboard:
     def __init__(self, archive=None):
         self.archive = archive
         self.noise_lock = Lock()
-        self.noise_history = deque(archive.noise_history() if archive else [], maxlen=500)
+        self.noise_history = {}
+        for sample in archive.noise_history() if archive else []:
+            self.noise_history.setdefault(sample.get('origin_id'), deque(maxlen=500)).append(sample)
         self.store = PacketStore()
         self.incoming = Queue(maxsize=2048)
         self.listeners = set()
@@ -63,8 +65,8 @@ class Dashboard:
         sample = noise_sample(data)
         if sample is not None:
             with self.noise_lock:
-                self.noise_floor = sample['noise_floor']
-                self.noise_history.append(sample)
+                self.noise_history.setdefault(sample.get('origin_id'), deque(maxlen=500)).append(sample)
+                self.noise_floor = sample['noise_floor'] if len(self.noise_history) == 1 else None
             if self.archive is not None:
                 self.archive.accept_noise(sample)
 
@@ -77,11 +79,13 @@ class Dashboard:
 
     def status(self):
         with self.noise_lock:
-            history = list(self.noise_history)
+            history = [sample for series in self.noise_history.values() for sample in series]
+            observers = [dict(series[-1]) for series in self.noise_history.values()]
         return {"connected": self.connected, "received": self.store.received,
                 "archive": self.archive_status() if hasattr(self, 'archive_status') else None,
                 "noise_floor": self.noise_floor,
                 "noise_history": history,
+                "noise_observers": observers,
                 "dropped": self.dropped, "max_groups": MAX_GROUPS,
                 "max_receptions": MAX_RECEPTIONS}
 
@@ -182,6 +186,11 @@ def search_archive(q: str = Query('', max_length=200), kind: str = '', channel: 
 @app.get("/api/channels")
 def list_channels():
     return {'channels': list(onair_channels.CHANNELS)}
+
+
+@app.get("/api/observer-comparison")
+def compare_observers():
+    return app.state.archive.observer_comparison()
 
 
 @app.get("/api/repeaters")

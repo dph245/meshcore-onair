@@ -7,6 +7,7 @@ function selectTab(selected) {
     document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
   }
   if (selected.id === 'tab-channels' && !channelsReady) loadChannelMessages();
+  if (selected.id === 'tab-observers') loadObservers();
   if (selected.id === 'tab-repeaters') loadRepeaters();
   if (selected.id === 'tab-map') showNodeMap();
 }
@@ -127,13 +128,17 @@ function render(force = false) {
     snrCell.append(snrMeasurement(p.snr));
     row.append(snrCell, text('td', d.hop_count));
     const repeats = text('td', '');
-    repeats.append(text('div', `${p.observer_hash || 'ohne Hash'}${group.count > 1 ? ` · REPEAT x${group.count}` : ''}`));
+    const hashLabel = text('div', `${p.observer_hash?.slice(0, 6) || 'ohne Hash'} · ${group.count} ${group.count === 1 ? 'Empfang' : 'Empfänge'}`);
+    hashLabel.title = `${p.observer_hash || 'ohne Hash'} · Empfangsbeobachtungen über alle Observer, keine Anzahl von Weiterleitungen`;
+    repeats.append(hashLabel);
     if (query) repeats.append(text('div', `${group.receptions.length} passende gespeicherte Empfänge`, 'muted'));
     if (group.count > 1) {
       const hopList = text('div', '', 'muted');
       hopList.title = 'Letzter Hop pro gespeichertem Empfang (maximal 50)';
       for (const reception of group.receptions) {
-        hopList.append(text('div', reception.last_hop));
+        const hop = text('div', `${reception.last_hop} via Observer ${observerLabel(reception, true)}`);
+        hop.title = observerLabel(reception);
+        hopList.append(hop);
       }
       repeats.append(hopList);
     }
@@ -147,6 +152,9 @@ function render(force = false) {
         const receptionSummary = text('div', `#${reception.number} · ${reception.time} · ${decoded.route_name} · ${measurement(reception.rssi, 'dBm')} · `);
         receptionSummary.append(snrMeasurement(reception.snr));
         block.append(receptionSummary);
+        const observer = text('div', `Observer: ${observerLabel(reception, true)}`);
+        observer.title = observerLabel(reception);
+        block.append(observer);
         block.append(text('div', `Pfad: ${reception.path}`));
         block.append(text('div', `Scope: ${scopeLabel(decoded)}`));
         if (decoded.advert) {
@@ -189,7 +197,15 @@ function connection() {
   const node = document.getElementById('connection');
   node.textContent = online ? (status.connected ? '● MQTT verbunden · Live' : '● MQTT getrennt · warte auf Verbindung') : '● WebSocket getrennt · verbinde erneut …';
   node.className = online && status.connected ? 'online' : 'offline';
-  document.getElementById('noise-floor').textContent = `Noise Floor: ${measurement(online && status.connected ? status.noise_floor : null, 'dBm')}`;
+  const noise = document.getElementById('noise-floor');
+  noise.replaceChildren();
+  for (const observer of status.noise_observers || []) {
+    if (!noiseObserverActive(observer)) continue;
+    const reading = text('span', `Noise Floor ${observerLabel(observer, true)}: ${measurement(online && status.connected ? observer.noise_floor : null, 'dBm')}`);
+    reading.title = `${observerLabel(observer)} · Letzter Status: ${new Date(observer.status_at || observer.received_at).toLocaleString('de-DE')}`;
+    noise.append(reading);
+  }
+  if (!noise.children.length) noise.textContent = 'Noise Floor: —';
 }
 function connect() {
   socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
@@ -212,11 +228,18 @@ document.getElementById('pause').onclick = event => {
   event.target.setAttribute('aria-pressed', String(paused));
   if (!paused) {
     render();
+    if (!document.getElementById('panel-observers').hidden) loadObservers();
     if (!document.getElementById('panel-repeaters').hidden) loadRepeaters();
     if (!document.getElementById('panel-map').hidden) loadMapNodes();
   }
 };
 connect();
+// Expire silent observers even without MQTT/WebSocket updates. While paused,
+// keep the displayed measurements frozen but still hide expired observers.
+setInterval(() => {
+  connection();
+  renderNoise((paused ? displayedStatus : status).noise_history || []);
+}, 1000);
 
 let repeatersLoading = false;
 async function loadRepeaters() {
@@ -320,6 +343,7 @@ async function searchArchive(more = false) {
         : ((a && a.name) || d.advert_status || '');
       entry.append(text('summary', `${new Date(p.received_at).toLocaleString()} · ${d.payload_name} · ${d.group_channel || ''} · Scope: ${scopeLabel(d)} · ${content} · ${p.last_hop}`));
       entry.append(text('div', `Pfad: ${p.path} · RSSI: ${measurement(p.rssi, 'dBm')} · SNR: ${measurement(p.snr, 'dB')} · Hash: ${p.observer_hash || '—'}`));
+      entry.append(text('div', `Observer: ${observerLabel(p)}`));
       entry.append(text('pre', JSON.stringify(p, null, 2)));
       archiveResults.append(entry);
     }
@@ -394,7 +418,7 @@ function appendChannelReception(item) {
   if (channelReceptionIds.has(item.id)) return;
   channelReceptionIds.add(item.id);
   const p = item.packet;
-  // Match the live view: observer hashes identify repeats, missing hashes stay separate.
+  // Match the live view: group receptions by packet hash; missing hashes stay separate.
   const key = p.observer_hash ? `hash:${p.observer_hash.toUpperCase()}` : `id:${item.id}`;
   let group = channelGroups.get(key);
   if (!group) {
@@ -416,9 +440,10 @@ function appendChannelReception(item) {
   group.scopes.textContent = `Scope: ${[...group.scopeLabels].join(' · ')}`;
   group.summary.textContent = group.count === 1
     ? '1 Empfang · Details'
-    : `${group.count} Empfänge · ${group.count - 1} Duplikate · Details`;
+    : `${group.count} Empfänge · Details`;
   const reception = text('div', '', 'reception');
   reception.append(text('div', new Date(p.received_at).toLocaleString(), 'muted'));
+  reception.append(text('div', `Observer: ${observerLabel(p)}`));
   reception.append(text('div', `Scope: ${scopeLabel(p.decoded)}`));
   reception.append(text('div', `Last Hop: ${p.last_hop} · Pfad: ${p.path} · RSSI: ${measurement(p.rssi, 'dBm')} · SNR: ${measurement(p.snr, 'dB')} · Hash: ${p.observer_hash || '—'}`));
   group.details.append(reception);

@@ -14,17 +14,51 @@ function noiseGeometry(samples) {
 }
 
 let noiseRendered = '';
-function renderNoise(samples) {
-  const signature = JSON.stringify(samples);
+const noiseObserverMaxAge = 24 * 60 * 60 * 1000;
+function noiseObserverActive(sample, now = Date.now()) {
+  return Date.parse(sample.status_at || sample.received_at) > now - noiseObserverMaxAge;
+}
+function noiseSeries(samples) {
+  const series = new Map();
+  for (const sample of samples) {
+    const key = sample.origin_id || null;
+    if (!series.has(key)) series.set(key, []);
+    series.get(key).push(sample);
+  }
+  return [...series.values()];
+}
+function renderNoise(samples, now = Date.now()) {
+  const activeSeries = noiseSeries(samples).filter(series =>
+    noiseObserverActive(series[series.length - 1], now));
+  const signature = JSON.stringify(activeSeries);
   if (signature === noiseRendered) return;
   noiseRendered = signature;
-  const chart = document.getElementById('noise-chart');
-  const tooltip = document.getElementById('noise-tooltip');
-  chart.replaceChildren();
-  chart.toggleAttribute('hidden', samples.length === 0);
-  document.getElementById('noise-empty').hidden = samples.length > 0;
-  tooltip.textContent = 'Messpunkt berühren, mit der Maus zeigen oder per Tab auswählen: exakte Empfangszeit und dBm.';
-  if (!samples.length) return;
+  const results = document.getElementById('noise-charts');
+  results.replaceChildren();
+  document.getElementById('noise-empty').hidden = activeSeries.length > 0;
+  for (const series of activeSeries) {
+    const latest = series[series.length - 1];
+    const label = observerLabel(latest, true);
+    const section = text('section', '', 'noise-observer');
+    const heading = text('h3', `${label} · ${latest.noise_floor} dBm`);
+    heading.title = observerLabel(latest);
+    section.append(heading);
+    section.append(text('p', `${series.length} Messwerte · letzter Status: ${new Date(latest.status_at || latest.received_at).toLocaleString('de-DE')}`, 'muted'));
+    const scroll = text('div', '', 'noise-scroll');
+    const chart = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    chart.setAttribute('viewBox', '0 0 1000 240');
+    chart.setAttribute('role', 'group');
+    chart.setAttribute('class', 'noise-chart');
+    chart.setAttribute('aria-label', `Noise Floor: ${label} in dBm`);
+    const tooltip = text('p', 'Messpunkt berühren, mit der Maus zeigen oder per Tab auswählen: exakte Empfangszeit und dBm.', 'noise-tooltip');
+    tooltip.setAttribute('role', 'status');
+    renderNoiseChart(series, chart, tooltip);
+    scroll.append(chart);
+    section.append(scroll, tooltip);
+    results.append(section);
+  }
+}
+function renderNoiseChart(samples, chart, tooltip) {
   const svg = (tag, attributes, content) => {
     const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
     for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
@@ -43,7 +77,7 @@ function renderNoise(samples) {
   if (end !== start) chart.append(svg('text', {x: 976, y: 225, 'text-anchor': 'end'}, timeLabel(end)));
   chart.append(svg('path', {d: path, class: 'noise-step'}));
   for (const point of points) {
-    const label = `${point.sample.received_at} · ${point.sample.noise_floor} dBm · lokale MQTT-Empfangszeit`;
+    const label = `${observerLabel(point.sample, true)} · ${point.sample.received_at} · ${point.sample.noise_floor} dBm · lokale MQTT-Empfangszeit`;
     const marker = svg('circle', {cx: point.x, cy: point.y, r: 3.5, tabindex: 0,
       class: 'noise-point', 'aria-label': label});
     marker.append(svg('title', {}, label));

@@ -56,12 +56,12 @@ Namen stammen aus der vorhandenen Namensauflösung zum Empfangszeitpunkt;
 Zielrouten (DIRECT/TC_DIRECT) zählen nicht als Senderpfad.
 Bei gruppierten Paketen erscheinen nur passende gespeicherte Empfänge; Hauptzeile,
 RSSI und Sortierung beziehen sich auf den neuesten Treffer. Der Gesamtzähler
-`REPEAT` bleibt erhalten, die Zahl passender Empfänge wird zusätzlich angezeigt.
+der Empfangsgruppe bleibt erhalten, die Zahl passender Empfänge wird zusätzlich angezeigt.
 **Zurücksetzen** zeigt wieder alle Pakete. Der Filter bleibt beim Tabwechsel und
 WebSocket-Reconnect erhalten und funktioniert auch in der pausierten Ansicht.
 Empfang und Archivierung laufen unabhängig vom Filter weiter.
 
-Zeit | Typ | Route | Scope | Inhalt | Last Hop | RSSI | SNR | Hops | Hash / Repeat
+Zeit | Typ | Route | Scope | Inhalt | Last Hop | RSSI | SNR | Hops | Hash / Empfänge
 
 **SNR** zeigt in der Liveansicht neben dem dB-Wert eine dreistufige Balkenanzeige,
 auch in den aufgeklappten Empfangsdetails: unter −2 dB ein roter Balken,
@@ -120,10 +120,12 @@ Transport-Code, Raw-Hex, Payload-Hex, Header und weiteren Decoder-Feldern zu seh
 Die Hauptzeile zeigt den neuesten Empfang der Gruppe. Gleiche Observer-Hashes
 (ohne Beachtung der Groß-/Kleinschreibung) werden zusammengefasst, auch wenn sich
 Route oder Messwerte ändern. Ohne Hash wird jeder Empfang separat angezeigt.
-Unter `REPEAT x…` steht pro gespeichertem Empfang der letzte Hop untereinander,
+Unter `… Empfänge` steht pro gespeichertem Empfang der letzte Hop untereinander,
 mit Namensauflösung über `ALIASES` in `onair_mqtt.py`. Wiederholte Repeater bleiben
 als eigene Zeilen erhalten; ein Empfang ohne Hops erscheint als `direct`.
-Angezeigt werden die bis zu 50 gespeicherten Empfänge.
+Angezeigt werden die bis zu 50 gespeicherten Empfänge. Der Gruppenzähler zählt
+Empfangsbeobachtungen über alle Observer, keine nachgewiesenen Weiterleitungen:
+Dasselbe Paket an Ost und West ergibt zwei Empfänge, auch bei nur einer Aussendung.
 Die Webansicht nimmt nur Nachrichten mit `direction: rx` auf.
 
 Maximal 500 zuletzt aktive Gruppen und 50 letzte Empfänge je Gruppe bleiben im RAM.
@@ -143,22 +145,39 @@ Andere Payload-Typen werden weiterhin als Hex in den Details angezeigt.
 
 ## SQLite-Archiv und gelernte Namen
 
-Das Widget **Noise Floor · Raw / Step** zeigt die letzten 500 gültigen
-`stats.noise_floor`-Messungen als Step-Plot mit sichtbaren Messpunkten. Jede
+Das Widget **Noise Floor · Raw / Step** zeigt je Observer die letzten 500 gültigen
+`stats.noise_floor`-Messungen als separaten Step-Plot mit sichtbaren Messpunkten und
+eigener Skala. Die Trennung erfolgt anhand der vollständigen `origin_id`, nicht
+anhand des Anzeigenamens `origin`. Namen und die ersten drei Bytes der Kennung
+stehen am Graphen und neben dem letzten Noise-Floor-Wert in der Kopfzeile; der
+Tooltip enthält die vollständige ID und die letzte Empfangszeit. Jede
 Statusmeldung bleibt als eigener Messpunkt erhalten, auch bei identischen Werten.
 Es gibt keine Glättung, Mittelung oder lineare Interpolation: Die Linie hält den
-Wert bis zur nächsten Meldung und springt dort vertikal auf den neuen Wert.
+Wert bis zur nächsten Meldung desselben Observers und springt dort vertikal auf den neuen Wert.
 Hover, Berührung oder Tastaturfokus auf einem Punkt zeigen den exakten
 ISO-Zeitstempel mit Zeitzone und den ganzzahligen dBm-Wert. Die Zeit ist die lokale
 MQTT-Empfangszeit, kein vom Heltec gelieferter Messzeitstempel.
 
 Web- und Terminal-Modus speichern diese Werte dauerhaft in der SQLite-Tabelle
-`noise_samples`; die vorhandene Datenbank wird automatisch ergänzt. Nach einem
-Neustart oder Browser-Reconnect lädt das Widget wieder die letzten 500 Werte.
+`noise_samples` einschließlich `origin_id`, `origin` und `status_at`; Schema 8 ergänzt die
+vorhandene Datenbank automatisch. Historische Werte ohne Observer-ID bleiben in
+einer separaten Reihe „Unzugeordnet“. Nach einem Neustart oder Browser-Reconnect
+lädt das Widget wieder die letzten 500 Werte **pro Observer**.
 Ältere Messungen bleiben in SQLite erhalten. Fehlende, nicht endliche und nicht
 ganzzahlige Werte werden ausgelassen, ohne sie zu runden oder durch null zu ersetzen.
 Die Ansichtspause gilt auch für den Graphen; der Empfang und die Speicherung laufen
-weiter. Die Historie bleibt bei Verbindungsabbrüchen sichtbar; die Kopfzeile zeigt
+weiter. Observer werden nach 24 Stunden ohne neue Noise-Floor-Statusmeldung in
+Graph und Kopfzeile ausgeblendet (auch ohne weitere MQTT-Meldungen). Dafür zählt
+`timestamp` aus der Statusmeldung (`status_at` im Archiv), sofern vorhanden;
+offsetlose Zeitstempel werden als UTC interpretiert. Nur bei Live-Meldungen ohne
+gültigen Quellzeitstempel dient die lokale Empfangszeit als Ersatz. Alte
+MQTT-Retained-Meldungen werden beim Reconnect nicht durch die neue Zustellzeit
+wieder aktiv. Retained-Meldungen ohne gültigen Quellzeitstempel werden nicht als
+Noise-Floor-Messung übernommen. Historische Einträge behalten ihre ursprünglichen
+lokalen Empfangszeiten; sobald eine Statusmeldung mit Quellzeit eintrifft, ist diese
+für die Altersprüfung des Observers maßgeblich. Eine neue
+Messung blendet sie einschließlich ihrer erhaltenen Historie wieder ein. Die
+Archivdaten werden nicht gelöscht. Die Historie bleibt bei kürzeren Verbindungsabbrüchen sichtbar; die Kopfzeile zeigt
 den Verbindungsstatus. Es werden keine zusätzlichen Messpunkte erzeugt.
 
 Web- und Terminal-Modus speichern jeden erfolgreich geparsten RX-Empfang inklusive
@@ -321,3 +340,55 @@ ausgeliefert, ohne CDN oder Build-Schritt. Nur die Kartenkacheln werden beim
 Öffnen des Map-Tabs direkt von `tile.openstreetmap.org` geladen und benötigen
 eine Internetverbindung. Quellen: [Leaflet-Dokumentation](https://leafletjs.com/reference.html)
 und [OpenStreetMap-Kachelrichtlinie](https://operations.osmfoundation.org/policies/tiles/).
+
+### Observer Comparison · Ost / West
+
+Der zusätzliche Tab **Observer / Ost–West** vergleicht zwei auswählbare Empfangsstationen.
+Die MQTT-Felder `origin_id` (stabile technische Kennung) und `origin` (Anzeigename)
+werden pro RX-Empfang im Paket-JSON und als eigene Archivspalten gespeichert.
+Gleiche Namen verbinden keine Stationen; eine Namensänderung bei gleicher ID erzeugt
+keine neue Station. Ost und West werden im Tab explizit ausgewählt und die Auswahl
+wird lokal im Browser gespeichert.
+
+Die Tabelle zeigt je Node und Observer den besten SNR, besten RSSI, letzten lokalen
+Empfang und die RX-Anzahl über das gesamte Archiv. Filter: nur Ost, nur West oder
+beide. Die Bestwerte werden unabhängig ermittelt und können aus verschiedenen
+Empfängen stammen. Es gibt keine Gewinnerwertung. Der Tab aktualisiert sich alle
+5 Sekunden; neue Daten erscheinen nach dem nächsten Archiv-Commit.
+
+Die Funkwerte gelten für den unmittelbaren Sender: letzter Hop eines Flood-Pakets
+oder Absender eines direkt empfangenen, gültig signierten ADVERTs (alle Node-Typen).
+DIRECT-Zielpfade, frühere Hops und Absender weitergeleiteter ADVERTs erhalten keine
+fremden Funkwerte. Bekannte Aliase und eindeutig auflösbare Hop-Präfixe werden wie
+bisher genutzt; mehrdeutige Kennungen bleiben separat.
+
+Paketgruppen bleiben nach `hash` gruppiert. Jeder Empfang bleibt eine eigene
+Archivzeile, auch bei identischem `hash` **und** identischer `origin_id`. Die neue
+aggregierte Tabelle `observer_receptions` zählt diese Zeilen und ersetzt sie nicht.
+Observer stehen in den Empfangsdetails von Live, Channels und Archiv sowie in der
+Live-Liste der wiederholten Empfänge. Die bestehende Live-Tabellenstruktur bleibt erhalten.
+
+Beim nächsten Start migriert das Archiv automatisch über Schema 6 (Observer) und Schema 7 (Noise Floor) und baut die
+Observer-Statistik aus vorhandenen Paketen auf. Historische Empfänge ohne
+`origin_id` bleiben unzugeordnet, werden separat gezählt und gehen nicht in die
+Ost-/West-Zuordnung ein. Fehlende Messwerte erscheinen als „—“, fehlende Empfänge
+als „nicht gesehen“. Die Abfrage `GET /api/observer-comparison` liefert Observer
+und Node-Statistiken einschließlich ihrer technischen Kennungen. Eine spätere
+Observer-Markierung auf Karte oder Topologie kann darauf aufbauen.
+
+Gezielte Regressionstests für den Observer-Vergleich:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -p test_observers.py -v
+deno run --allow-read=static/observers.js tests/test_observers_ui.js
+```
+
+Der JavaScript-Test prüft Darstellung und Filter mit einem kleinen DOM-Testmodell;
+er ersetzt keine visuelle Browserprüfung.
+
+Noise-Floor-Regressionstests (Trennung, Migration, Neustart und Step-Kurven):
+
+```bash
+.venv/bin/python -m unittest discover -s tests -p test_noise_observers.py -v
+deno run --allow-read=static/noise.js tests/test_noise_ui.js
+```

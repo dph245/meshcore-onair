@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 from onair_repeaters import record_repeater, repeater_summary, repeater_token
 from onair_scopes import scope_label
+from onair_observers import record_observer, observer_comparison
 
 
 def database_path():
@@ -71,6 +72,34 @@ class Archive:
                     for (raw,) in db.execute("SELECT packet_json FROM packets WHERE kind='ADVERT' ORDER BY id"):
                         self._record_node(db, json.loads(raw))
                     db.execute('PRAGMA user_version=5')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 6:
+                    columns = {row[1] for row in db.execute('PRAGMA table_info(packets)')}
+                    for column in ('origin_id', 'origin'):
+                        if column not in columns:
+                            db.execute('ALTER TABLE packets ADD COLUMN ' + column + ' TEXT')
+                    db.execute('CREATE TABLE IF NOT EXISTS observers (origin_id TEXT PRIMARY KEY, origin TEXT, last_seen REAL NOT NULL, count INTEGER NOT NULL)')
+                    db.execute('CREATE TABLE IF NOT EXISTS observer_receptions (token TEXT NOT NULL, origin_id TEXT NOT NULL, count INTEGER NOT NULL, best_rssi INTEGER, best_snr REAL, last_seen REAL NOT NULL, PRIMARY KEY(token,origin_id))')
+                    db.execute('DELETE FROM observers')
+                    db.execute('DELETE FROM observer_receptions')
+                    for packet_id, raw in db.execute('SELECT id,packet_json FROM packets ORDER BY id'):
+                        packet = json.loads(raw)
+                        db.execute('UPDATE packets SET origin_id=?,origin=? WHERE id=?',
+                                   (packet.get('origin_id'), packet.get('origin'), packet_id))
+                        record_observer(db, packet)
+                    db.execute('CREATE INDEX IF NOT EXISTS packets_origin_id ON packets(origin_id,id)')
+                    db.execute('PRAGMA user_version=6')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 7:
+                    columns = {row[1] for row in db.execute('PRAGMA table_info(noise_samples)')}
+                    for column in ('origin_id', 'origin'):
+                        if column not in columns:
+                            db.execute('ALTER TABLE noise_samples ADD COLUMN ' + column + ' TEXT')
+                    db.execute('CREATE INDEX IF NOT EXISTS noise_origin_id ON noise_samples(origin_id,id)')
+                    db.execute('PRAGMA user_version=7')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 8:
+                    columns = {row[1] for row in db.execute('PRAGMA table_info(noise_samples)')}
+                    if 'status_at' not in columns:
+                        db.execute('ALTER TABLE noise_samples ADD COLUMN status_at TEXT')
+                    db.execute('PRAGMA user_version=8')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -107,19 +136,21 @@ class Archive:
             for p in batch:
                 if 'noise_sample' in p:
                     sample = p['noise_sample']
-                    db.execute('INSERT INTO noise_samples(received_at,noise_floor) VALUES(?,?)',
-                               (sample['received_at'], sample['noise_floor']))
+                    db.execute('INSERT INTO noise_samples(received_at,noise_floor,origin_id,origin,status_at) VALUES(?,?,?,?,?)',
+                               (sample['received_at'], sample['noise_floor'],
+                                sample.get('origin_id'), sample.get('origin'), sample.get('status_at')))
                     continue
                 d = p['decoded']
                 record_repeater(db, p)
+                record_observer(db, p)
                 a = d.get('advert')
                 received = datetime.fromisoformat(p['received_at']).timestamp()
                 search = ' '.join(str(v) for v in (p['observer_hash'] or '', p['path'],
                     ' '.join(d['hops']), d.get('group_text') or '', d.get('group_channel') or '',
                     a.get('name') or '' if a else '', a.get('public_key') or '' if a else '')).casefold()
-                db.execute('INSERT INTO packets(received,kind,channel,observer_hash,search_text,packet_json,repeater_token) VALUES(?,?,?,?,?,?,?)',
+                db.execute('INSERT INTO packets(received,kind,channel,observer_hash,search_text,packet_json,repeater_token,origin_id,origin) VALUES(?,?,?,?,?,?,?,?,?)',
                     (received, d['payload_name'], d.get('group_channel'), p['observer_hash'], search,
-                     json.dumps(p, ensure_ascii=False), repeater_token(p)))
+                     json.dumps(p, ensure_ascii=False), repeater_token(p), p.get('origin_id'), p.get('origin')))
                 self._record_node(db, p)
             names = dict(db.execute('SELECT public_key, name FROM nodes'))
         self.saved += sum('noise_sample' not in p for p in batch)
@@ -164,11 +195,21 @@ class Archive:
                 items.append(dict(row))
         return {'items': items, 'without_position': without_position, 'inactive': inactive}
 
+    def observer_comparison(self):
+        with self.connect() as db, db:
+            db.execute('BEGIN')
+            return observer_comparison(db)
+
     def noise_history(self, limit=500):
+        """Latest readings per observer, in receipt order (legacy IDs stay NULL)."""
         with self.connect() as db:
-            rows = db.execute('SELECT received_at,noise_floor FROM noise_samples ORDER BY id DESC LIMIT ?',
+            rows = db.execute('''SELECT received_at,noise_floor,origin_id,origin,status_at FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY origin_id ORDER BY id DESC) AS rank
+                FROM noise_samples) WHERE rank <= ? ORDER BY id''',
                               (limit,)).fetchall()
-        return [{'received_at': row[0], 'noise_floor': row[1]} for row in reversed(rows)]
+        return [dict(received_at=row[0], noise_floor=row[1],
+                     **{key: value for key, value in zip(('origin_id', 'origin', 'status_at'), row[2:])
+                        if value is not None}) for row in rows]
 
     def repeaters(self, hours=8):
         from onair_mqtt import node_label
