@@ -35,6 +35,15 @@ if(rows().length!==3) throw Error('Expected three nodes');
 if(rows()[1].children[3].textContent!=='nicht gesehen') throw Error('Missing reception');
 if(rows()[0].children[2].children[0].textContent!=='+7.0 dB / 84 RX') throw Error('Metrics');
 for(const f of ['east','west','both']) {observerFilter.value=f;renderObservers();if(rows().length!==1)throw Error('Filter '+f);}
+const fullHash = 'abcdef' + '12'.repeat(29);
+observerData.items[0].id = fullHash;
+observerData.items[0].name = fullHash;
+renderObservers();
+if(rows()[0].children[0].textContent !== 'abcdef') throw Error('Short repeater hash');
+if(!rows()[0].children[0].title.includes(fullHash)) throw Error('Full identity in tooltip');
+observerData.items[0].name = 'Repeater[' + fullHash + ']';
+renderObservers();
+if(rows()[0].children[0].textContent !== 'Repeater[abcdef]') throw Error('Short hash with alias');
 observerWest.value='e'; renderObservers();
 if(result.children.length) throw Error('Same observer accepted');
 if(observerLabel({origin_id:'e',origin:'Same'})===observerLabel({origin_id:'w',origin:'Same'})) throw Error('Identity collision');

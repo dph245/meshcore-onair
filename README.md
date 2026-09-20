@@ -298,11 +298,15 @@ SQLite erhalten, sodass später erkannte Kollisionen wieder getrennt angezeigt
 werden können. Die Aliasauflösung in der Paketansicht bleibt unverändert.
 
 Repeater-Zeilen lassen sich aufklappen und zeigen einen RSSI-Verlauf aus dem
-Archiv: letzte Stunde, 24 Stunden (Standard), sieben Tage oder gesamtes Archiv.
+Archiv: letzte Stunde, drei Stunden, 24 Stunden (Standard), sieben Tage oder gesamtes Archiv.
+Jeder Observer erhält eine eigene Kurve mit Legende im gemeinsamen Diagramm;
+Messwerte verschiedener Observer werden nicht miteinander verbunden.
+Die Zuordnung erfolgt über die vollständige Observer-ID. Ältere Empfänge ohne ID
+erscheinen separat als „Unzugeordnet“.
 Je Verlauf werden maximal die neuesten 500 Messwerte im gewählten Zeitraum
 angezeigt; eine Begrenzung wird ausdrücklich angezeigt. Fehlende RSSI-Werte
 werden ausgelassen. Punkte zeigen echte Empfänge, die Verbindungslinien dienen
-der Orientierung. Maus, Touch oder Tastatur zeigen Empfangszeit und RSSI.
+der Orientierung. Maus, Touch oder Tastatur zeigen Observer, Empfangszeit und RSSI.
 Offene Verläufe werden automatisch aktualisiert und berücksichtigen dieselbe
 Hash-Zusammenfassung wie die Übersicht. `/api/repeater-history` ist der zugehörige
 Lese-Endpunkt. Beim ersten Start wird automatisch eine indizierte Hop-Zuordnung

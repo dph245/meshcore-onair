@@ -8,7 +8,7 @@ function repeaterView(item) {
     const history = text('div', '', 'repeater-history');
     const label = text('label', 'RSSI-Verlauf · Zeitraum ');
     const select = document.createElement('select');
-    for (const [value, title] of [[1, 'Letzte Stunde'], [24, '24 Stunden'], [168, '7 Tage'], [0, 'Gesamtes Archiv']]) {
+    for (const [value, title] of [[1, 'Letzte Stunde'], [3, '3 Stunden'], [24, '24 Stunden'], [168, '7 Tage'], [0, 'Gesamtes Archiv']]) {
       const option = text('option', title);
       option.value = value;
       select.append(option);
@@ -89,16 +89,40 @@ function renderRepeaterHistory(view, samples) {
   const timeLabel = time => new Date(time * 1000).toLocaleString('de-DE');
   chart.append(svg('text', {x: 64, y: 225}, timeLabel(start)));
   if (end !== start) chart.append(svg('text', {x: 976, y: 225, 'text-anchor': 'end'}, timeLabel(end)));
-  chart.append(svg('path', {d: samples.map((p, i) => `${i ? 'L' : 'M'} ${x(p.received)} ${y(p.rssi)}`).join(' '), class: 'noise-step'}));
+  const series = new Map();
   for (const sample of samples) {
-    const label = `${timeLabel(sample.received)} · ${sample.rssi} dBm`;
-    const point = svg('circle', {cx: x(sample.received), cy: y(sample.rssi), r: 3.5,
-      tabindex: 0, class: 'noise-point', 'aria-label': label});
-    point.append(svg('title', {}, label));
-    for (const event of ['pointerenter', 'focus', 'click']) {
-      point.addEventListener(event, () => { view.tooltip.textContent = label; });
-    }
-    chart.append(point);
+    const identity = sample.origin_id || null;
+    if (!series.has(identity)) series.set(identity, []);
+    series.get(identity).push(sample);
   }
-  view.plot.append(chart);
+  const legend = text('div', '', 'repeater-legend');
+  const colors = ['var(--accent)', 'var(--blue)', 'var(--warning)', 'var(--purple)', 'var(--strong)'];
+  for (const [index, identity] of [...series.keys()].sort().entries()) {
+    const readings = series.get(identity);
+    const observer = identity ? observerLabel(readings[readings.length - 1], true) : 'Unzugeordnet (ohne Observer-ID)';
+    const color = colors[index % colors.length];
+    const dash = ['', '8 4', '2 4', '8 3 2 3'][Math.floor(index / colors.length) % 4];
+    const entry = text('span', '', 'repeater-legend-entry');
+    const swatch = svg('svg', {width: 32, height: 12, 'aria-hidden': 'true'});
+    const line = svg('line', {x1: 0, x2: 32, y1: 6, y2: 6, 'stroke-width': 2, 'stroke-dasharray': dash});
+    line.style.stroke = color;
+    swatch.append(line);
+    entry.append(swatch, text('span', observer));
+    legend.append(entry);
+    const path = svg('path', {d: readings.map((p, i) => `${i ? 'L' : 'M'} ${x(p.received)} ${y(p.rssi)}`).join(' '), class: 'noise-step', 'stroke-dasharray': dash});
+    path.style.stroke = color;
+    chart.append(path);
+    for (const sample of readings) {
+      const label = `${sample.origin_id ? observerLabel(sample, true) : observer} · ${timeLabel(sample.received)} · ${sample.rssi} dBm`;
+      const point = svg('circle', {cx: x(sample.received), cy: y(sample.rssi), r: 3.5,
+        tabindex: 0, class: 'noise-point', 'aria-label': label});
+      point.style.stroke = color;
+      point.append(svg('title', {}, label));
+      for (const event of ['pointerenter', 'focus', 'click']) {
+        point.addEventListener(event, () => { view.tooltip.textContent = label; });
+      }
+      chart.append(point);
+    }
+  }
+  view.plot.append(legend, chart);
 }

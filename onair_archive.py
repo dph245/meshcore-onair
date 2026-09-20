@@ -232,11 +232,13 @@ class Archive:
         placeholders = ','.join('?' for _ in tokens)
         since = time.time() - hours * 3600 if hours else 0
         with self.connect() as db:
-            rows = db.execute(f'''SELECT received, json_extract(packet_json, '$.rssi')
+            rows = db.execute(f'''SELECT received, json_extract(packet_json, '$.rssi'),
+                json_extract(packet_json, '$.origin_id'), json_extract(packet_json, '$.origin')
                 FROM packets WHERE repeater_token IN ({placeholders}) AND received >= ?
                 AND json_extract(packet_json, '$.rssi') IS NOT NULL
                 ORDER BY received DESC,id DESC LIMIT ?''', tokens + [since, limit + 1]).fetchall()
-        return {'items': [{'received': row[0], 'rssi': row[1]} for row in reversed(rows[:limit])],
+        return {'items': [{'received': row[0], 'rssi': row[1],
+                           'origin_id': row[2], 'origin': row[3]} for row in reversed(rows[:limit])],
                 'has_more': len(rows) > limit}
 
     def _run(self):

@@ -38,7 +38,11 @@ function renderObservers() {
     if (observerFilter.value !== 'all' && observerFilter.value !== visibility) continue;
     count++;
     const row = text('tr', '');
-    const name = text('td', item.name);
+    const shortHash = item.id.slice(0, 6);
+    const label = item.name === item.id ? shortHash
+      : item.name.endsWith(`[${item.id}]`)
+        ? `${item.name.slice(0, -(item.id.length + 2))}[${shortHash}]` : item.name;
+    const name = text('td', label);
     name.title = `Kennung: ${item.id} · Empfangene Kennungen: ${item.tokens.join(', ')}`;
     row.append(name, text('td', {both: 'Von beiden', east: 'Nur Ost', west: 'Nur West'}[visibility]));
     for (const reception of [a, b]) {
