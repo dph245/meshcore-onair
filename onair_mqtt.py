@@ -409,7 +409,9 @@ def handle_packet(data, packet_sink=None):
     return packet
 
 
-def print_packet(packet):
+def format_packet(packet):
+    """Shared, verbatim terminal representation for CLI and dashboard."""
+    lines = []
     decoded = packet.decoded
     time_text = packet.time
     packet_number = packet.number
@@ -442,10 +444,10 @@ def print_packet(packet):
     packet_name = decoded["payload_name"]
     route_name = decoded["route_name"]
 
-    print()
-    print("=" * 100)
+    lines.append("")
+    lines.append("=" * 100)
 
-    print(
+    lines.append(
         f"{time_text}  "
         f"#{packet_number:<5} "
         f"{packet_name:<10} "
@@ -455,7 +457,7 @@ def print_packet(packet):
         f"SNR {snr_text}"
     )
 
-    print(
+    lines.append(
         f"{length_text} | "
         f"Hash {observer_hash}"
         f"{repeat_text} | "
@@ -463,31 +465,32 @@ def print_packet(packet):
         f"{path}"
     )
 
-    print(
+    lines.append(
         f"Path hash size: {decoded['hash_size']} byte"
     )
 
-    print(f"Scope: {scope_label(decoded)}")
+    lines.append(f"Scope: {scope_label(decoded)}")
     if decoded["transport_code"]:
-        print(
+        lines.append(
             f"Transport code: {decoded['transport_code']}"
         )
 
     if decoded["payload_type"] == 0x04:
         advert = decoded.get("advert")
         if advert:
-            print(f"Advert: {advert['name'] or 'Ohne Namen'} | {advert['node_type_name']}")
-            print(f"Public Key: {advert['public_key']} | Timestamp: {advert['timestamp']}")
+            lines.append(f"Advert: {advert['name'] or 'Ohne Namen'} | {advert['node_type_name']}")
+            lines.append(f"Public Key: {advert['public_key']} | Timestamp: {advert['timestamp']}")
             if advert["latitude"] is not None:
-                print(f"Position: {advert['latitude']:.6f}, {advert['longitude']:.6f}")
-            print(f"Signatur: {advert['signature_status']}")
+                lines.append(f"Position: {advert['latitude']:.6f}, {advert['longitude']:.6f}")
+            lines.append(f"Signatur: {advert['signature_status']}")
         if decoded.get("advert_status"):
-            print(decoded["advert_status"])
+            lines.append(decoded["advert_status"])
 
-    # Rohpayload nicht immer anzeigen.
-    # Kann später über Detailansicht ins Web-Dashboard.
-    #
-    # print(f"Payload: {decoded['payload_hex']}")
+    return "\n".join(lines) + "\n"
+
+
+def print_packet(packet):
+    print(format_packet(packet), end="")
 
 
 def on_connect(client, userdata, flags, reason_code, properties):

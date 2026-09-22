@@ -131,7 +131,7 @@ mit Namensauflösung über `ALIASES` in `onair_mqtt.py`. Wiederholte Repeater bl
 als eigene Zeilen erhalten; ein Empfang ohne Hops erscheint als `direct`.
 Angezeigt werden die bis zu 50 gespeicherten Empfänge. Der Gruppenzähler zählt
 Empfangsbeobachtungen über alle Observer, keine nachgewiesenen Weiterleitungen:
-Dasselbe Paket an Ost und West ergibt zwei Empfänge, auch bei nur einer Aussendung.
+Dasselbe Paket an Observer A und B ergibt zwei Empfänge, auch bei nur einer Aussendung.
 Die Webansicht nimmt nur Nachrichten mit `direction: rx` auf.
 
 Maximal 500 zuletzt aktive Gruppen und 50 letzte Empfänge je Gruppe bleiben im RAM.
@@ -272,6 +272,12 @@ WireGuard-, Firewall- und Broker-ACL-Konfiguration sind damit nicht verifiziert.
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
+Der Tab **Rohdaten** zeigt die RX-Pakete mit derselben Formatierung wie im
+Terminal, einschließlich einzelner Wiederholungen. Die letzten 500 Empfänge
+bleiben im Arbeitsspeicher und werden beim Öffnen oder Wiederverbinden geladen.
+Neue Pakete erscheinen unten. „Automatisch mitlaufen“ steuert das Scrollen;
+„Ansicht pausieren“ hält auch diese Anzeige an.
+
 Der Tab **Repeater** zeigt direkt empfangene Sender mit horizontalem RSSI-Balken,
 Minimum/Maximum, letzter lokaler Empfangszeit und Gesamtzahl der Empfänge.
 Angezeigt werden nur Repeater, die in den letzten acht Stunden empfangen wurden.
@@ -351,17 +357,17 @@ ausgeliefert, ohne CDN oder Build-Schritt. Nur die Kartenkacheln werden beim
 eine Internetverbindung. Quellen: [Leaflet-Dokumentation](https://leafletjs.com/reference.html)
 und [OpenStreetMap-Kachelrichtlinie](https://operations.osmfoundation.org/policies/tiles/).
 
-### Observer Comparison · Ost / West
+### Observer-Vergleich · A / B
 
-Der zusätzliche Tab **Observer / Ost–West** vergleicht zwei auswählbare Empfangsstationen.
+Der zusätzliche Tab **Observer A / B** vergleicht zwei auswählbare Empfangsstationen.
 Die MQTT-Felder `origin_id` (stabile technische Kennung) und `origin` (Anzeigename)
 werden pro RX-Empfang im Paket-JSON und als eigene Archivspalten gespeichert.
 Gleiche Namen verbinden keine Stationen; eine Namensänderung bei gleicher ID erzeugt
-keine neue Station. Ost und West werden im Tab explizit ausgewählt und die Auswahl
+keine neue Station. Observer A und B werden im Tab explizit ausgewählt und die Auswahl
 wird lokal im Browser gespeichert.
 
 Die Tabelle zeigt je Node und Observer den besten SNR, besten RSSI, letzten lokalen
-Empfang und die RX-Anzahl über das gesamte Archiv. Filter: nur Ost, nur West oder
+Empfang und die RX-Anzahl über das gesamte Archiv. Filter: nur A, nur B oder
 beide. Die Bestwerte werden unabhängig ermittelt und können aus verschiedenen
 Empfängen stammen. Es gibt keine Gewinnerwertung. Der Tab aktualisiert sich alle
 5 Sekunden; neue Daten erscheinen nach dem nächsten Archiv-Commit.
@@ -381,7 +387,7 @@ Live-Liste der wiederholten Empfänge. Die bestehende Live-Tabellenstruktur blei
 Beim nächsten Start migriert das Archiv automatisch über Schema 6 (Observer) und Schema 7 (Noise Floor) und baut die
 Observer-Statistik aus vorhandenen Paketen auf. Historische Empfänge ohne
 `origin_id` bleiben unzugeordnet, werden separat gezählt und gehen nicht in die
-Ost-/West-Zuordnung ein. Fehlende Messwerte erscheinen als „—“, fehlende Empfänge
+A-/B-Zuordnung ein. Fehlende Messwerte erscheinen als „—“, fehlende Empfänge
 als „nicht gesehen“. Die Abfrage `GET /api/observer-comparison` liefert Observer
 und Node-Statistiken einschließlich ihrer technischen Kennungen. Eine spätere
 Observer-Markierung auf Karte oder Topologie kann darauf aufbauen.

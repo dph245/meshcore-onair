@@ -6,7 +6,8 @@
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
 <div class="tabs" role="tablist" aria-label="Ansichten">
 <button id="tab-live" type="button" role="tab" aria-controls="panel-live" aria-selected="true">Live</button>
-<button id="tab-observers" type="button" role="tab" aria-controls="panel-observers" aria-selected="false" tabindex="-1">Observer / Ost–West</button>
+<button id="tab-raw" type="button" role="tab" aria-controls="panel-raw" aria-selected="false" tabindex="-1">Rohdaten</button>
+<button id="tab-observers" type="button" role="tab" aria-controls="panel-observers" aria-selected="false" tabindex="-1">Observer A / B</button>
 <button id="tab-repeaters" type="button" role="tab" aria-controls="panel-repeaters" aria-selected="false" tabindex="-1">Repeater</button>
 <button id="tab-channels" type="button" role="tab" aria-controls="panel-channels" aria-selected="false" tabindex="-1">Channels</button>
 <button id="tab-archive" type="button" role="tab" aria-controls="panel-archive" aria-selected="false" tabindex="-1">Archiv</button>
@@ -15,13 +16,20 @@
 <button id="tab-noise" type="button" role="tab" aria-controls="panel-noise" aria-selected="false" tabindex="-1">Noise Floor</button>
 </div>
 <main>
+<section id="panel-raw" class="archive" role="tabpanel" aria-labelledby="tab-raw" tabindex="0" hidden>
+<h2>Rohdaten</h2>
+<p class="muted">Paket-Ausgabe wie im Terminal · letzte 500 RX-Empfänge einschließlich Wiederholungen · neueste Pakete unten · „Ansicht pausieren“ hält die Anzeige an.</p>
+<label><input id="raw-follow" type="checkbox" checked> Automatisch mitlaufen</label>
+<pre id="raw-output" tabindex="0" aria-label="Echtzeit-Pakete wie im Terminal">Noch keine RX-Pakete empfangen.</pre>
+</section>
 <section id="panel-observers" class="archive" role="tabpanel" aria-labelledby="tab-observers" tabindex="0" hidden>
-<h2>Observer Comparison · Ost / West</h2>
+<h2>Observer-Vergleich · A / B</h2>
+<p class="muted">Für A und B jeweils einen Observer auswählen. Auch bei mehr als zwei Stationen lassen sich beliebige Paare vergleichen.</p>
 <p class="muted">Gesamtes Archiv einschließlich Wiederholungen · letzter Hop von Flood-Paketen oder direkt empfangene, gültig signierte ADVERTs aller Node-Typen. Mehrdeutige Hop-Kennungen bleiben separat. RSSI und SNR sind unabhängige Bestwerte; sie können aus verschiedenen Empfängen stammen.</p>
 <form id="observers-select">
-<label>Ost <select id="observer-east"><option value="">Observer auswählen …</option></select></label>
-<label>West <select id="observer-west"><option value="">Observer auswählen …</option></select></label>
-<label>Sichtbarkeit <select id="observer-filter"><option value="all">Alle</option><option value="east">Nur Ost</option><option value="west">Nur West</option><option value="both">Beide</option></select></label>
+<label>Observer A <select id="observer-east"><option value="">Observer auswählen …</option></select></label>
+<label>Observer B <select id="observer-west"><option value="">Observer auswählen …</option></select></label>
+<label>Sichtbarkeit <select id="observer-filter"><option value="all">Alle</option><option value="east">Nur A</option><option value="west">Nur B</option><option value="both">Beide</option></select></label>
 </form>
 <p id="observers-status" role="status">Noch keine Daten geladen.</p>
 <div id="observers-results" class="noise-scroll"></div>

@@ -19,12 +19,12 @@ function renderObservers() {
   const unknown = observerData.observers.find(o => o.origin_id == null)?.count || 0;
   const suffix = ` · ${unknown} RX ohne Observer-ID im Archiv · Aktualisierung alle 5 Sekunden`;
   if (!east || !west || east === west) {
-    message.textContent = 'Bitte zwei unterschiedliche Observer für Ost und West auswählen.' + suffix;
+    message.textContent = 'Bitte zwei unterschiedliche Observer für Observer A und B auswählen.' + suffix;
     return;
   }
   const table = text('table', '');
   const head = text('thead', ''), headings = text('tr', '');
-  for (const label of ['Node', 'Gesehen', `Ost · ${observerEast.selectedOptions[0].textContent}`, `West · ${observerWest.selectedOptions[0].textContent}`]) {
+  for (const label of ['Node', 'Gesehen', `Observer A · ${observerEast.selectedOptions[0].textContent}`, `Observer B · ${observerWest.selectedOptions[0].textContent}`]) {
     const cell = text('th', label); cell.scope = 'col'; headings.append(cell);
   }
   head.append(headings); table.append(head);
@@ -44,7 +44,7 @@ function renderObservers() {
         ? `${item.name.slice(0, -(item.id.length + 2))}[${shortHash}]` : item.name;
     const name = text('td', label);
     name.title = `Kennung: ${item.id} · Empfangene Kennungen: ${item.tokens.join(', ')}`;
-    row.append(name, text('td', {both: 'Von beiden', east: 'Nur Ost', west: 'Nur West'}[visibility]));
+    row.append(name, text('td', {both: 'Von beiden', east: 'Nur A', west: 'Nur B'}[visibility]));
     for (const reception of [a, b]) {
       const cell = text('td', '');
       if (!reception) cell.textContent = 'nicht gesehen';

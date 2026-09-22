@@ -9,5 +9,7 @@ tests/*
 !tests/test_observers_ui.js
 !tests/test_noise_observers.py
 !tests/test_noise_ui.js
+!tests/test_raw.py
+!tests/test_raw_ui.js
 *.log
 .env

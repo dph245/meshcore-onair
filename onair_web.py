@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from onair_mqtt import BROKER_HOST, BROKER_PORT, create_client, noise_sample
 
+MAX_RAW_PACKETS = 500
 MAX_GROUPS = 500
 MAX_RECEPTIONS = 50
 STATIC = Path(__file__).parent / "static"
@@ -24,9 +25,11 @@ class PacketStore:
     def __init__(self):
         self.groups = OrderedDict()
         self.received = 0
+        self.raw_packets = deque(maxlen=MAX_RAW_PACKETS)
 
     def add(self, packet):
         item = packet.to_dict()
+        self.raw_packets.append(onair_mqtt.format_packet(packet))
         key = packet.group_id
         group = self.groups.get(key)
         if group is None:
@@ -44,7 +47,8 @@ class PacketStore:
         return group, removed
 
     def snapshot(self):
-        return {"type": "snapshot", "groups": list(self.groups.values())}
+        return {"type": "snapshot", "groups": list(self.groups.values()),
+                "raw_packets": list(self.raw_packets)}
 
 
 class Dashboard:
@@ -92,13 +96,14 @@ class Dashboard:
     async def pump(self):
         previous_status = None
         while True:
-            changed, removed = {}, []
+            changed, removed, raw_packets = {}, [], []
             for _ in range(200):
                 try:
                     packet = self.incoming.get_nowait()
                 except Empty:
                     break
                 group, evicted = self.store.add(packet)
+                raw_packets.append(self.store.raw_packets[-1])
                 changed[group["id"]] = group
                 if evicted:
                     removed.append(evicted)
@@ -106,7 +111,7 @@ class Dashboard:
             status = self.status()
             if changed or status != previous_status:
                 event = {"type": "update", "groups": list(changed.values()),
-                         "removed": removed, "status": status}
+                         "removed": removed, "status": status, "raw_packets": raw_packets}
                 for queue in tuple(self.listeners):
                     if queue.full():
                         while not queue.empty():

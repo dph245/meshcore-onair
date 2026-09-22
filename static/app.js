@@ -6,6 +6,7 @@ function selectTab(selected) {
     tab.tabIndex = active ? 0 : -1;
     document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
   }
+  if (selected.id === 'tab-raw') renderRaw();
   if (selected.id === 'tab-channels' && !channelsReady) loadChannelMessages();
   if (selected.id === 'tab-observers') loadObservers();
   if (selected.id === 'tab-repeaters') loadRepeaters();
@@ -26,6 +27,16 @@ for (const [index, tab] of tabs.entries()) {
   });
 }
 
+let rawPackets = [];
+const rawOutput = document.getElementById('raw-output');
+const rawFollow = document.getElementById('raw-follow');
+function renderRaw() {
+  if (paused || document.getElementById('panel-raw').hidden) return;
+  const output = rawPackets.join('') || 'Noch keine RX-Pakete empfangen.';
+  if (rawOutput.textContent !== output) rawOutput.textContent = output;
+  if (rawFollow.checked) rawOutput.scrollTop = rawOutput.scrollHeight;
+}
+rawFollow.addEventListener('change', renderRaw);
 const groups = new Map(), expanded = new Set();
 let paused = false, status = {}, socket;
 const body = document.getElementById('packets');
@@ -96,6 +107,7 @@ function render(force = false) {
     displayedGroups = [...groups.values()];
     displayedStatus = status;
     renderNoise(status.noise_history || []);
+    renderRaw();
   }
   const query = liveFilter.value.trim().toLowerCase();
   const fragment = document.createDocumentFragment();
@@ -142,6 +154,11 @@ function render(force = false) {
     const repeats = text('td', '');
     const hashLabel = text('div', `${p.observer_hash?.slice(0, 6) || 'ohne Hash'} · ${group.count} ${group.count === 1 ? 'Empfang' : 'Empfänge'}`, 'live-reception-line');
     hashLabel.title = `${p.observer_hash || 'ohne Hash'} · Empfangsbeobachtungen über alle Observer, keine Anzahl von Weiterleitungen`;
+    if (group.count === 1) {
+      const observer = text('span', ` via Observer ${observerLabel(p, true)}`, 'muted');
+      observer.title = observerLabel(p);
+      hashLabel.append(observer);
+    }
     repeats.append(hashLabel);
     if (query) {
       repeats.append(text('div', `${group.receptions.length} passende gespeicherte Empfänge`, 'muted live-reception-line'));
@@ -231,7 +248,11 @@ function connect() {
   socket.onopen = connection;
   socket.onmessage = event => {
     const data = JSON.parse(event.data);
-    if (data.type === 'snapshot') groups.clear();
+    if (data.type === 'snapshot') {
+      groups.clear();
+      rawPackets = [];
+    }
+    rawPackets = rawPackets.concat(data.raw_packets || []).slice(-500);
     for (const id of data.removed || []) groups.delete(id);
     for (const group of data.groups || []) groups.set(group.id, group);
     for (const id of expanded) if (!groups.has(id)) expanded.delete(id);
