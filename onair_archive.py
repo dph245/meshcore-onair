@@ -11,6 +11,7 @@ from datetime import datetime
 from onair_repeaters import record_repeater, repeater_summary, repeater_token
 from onair_scopes import scope_label
 from onair_observers import record_observer, observer_comparison
+from onair_neighbors import record_path, neighbor_summary
 
 
 def database_path():
@@ -100,6 +101,14 @@ class Archive:
                     if 'status_at' not in columns:
                         db.execute('ALTER TABLE noise_samples ADD COLUMN status_at TEXT')
                     db.execute('PRAGMA user_version=8')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 9:
+                    db.execute('''CREATE TABLE IF NOT EXISTS repeater_paths (
+                        path TEXT PRIMARY KEY, count INTEGER NOT NULL,
+                        first_seen REAL NOT NULL, last_seen REAL NOT NULL)''')
+                    db.execute('DELETE FROM repeater_paths')
+                    for (raw,) in db.execute('SELECT packet_json FROM packets ORDER BY id'):
+                        record_path(db, json.loads(raw))
+                    db.execute('PRAGMA user_version=9')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -143,6 +152,7 @@ class Archive:
                 d = p['decoded']
                 record_repeater(db, p)
                 record_observer(db, p)
+                record_path(db, p)
                 a = d.get('advert')
                 received = datetime.fromisoformat(p['received_at']).timestamp()
                 search = ' '.join(str(v) for v in (p['observer_hash'] or '', p['path'],
@@ -194,6 +204,11 @@ class Archive:
             else:
                 items.append(dict(row))
         return {'items': items, 'without_position': without_position, 'inactive': inactive}
+
+    def neighbors(self):
+        with self.connect() as db, db:
+            db.execute('BEGIN')
+            return neighbor_summary(db)
 
     def observer_comparison(self):
         with self.connect() as db, db:

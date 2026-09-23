@@ -11,6 +11,7 @@ function selectTab(selected) {
   if (selected.id === 'tab-observers') loadObservers();
   if (selected.id === 'tab-repeaters') loadRepeaters();
   if (selected.id === 'tab-map') showNodeMap();
+  if (selected.id === 'tab-neighbors') loadNeighbors();
 }
 for (const [index, tab] of tabs.entries()) {
   tab.addEventListener('click', () => selectTab(tab));

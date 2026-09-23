@@ -318,6 +318,29 @@ Hash-Zusammenfassung wie die Übersicht. `/api/repeater-history` ist der zugehö
 Lese-Endpunkt. Beim ersten Start wird automatisch eine indizierte Hop-Zuordnung
 in der Pakettabelle ergänzt und aus vorhandenen Archivdaten befüllt (Schema 4).
 
+Der Tab **Map** zeigt außerdem beobachtete Repeater-Nachbarschaften als einblendbare
+blaue Linien. Die Linienstärke wächst mit der Anzahl der archivierten Empfänge;
+Klick oder Touch zeigt den Zähler und den letzten Beobachtungszeitpunkt. Die
+Nachbartabelle im eigenen Tab **Nachbarn** rechts neben **Map** lässt sich nach Name oder Hash durchsuchen und zeigt
+auch unaufgelöste Verbindungen, jeweils 100 pro Seite.
+
+Die Auswertung verwendet ausschließlich benachbarte Hops empfangener Flood- und
+TC-Flood-Pfade. A–B und B–A zählen als dieselbe Verbindung, höchstens einmal pro
+Empfang, auch bei Schleifen. Wiederholungen und Empfänge mehrerer Observer zählen
+erneut. Direct-Pfade, TX-Pakete und Selbstverbindungen werden nicht gezählt.
+Sender und Observer werden nicht künstlich an den Pfad angehängt. Die Statistik
+umfasst das gesamte Archiv und belegt weder aktuelle Erreichbarkeit noch Funkqualität.
+Kurze Hashes werden nur bei eindeutiger Zuordnung mit längeren Kennungen bzw.
+bekannten Nodes zusammengeführt. Mehrdeutige Hashes bleiben separat; bekannte
+Nicht-Repeater werden ausgeschlossen. Kartenlinien benötigen zwei eindeutig
+zugeordnete Repeater mit sichtbaren Positionen.
+
+`GET /api/repeater-neighbors` liefert die Verbindungen mit `source`, `target`,
+`count`, `first_seen` und `last_seen`. Schema 9 baut beim nächsten Start einmalig
+die Tabelle `repeater_paths` aus dem vorhandenen Archiv auf und aktualisiert sie
+danach mit jedem archivierten Empfang. Rohe Pfade bleiben erhalten, damit später
+bekannt gewordene Hash-Kollisionen bei der Zuordnung berücksichtigt werden.
+
 Der Tab **Map** zeigt alle bekannten Nodes mit letzter bekannter Position auf
 OpenStreetMap: Repeater als Funkturm (grün), RoomServer als drei Figuren
 (orange), Companions als Handfunkgerät (magenta) und weitere Typen als Raute

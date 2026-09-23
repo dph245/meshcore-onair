@@ -1,4 +1,7 @@
 let nodeMap, mapLoading = false;
+let neighborLayer, neighborLinks = [], neighborSignature;
+let neighborPage = 0;
+let neighborsLoading = false;
 const mapMarkers = new Map();
 const mapTypes = {1: ['Companion', 'companion'], 2: ['Repeater', 'repeater'],
   3: ['RoomServer', 'room']};
@@ -51,6 +54,81 @@ function layoutMapNodes() {
       }
     });
   }
+  drawMapNeighbors();
+}
+
+function neighborLabel(node) {
+  return `${node.name === node.id ? node.id : `${node.name} [${node.id.slice(0, 6)}]`}${node.ambiguous ? ' (mehrdeutig)' : node.resolved ? '' : ' (unaufgelöst)'}`;
+}
+
+function drawMapNeighbors() {
+  if (!nodeMap) return;
+  if (!neighborLayer) neighborLayer = L.layerGroup().addTo(nodeMap);
+  neighborLayer.clearLayers();
+  let mapped = 0;
+  for (const link of neighborLinks) {
+    const a = mapMarkers.get(link.source.id), b = mapMarkers.get(link.target.id);
+    if (!link.source.resolved || !link.target.resolved || !a || !b) continue;
+    mapped++;
+    if (!document.getElementById('map-neighbors-toggle').checked) continue;
+    const label = `${neighborLabel(link.source)} ↔ ${neighborLabel(link.target)} · ${link.count} Empfänge`;
+    const info = text('div', label);
+    info.append(text('div', `Zuletzt beobachtet: ${new Date(link.last_seen * 1000).toLocaleString('de-DE')}`));
+    L.polyline([a.marker.getLatLng(), b.marker.getLatLng()], {
+      color: '#3388ff', weight: Math.min(8, 1 + Math.log2(1 + link.count)), opacity: 0.65
+    }).bindTooltip(text('span', label)).bindPopup(info).addTo(neighborLayer);
+  }
+  document.getElementById('map-neighbors-status').textContent = `${neighborLinks.length} beobachtete Verbindungen · ${mapped} auf der Karte zuordenbar`;
+}
+
+function renderMapNeighbors(result) {
+  const signature = JSON.stringify(result.items);
+  if (signature === neighborSignature) return;
+  neighborSignature = signature;
+  neighborLinks = result.items;
+  renderNeighborTable();
+}
+
+async function loadNeighbors() {
+  if (neighborsLoading || paused) return;
+  neighborsLoading = true;
+  const message = document.getElementById('neighbors-status');
+  try {
+    const response = await fetch('/api/repeater-neighbors');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    if (paused) return;
+    renderMapNeighbors(result);
+    drawMapNeighbors();
+    message.textContent = `${neighborLinks.length} beobachtete Verbindungen · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
+  } catch (error) {
+    message.textContent = `Verbindungen konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; bisherige Daten bleiben stehen.`;
+    document.getElementById('map-neighbors-status').textContent = message.textContent;
+  } finally {
+    neighborsLoading = false;
+  }
+}
+
+function renderNeighborTable() {
+  const query = document.getElementById('map-neighbors-search').value.trim().toLocaleLowerCase();
+  const links = neighborLinks.filter(link => [link.source, link.target].some(node =>
+    `${node.name} ${node.id}`.toLocaleLowerCase().includes(query)));
+  const pages = Math.max(1, Math.ceil(links.length / 100));
+  neighborPage = Math.max(0, Math.min(neighborPage, pages - 1));
+  document.getElementById('map-neighbors-page').textContent = `Seite ${neighborPage + 1} / ${pages} · ${links.length} Verbindungen`;
+  document.getElementById('map-neighbors-prev').disabled = neighborPage === 0;
+  document.getElementById('map-neighbors-next').disabled = neighborPage === pages - 1;
+  const table = text('table', '');
+  const head = text('tr', '');
+  for (const label of ['Repeater', 'Nachbar', 'Empfänge', 'Zuletzt beobachtet']) head.append(text('th', label));
+  table.append(head);
+  for (const link of links.slice(neighborPage * 100, (neighborPage + 1) * 100)) {
+    const row = text('tr', '');
+    for (const value of [neighborLabel(link.source), neighborLabel(link.target), link.count,
+      new Date(link.last_seen * 1000).toLocaleString('de-DE')]) row.append(text('td', value));
+    table.append(row);
+  }
+  document.getElementById('map-neighbors-list').replaceChildren(table);
 }
 
 function fitMapNodes() {
@@ -93,6 +171,13 @@ function showNodeMap() {
   if (!nodeMap) {
     const view = savedMapView();
     nodeMap = L.map('node-map').setView(view.center, view.zoom);
+    // Flex layout also changes when headers or status messages wrap.
+    const resizeObserver = new ResizeObserver(() => {
+      if (!document.getElementById('panel-map').hidden) {
+        nodeMap.invalidateSize({pan: false});
+      }
+    });
+    resizeObserver.observe(nodeMap.getContainer());
     nodeMap.on('zoomend', layoutMapNodes);
     nodeMap.on('zoomend', updateMapLabels);
     updateMapLabels();
@@ -110,6 +195,7 @@ function showNodeMap() {
   }
   nodeMap.invalidateSize();
   loadMapNodes();
+  loadNeighbors();
 }
 
 function mapNodeInfo(item) {
@@ -183,6 +269,21 @@ for (const legend of document.querySelectorAll('.map-legend[data-node-style]')) 
   legend.prepend(mapNodeSymbol(legend.dataset.nodeStyle));
 }
 document.getElementById('map-fit').addEventListener('click', fitMapNodes);
+const neighborsToggle = document.getElementById('map-neighbors-toggle');
+neighborsToggle.checked = true;
+try {
+  neighborsToggle.checked = localStorage.getItem('onair-map-neighbors') !== 'false';
+} catch { /* Default to visible when browser storage is unavailable. */ }
+neighborsToggle.addEventListener('change', () => {
+  try {
+    localStorage.setItem('onair-map-neighbors', String(neighborsToggle.checked));
+  } catch { /* The toggle still works without persistent storage. */ }
+  drawMapNeighbors();
+});
+document.getElementById('map-neighbors-search').addEventListener('input', () => { neighborPage = 0; renderNeighborTable(); });
+document.getElementById('map-neighbors-prev').addEventListener('click', () => { neighborPage--; renderNeighborTable(); });
+document.getElementById('map-neighbors-next').addEventListener('click', () => { neighborPage++; renderNeighborTable(); });
 setInterval(() => {
   if (!document.getElementById('panel-map').hidden) loadMapNodes();
+  if (!document.getElementById('panel-map').hidden || !document.getElementById('panel-neighbors').hidden) loadNeighbors();
 }, 5000);

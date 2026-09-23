@@ -221,6 +221,11 @@ def map_nodes():
     return app.state.archive.map_nodes()
 
 
+@app.get("/api/repeater-neighbors")
+def repeater_neighbors():
+    return app.state.archive.neighbors()
+
+
 @app.websocket("/ws")
 async def websocket(websocket: WebSocket):
     await websocket.accept()

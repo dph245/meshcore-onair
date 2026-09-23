@@ -13,6 +13,7 @@
 <button id="tab-archive" type="button" role="tab" aria-controls="panel-archive" aria-selected="false" tabindex="-1">Archiv</button>
 <button id="tab-nodes" type="button" role="tab" aria-controls="panel-nodes" aria-selected="false" tabindex="-1">Nodes</button>
 <button id="tab-map" type="button" role="tab" aria-controls="panel-map" aria-selected="false" tabindex="-1">Map</button>
+<button id="tab-neighbors" type="button" role="tab" aria-controls="panel-neighbors" aria-selected="false" tabindex="-1">Nachbarn</button>
 <button id="tab-noise" type="button" role="tab" aria-controls="panel-noise" aria-selected="false" tabindex="-1">Noise Floor</button>
 </div>
 <main>
@@ -41,6 +42,17 @@
 <p id="map-status" role="status">Noch keine Daten geladen.</p>
 <p id="map-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden. Bitte Internetverbindung prüfen.</p>
 <div id="node-map" aria-label="OpenStreetMap mit bekannten MeshCore-Nodes"></div>
+<p><label><input id="map-neighbors-toggle" type="checkbox" checked> Repeater-Verbindungen anzeigen</label></p>
+<p class="muted">Dickere blaue Linien bedeuten mehr Beobachtungen; keine Aussage über aktuelle Erreichbarkeit oder Funkqualität. Nur eindeutig zugeordnete Repeater mit sichtbarer Position werden verbunden. Alle Verbindungen mit Suche und Häufigkeiten im Tab „Nachbarn“.</p>
+<p id="map-neighbors-status" role="status">Noch keine Verbindungen geladen.</p>
+</section>
+<section id="panel-neighbors" class="archive" role="tabpanel" aria-labelledby="tab-neighbors" tabindex="0" hidden>
+<h2>Beobachtete Repeater-Nachbarn</h2>
+<p class="muted">Nachbarn aus aufeinanderfolgenden Hops empfangener Flood-Pfade · gesamtes Archiv · pro Empfang höchstens einmal je Verbindung, einschließlich Wiederholungen und mehrerer Observer · Aktualisierung alle 5 Sekunden. Keine Aussage über aktuelle Erreichbarkeit oder Funkqualität.</p>
+<p id="neighbors-status" role="status">Noch keine Verbindungen geladen.</p>
+<label>Repeater suchen <input id="map-neighbors-search" type="search" placeholder="Name oder Hash"></label>
+<p><button id="map-neighbors-prev" type="button">Zurück</button> <span id="map-neighbors-page"></span> <button id="map-neighbors-next" type="button">Weiter</button></p>
+<div id="map-neighbors-list" class="noise-scroll"></div>
 </section>
 <section id="panel-repeaters" class="archive" role="tabpanel" aria-labelledby="tab-repeaters" tabindex="0" hidden>
 <h2>Direkt empfangene Repeater</h2>
