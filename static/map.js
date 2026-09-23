@@ -102,7 +102,7 @@ async function loadNeighbors() {
     drawMapNeighbors();
     message.textContent = `${neighborLinks.length} beobachtete Verbindungen · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
   } catch (error) {
-    message.textContent = `Verbindungen konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; bisherige Daten bleiben stehen.`;
+    message.textContent = `Verbindungen konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 30 Sekunden; bisherige Daten bleiben stehen.`;
     document.getElementById('map-neighbors-status').textContent = message.textContent;
   } finally {
     neighborsLoading = false;
@@ -285,5 +285,7 @@ document.getElementById('map-neighbors-prev').addEventListener('click', () => { 
 document.getElementById('map-neighbors-next').addEventListener('click', () => { neighborPage++; renderNeighborTable(); });
 setInterval(() => {
   if (!document.getElementById('panel-map').hidden) loadMapNodes();
-  if (!document.getElementById('panel-map').hidden || !document.getElementById('panel-neighbors').hidden) loadNeighbors();
 }, 5000);
+setInterval(() => {
+  if (!document.getElementById('panel-map').hidden || !document.getElementById('panel-neighbors').hidden) loadNeighbors();
+}, 30000);

@@ -323,6 +323,11 @@ blaue Linien. Die Linienstärke wächst mit der Anzahl der archivierten Empfäng
 Klick oder Touch zeigt den Zähler und den letzten Beobachtungszeitpunkt. Die
 Nachbartabelle im eigenen Tab **Nachbarn** rechts neben **Map** lässt sich nach Name oder Hash durchsuchen und zeigt
 auch unaufgelöste Verbindungen, jeweils 100 pro Seite.
+Nachbarschaftsdaten werden alle 30 Sekunden abgerufen. Der Server hält die fertig
+kodierte JSON-Antwort für 30 Sekunden gemeinsam für alle Browser im Speicher;
+gleichzeitige Anfragen lösen keine mehrfachen Berechnungen aus. Die Hash-Auflösung
+verwendet einen Präfixindex statt paarweiser Vergleiche aller Kennungen. Die
+übrige Karten- und Liveaktualisierung behält ihren bisherigen Takt.
 
 Die Auswertung verwendet ausschließlich benachbarte Hops empfangener Flood- und
 TC-Flood-Pfade. A–B und B–A zählen als dieselbe Verbindung, höchstens einmal pro

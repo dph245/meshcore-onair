@@ -24,18 +24,23 @@ def neighbor_summary(db):
     tokens = {token for hops, *_ in paths for token in hops}
     # Include all known node types: a Companion sharing a prefix is a collision too.
     candidates = tokens | set(nodes) | {row[0] for row in db.execute('SELECT token FROM repeater_receptions')}
-    identities = []
+    # Each terminal identity contributes its prefixes once. Avoid scanning all
+    # identities for every token (quadratic with a large server archive).
+    prefixes = {}
     for token in sorted(candidates, key=lambda value: (-len(value), value)):
-        if not any(identity.startswith(token) for identity in identities):
-            identities.append(token)
+        if token in prefixes:
+            continue
+        for length in range(2, len(token) + 1, 2):
+            prefix = token[:length]
+            prefixes[prefix] = None if prefix in prefixes else token
     resolved = {}
     for token in tokens:
-        matches = [identity for identity in identities if identity.startswith(token)]
-        identity = matches[0] if len(matches) == 1 else token
+        match = prefixes[token]
+        identity = match or token
         node = nodes.get(identity)
         resolved[token] = dict(id=identity, name=node['name'] if node else identity,
                                resolved=bool(node and node['node_type'] == 2),
-                               ambiguous=len(matches) > 1,
+                               ambiguous=match is None,
                                excluded=bool(node and node['node_type'] != 2))
     links = {}
     for hops, count, first, last in paths:

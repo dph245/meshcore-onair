@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from queue import Queue, Empty, Full
 import sqlite3
-from threading import Thread, Event
+from threading import Thread, Event, Lock
 import time
 from datetime import datetime
 from onair_repeaters import record_repeater, repeater_summary, repeater_token
@@ -29,6 +29,9 @@ class Archive:
         self.dropped = 0
         self.saved = 0
         self.names = {}
+        self._neighbors_lock = Lock()
+        self._neighbors_json = None
+        self._neighbors_expires = 0
         with self.connect() as db:
             db.execute('PRAGMA journal_mode=WAL')
             db.executescript('''
@@ -209,6 +212,17 @@ class Archive:
         with self.connect() as db, db:
             db.execute('BEGIN')
             return neighbor_summary(db)
+
+    def neighbors_json(self):
+        # Share both computation and JSON serialization across concurrent clients.
+        # Keep a bounded refresh rate even when receptions arrive continuously.
+        with self._neighbors_lock:
+            if self._neighbors_json is None or time.monotonic() >= self._neighbors_expires:
+                result = json.dumps(self.neighbors(), ensure_ascii=False,
+                                    separators=(',', ':')).encode('utf-8')
+                self._neighbors_json = result
+                self._neighbors_expires = time.monotonic() + 30
+            return self._neighbors_json
 
     def observer_comparison(self):
         with self.connect() as db, db:

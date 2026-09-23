@@ -10,7 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 import onair_mqtt
 import onair_channels
 from onair_archive import Archive
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from onair_mqtt import BROKER_HOST, BROKER_PORT, create_client, noise_sample
@@ -223,7 +223,7 @@ def map_nodes():
 
 @app.get("/api/repeater-neighbors")
 def repeater_neighbors():
-    return app.state.archive.neighbors()
+    return Response(content=app.state.archive.neighbors_json(), media_type='application/json')
 
 
 @app.websocket("/ws")

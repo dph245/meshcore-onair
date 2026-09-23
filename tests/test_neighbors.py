@@ -1,4 +1,6 @@
 import sqlite3
+import json
+from concurrent.futures import ThreadPoolExecutor
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,7 +29,9 @@ class NeighborTests(unittest.TestCase):
             self.assertEqual(pairs, {('aa', 'bb'): 4, ('aa', 'cc'): 1})
             import onair_web as web
             with patch.object(web.app.state, 'archive', archive, create=True):
-                self.assertEqual(web.repeater_neighbors()['items'], links)
+                response = web.repeater_neighbors()
+                self.assertEqual(json.loads(response.body)['items'], links)
+                self.assertEqual(response.media_type, 'application/json')
             # Rebuild from historical packets, then restart without recounting.
             with sqlite3.connect(archive.path) as db:
                 db.execute('DROP TABLE repeater_paths')
@@ -62,3 +66,32 @@ class NeighborTests(unittest.TestCase):
             with sqlite3.connect(archive.path) as db:
                 db.execute('UPDATE nodes SET node_type=1 WHERE public_key=?', (b,))
             self.assertFalse(any(link['target']['id'] == b for link in archive.neighbors()['items']))
+
+    def test_shared_json_cache_refreshes_after_expiry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Archive(Path(folder) / 'archive.db')
+            archive.accept(packet('1502aabb'))
+            archive.close()
+            with patch('onair_archive.time.monotonic', return_value=100) as clock, \
+                    patch.object(archive, 'neighbors', wraps=archive.neighbors) as compute:
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    results = list(pool.map(lambda _: archive.neighbors_json(), range(16)))
+                self.assertEqual(compute.call_count, 1)
+                self.assertTrue(all(result is results[0] for result in results))
+                self.assertEqual(json.loads(results[0])['items'][0]['count'], 1)
+                with archive.connect() as db:
+                    archive._write(db, [packet('1502aabb').to_dict()])
+                clock.return_value = 129
+                self.assertIs(archive.neighbors_json(), results[0])
+                clock.return_value = 130
+                self.assertEqual(json.loads(archive.neighbors_json())['items'][0]['count'], 2)
+                self.assertEqual(compute.call_count, 2)
+
+    def test_failed_refresh_can_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Archive(Path(folder) / 'archive.db')
+            archive.close()
+            with patch.object(archive, 'neighbors', side_effect=[RuntimeError('failed'), {'items': []}]):
+                with self.assertRaises(RuntimeError):
+                    archive.neighbors_json()
+                self.assertEqual(json.loads(archive.neighbors_json()), {'items': []})
