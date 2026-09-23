@@ -1,6 +1,7 @@
 """Observed adjacency in received flood paths, retaining ambiguous raw hashes."""
 import json
 import math
+import re
 from datetime import datetime
 
 
@@ -85,3 +86,49 @@ def neighbor_summary(db):
             link['first_seen'] = min(link['first_seen'], first)
             link['last_seen'] = max(link['last_seen'], last)
     return {'items': sorted(links.values(), key=lambda item: (-item['count'], item['source']['id'], item['target']['id']))}
+
+
+def neighbor_page(items, q='', one_way=False, sort='count', descending=True, page=0, limit=100):
+    query = q.strip().casefold()
+    filtered = [item for item in items
+                if (not one_way or not item['forward_count'] or not item['reverse_count'])
+                and (not query or any(query in (node['name'] + ' ' + node['id']).casefold()
+                                      for node in (item['source'], item['target'])))]
+
+    def value(item):
+        if sort in ('source', 'target'):
+            node = item[sort]
+            label = node['name'] + ' ' + node['id']
+            # Natural ordering, including names such as Node2 and Node10.
+            folded = label.casefold().translate(str.maketrans({'ä': 'a', 'ö': 'o', 'ü': 'u'}))
+            return tuple((1, int(part)) if part.isdigit() else (0, part)
+                         for part in re.split(r'(\d+)', folded))
+        if sort == 'direction':
+            return 0 if item['forward_count'] and item['reverse_count'] else 1 if item['forward_count'] else 2
+        return item[sort]
+
+    filtered.sort(key=lambda item: (item['source']['id'], item['target']['id']))
+    known = [item for item in filtered if value(item) is not None]
+    missing = [item for item in filtered if value(item) is None]
+    known.sort(key=value, reverse=descending)
+    filtered = known + missing
+    page = min(page, max(0, (len(filtered) - 1) // limit))
+    return dict(items=filtered[page * limit:(page + 1) * limit], page=page,
+                total=len(filtered), total_all=len(items),
+                one_way_total=sum(not item['forward_count'] or not item['reverse_count'] for item in items))
+
+
+def neighbor_map(items):
+    nodes, indices, links = [], {}, []
+    for item in items:
+        if item['distance_km'] is None:
+            continue
+        pair = []
+        for node in (item['source'], item['target']):
+            if node['id'] not in indices:
+                indices[node['id']] = len(nodes)
+                nodes.append([node['id'], node['name']])
+            pair.append(indices[node['id']])
+        links.append(pair + [item[key] for key in
+                            ('count', 'forward_count', 'reverse_count', 'last_seen', 'distance_km')])
+    return dict(nodes=nodes, links=links, total=len(items))

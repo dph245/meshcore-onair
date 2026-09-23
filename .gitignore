@@ -7,6 +7,8 @@ __pycache__/
 tests/*
 !tests/test_neighbors.py
 !tests/test_neighbors_ui.js
+!tests/test_neighbors_api.py
+!tests/test_neighbors_fetch_ui.js
 !tests/test_observers.py
 !tests/test_observers_ui.js
 !tests/test_noise_observers.py

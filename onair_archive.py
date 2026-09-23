@@ -1,5 +1,7 @@
 """SQLite reception archive; one writer, bounded batches, independent readers."""
 import json
+import hashlib
+from collections import OrderedDict
 import logging
 import os
 from pathlib import Path
@@ -11,7 +13,7 @@ from datetime import datetime
 from onair_repeaters import record_repeater, repeater_summary, repeater_token
 from onair_scopes import scope_label
 from onair_observers import record_observer, observer_comparison
-from onair_neighbors import record_path, neighbor_summary
+from onair_neighbors import record_path, neighbor_summary, neighbor_page, neighbor_map
 
 
 def database_path():
@@ -31,6 +33,8 @@ class Archive:
         self.names = {}
         self._neighbors_lock = Lock()
         self._neighbors_json = None
+        self._neighbors_items = None
+        self._neighbors_responses = OrderedDict()
         self._neighbors_expires = 0
         with self.connect() as db:
             db.execute('PRAGMA journal_mode=WAL')
@@ -213,16 +217,37 @@ class Archive:
             db.execute('BEGIN')
             return neighbor_summary(db)
 
+    def _refresh_neighbors(self):
+        # Caller owns the lock; all clients and representations share one snapshot.
+        if self._neighbors_items is None or time.monotonic() >= self._neighbors_expires:
+            items = self.neighbors()['items']
+            self._neighbors_items = items
+            self._neighbors_json = None
+            self._neighbors_responses.clear()
+            self._neighbors_expires = time.monotonic() + 30
+
     def neighbors_json(self):
-        # Share both computation and JSON serialization across concurrent clients.
-        # Keep a bounded refresh rate even when receptions arrive continuously.
         with self._neighbors_lock:
-            if self._neighbors_json is None or time.monotonic() >= self._neighbors_expires:
-                result = json.dumps(self.neighbors(), ensure_ascii=False,
-                                    separators=(',', ':')).encode('utf-8')
-                self._neighbors_json = result
-                self._neighbors_expires = time.monotonic() + 30
+            self._refresh_neighbors()
+            if self._neighbors_json is None:
+                self._neighbors_json = json.dumps({'items': self._neighbors_items}, ensure_ascii=False,
+                                                 separators=(',', ':')).encode('utf-8')
             return self._neighbors_json
+
+    def neighbor_response(self, mode, **options):
+        with self._neighbors_lock:
+            self._refresh_neighbors()
+            key = (mode, tuple(sorted(options.items())))
+            if key not in self._neighbors_responses:
+                result = (neighbor_map(self._neighbors_items) if mode == 'map'
+                          else neighbor_page(self._neighbors_items, **options))
+                body = json.dumps(result, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+                etag = '"' + hashlib.sha256(body).hexdigest() + '"'
+                self._neighbors_responses[key] = (body, etag)
+                if len(self._neighbors_responses) > 64:
+                    self._neighbors_responses.popitem(last=False)
+            self._neighbors_responses.move_to_end(key)
+            return self._neighbors_responses[key]
 
     def observer_comparison(self):
         with self.connect() as db, db:

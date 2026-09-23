@@ -6,7 +6,9 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from queue import Empty, Full, Queue
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from typing import Literal
+
+from fastapi import Request, FastAPI, WebSocket, WebSocketDisconnect, Query
 import onair_mqtt
 import onair_channels
 from onair_archive import Archive
@@ -224,6 +226,31 @@ def map_nodes():
 @app.get("/api/repeater-neighbors")
 def repeater_neighbors():
     return Response(content=app.state.archive.neighbors_json(), media_type='application/json')
+
+
+def conditional_neighbors(request, mode, **options):
+    body, etag = app.state.archive.neighbor_response(mode, **options)
+    headers = {'ETag': etag, 'Cache-Control': 'private, no-cache'}
+    matches = [tag.strip().removeprefix('W/') for tag in request.headers.get('if-none-match', '').split(',')]
+    if etag in matches or '*' in matches:
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type='application/json', headers=headers)
+
+
+@app.get('/api/repeater-neighbors/map')
+def repeater_neighbors_map(request: Request):
+    return conditional_neighbors(request, 'map')
+
+
+@app.get('/api/repeater-neighbors/table')
+def repeater_neighbors_table(request: Request, q: str = Query('', max_length=200),
+                             one_way: bool = False,
+                             sort: Literal['source', 'target', 'forward_count', 'reverse_count',
+                                           'direction', 'count', 'last_seen', 'distance_km'] = 'count',
+                             descending: bool = True, page: int = Query(0, ge=0),
+                             limit: int = Query(100, ge=1, le=100)):
+    return conditional_neighbors(request, 'table', q=q, one_way=one_way, sort=sort,
+                                 descending=descending, page=page, limit=limit)
 
 
 @app.websocket("/ws")

@@ -53,7 +53,7 @@ renderMapNeighbors({items:[link, {...link, target:{id:'ee', name:'ee', ambiguous
 drawMapNeighbors();
 assert(document.getElementById('map-neighbors-status').textContent.includes('1 auf der Karte'), 'Only resolved positioned links mapped');
 assert(neighborLabel({id:'aa', name:'aa', ambiguous:true}).includes('mehrdeutig'), 'Collision label');
-assert(document.getElementById('map-neighbors-list').children[0].children.length === 3, 'All links in table');
+
 assert(lines.length === 3 && lines[0].options.color === '#3388ff', 'Two arrowheads for bidirectional link');
 lines[0].events.click({latlng:[2,3]});
 const snapshot = getPopup();
@@ -100,61 +100,16 @@ renderMapNeighbors({items:[{...link, forward_count:0, reverse_count:8}]}); drawM
 assert(lines.length === 2 && lines[0].options.color === '#d97706', 'One orange arrow for reverse-only link');
 assert(lines[1].positions[1][0] < lines[1].positions[0][0], 'Reverse arrow points toward A');
 assert(neighborDirection({...link, forward_count:0}).includes('B → A'), 'Reverse direction label');
+renderMapNeighbors({nodes:[[a.id,a.name],[b.id,b.name]], links:[[0,1,8,6,2,123,12.34]], total:200});
+assert(neighborLinks.length === 1 && neighborLinks[0].target.name === 'B', 'Compact map response resolves node references');
+assert(neighborTotal === 200, 'Map retains total including unmapped connections');
+renderNeighborTable({items:[link], page:2, total:201});
 const row = document.getElementById('map-neighbors-list').children[0].children[1];
-assert(row.children[2].textContent === 0 && row.children[3].textContent === 8, 'Separate directional counts');
-renderMapNeighbors({items:[link, {...link, reverse_count:0}]});
-document.getElementById('neighbors-one-way').checked = true; renderNeighborTable();
-assert(document.getElementById('map-neighbors-list').children[0].children.length === 2, 'One-way filter');
-document.getElementById('neighbors-one-way').checked = false;
-renderMapNeighbors({items:Array.from({length:201}, (_, i) => ({...link, source:{...a, name:'Node'+i}}))});
-assert(document.getElementById('map-neighbors-list').children[0].children.length === 101, 'Bounded table');
-neighborPage = 2; renderNeighborTable();
-assert(document.getElementById('map-neighbors-list').children[0].children.length === 2, 'Last page');
-document.getElementById('map-neighbors-search').value = 'Node200'; renderNeighborTable();
-assert(neighborPage === 0 && document.getElementById('map-neighbors-list').children[0].children.length === 2, 'Search and page clamp');
-document.getElementById('map-neighbors-search').value = '';
-const table = () => document.getElementById('map-neighbors-list').children[0];
-const sortBy = index => table().children[0].children[index].children[0].events.click();
-const firstValue = index => table().children[1].children[index].textContent;
-renderMapNeighbors({items:[
-  {...link, source:{...a, name:'Node10'}, count:10, last_seen:100},
-  {...link, source:{...a, name:'Node2'}, count:2, last_seen:200},
-]});
-assert(firstValue(5) === 10, 'Default sorts counts numerically descending');
-sortBy(5);
-assert(firstValue(5) === 2, 'Repeated column click reverses sort');
-assert(table().children[0].children[5].attributes['aria-sort'] === 'ascending', 'Accessible sort direction');
-sortBy(0);
-assert(firstValue(0).includes('Node2'), 'Names use natural alphabetical order');
-sortBy(0);
-assert(firstValue(0).includes('Node10'), 'Names can be sorted descending');
-sortBy(6);
-assert(firstValue(5) === 2, 'Timestamps sort newest first');
-sortBy(6);
-assert(firstValue(5) === 10, 'Timestamps sort oldest first');
-for (const [column, field] of [[2, 'forward_count'], [3, 'reverse_count']]) {
-  renderMapNeighbors({items:[{...link, [field]:2}, {...link, [field]:10}]});
-  sortBy(column);
-  assert(firstValue(column) === 10, 'Directional counts sort numerically');
-}
-renderMapNeighbors({items:Array.from({length:201}, (_, i) => ({...link, count:i}))});
-neighborPage = 2; renderNeighborTable();
-sortBy(5);
-assert(neighborPage === 0 && firstValue(5) === 200, 'Sorting resets page and includes all pages');
-renderMapNeighbors({items:[{...link, count:9}, {...link, count:100}]});
-assert(firstValue(5) === 100, 'Chosen sort survives refresh');
-document.getElementById('neighbors-one-way').checked = true;
-renderMapNeighbors({items:[{...link, count:100}, {...link, count:9, reverse_count:0}, {...link, count:20, reverse_count:0}]});
-assert(firstValue(5) === 20 && table().children.length === 3, 'Sorting combines with one-way filter');
-document.getElementById('neighbors-one-way').checked = false;
-renderMapNeighbors({items:[{...link, distance_km:null}, {...link, distance_km:2},
-  {...link, distance_km:100}, {...link, distance_km:0}]});
-sortBy(7);
-assert(firstValue(7) === '100,0 km', 'Distances sort numerically descending');
-assert(table().children[4].children[7].textContent === '—', 'Unknown distance sorts last descending');
-sortBy(7);
-assert(firstValue(7) === '0,0 km', 'Zero distance is shown and sorts first ascending');
-assert(table().children[4].children[7].textContent === '—', 'Unknown distance sorts last ascending');
+assert(row.children[2].textContent === 6 && row.children[3].textContent === 2, 'Server page renders directional counts');
+assert(row.children[7].textContent === '12,3 km', 'Server page renders distance');
+assert(document.getElementById('map-neighbors-next').disabled && neighborPage === 2, 'Server page controls pagination');
+renderNeighborTable({items:[], page:0, total:0});
+assert(document.getElementById('map-neighbors-prev').disabled && document.getElementById('map-neighbors-next').disabled, 'Empty results disable pagination');
 document.getElementById('map-neighbors-toggle').checked = false; drawMapNeighbors();
 console.log('Neighbor UI: resolution, labels, pagination, search, sorting and toggle passed');
 `)(lines, () => activePopup);

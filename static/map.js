@@ -13,6 +13,9 @@ const neighborColumns = [
   ['distance_km', 'Entfernung (Luftlinie)', link => link.distance_km],
 ];
 let neighborsLoading = false;
+let neighborTotal = 0, mapNeighborEtag;
+let neighborTableRequest = 0, neighborTableController, neighborTableCache;
+let neighborSearchTimer;
 let selectedMapRepeater = null;
 const mapMarkers = new Map();
 const mapTypes = {1: ['Companion', 'companion'], 2: ['Repeater', 'repeater'],
@@ -150,55 +153,79 @@ function drawMapNeighbors() {
   const selected = mapMarkers.get(selectedMapRepeater);
   document.getElementById('map-neighbors-status').textContent = selected
     ? `Nachbarn von ${selected.label || selectedMapRepeater} · ${mapped} Verbindungen auf der Karte zuordenbar · Klick auf die freie Karte hebt den Filter auf`
-    : `${neighborLinks.length} beobachtete Verbindungen · ${mapped} auf der Karte zuordenbar · Repeater anklicken, um seine Nachbarn zu sehen`;
+    : `${neighborTotal} beobachtete Verbindungen · ${mapped} auf der Karte zuordenbar · Repeater anklicken, um seine Nachbarn zu sehen`;
 }
 
 function renderMapNeighbors(result) {
-  const signature = JSON.stringify(result.items);
+  const signature = JSON.stringify(result);
   if (signature === neighborSignature) return;
   neighborSignature = signature;
-  neighborLinks = result.items;
-  renderNeighborTable();
+  neighborTotal = result.total ?? result.items?.length ?? 0;
+  if (result.nodes) {
+    const nodes = result.nodes.map(([id, name]) => ({id, name, resolved: true, ambiguous: false}));
+    neighborLinks = result.links.map(([a, b, count, forward_count, reverse_count, last_seen, distance_km]) =>
+      ({source: nodes[a], target: nodes[b], count, forward_count, reverse_count, last_seen, distance_km}));
+  } else neighborLinks = result.items;
 }
 
-async function loadNeighbors() {
+async function loadMapNeighbors() {
   if (neighborsLoading || paused) return;
   neighborsLoading = true;
-  const message = document.getElementById('neighbors-status');
   try {
-    const response = await fetch('/api/repeater-neighbors');
+    const response = await fetch('/api/repeater-neighbors/map', {
+      headers: mapNeighborEtag ? {'If-None-Match': mapNeighborEtag} : {}, cache: 'no-cache'
+    });
+    if (response.status === 304) return;
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
     if (paused) return;
+    mapNeighborEtag = response.headers.get('ETag');
     renderMapNeighbors(result);
     drawMapNeighbors();
-    const oneWay = neighborLinks.filter(link => !link.forward_count || !link.reverse_count).length;
-    message.textContent = `${neighborLinks.length} beobachtete Verbindungen · ${oneWay} nur in einer Richtung beobachtet · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
   } catch (error) {
-    message.textContent = `Verbindungen konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 30 Sekunden; bisherige Daten bleiben stehen.`;
-    document.getElementById('map-neighbors-status').textContent = message.textContent;
+    document.getElementById('map-neighbors-status').textContent = `Verbindungen konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 30 Sekunden; bisherige Daten bleiben stehen.`;
   } finally {
     neighborsLoading = false;
   }
 }
 
-function renderNeighborTable() {
-  const query = document.getElementById('map-neighbors-search').value.trim().toLocaleLowerCase();
-  const onlyOneWay = document.getElementById('neighbors-one-way').checked;
-  const links = neighborLinks.filter(link => (!onlyOneWay || !link.forward_count || !link.reverse_count) && [link.source, link.target].some(node =>
-    `${node.name} ${node.id}`.toLocaleLowerCase().includes(query)));
-  const sortValue = neighborColumns.find(([key]) => key === neighborSortKey)[2];
-  links.sort((a, b) => {
-    const left = sortValue(a), right = sortValue(b);
-    if (left == null || right == null) return (left == null) - (right == null);
-    const order = typeof left === 'number' ? left - right
-      : left.localeCompare(right, 'de', {numeric: true, sensitivity: 'base'});
-    return order * neighborSortDirection || a.source.id.localeCompare(b.source.id)
-      || a.target.id.localeCompare(b.target.id);
+function loadNeighbors() {
+  if (!document.getElementById('panel-map').hidden) loadMapNeighbors();
+  if (!document.getElementById('panel-neighbors').hidden) loadNeighborTable();
+}
+
+async function loadNeighborTable() {
+  if (paused) return;
+  const request = ++neighborTableRequest;
+  neighborTableController?.abort();
+  const controller = neighborTableController = new AbortController();
+  const params = new URLSearchParams({
+    q: document.getElementById('map-neighbors-search').value.trim(),
+    one_way: document.getElementById('neighbors-one-way').checked,
+    sort: neighborSortKey, descending: neighborSortDirection === -1, page: neighborPage, limit: 100
   });
-  const pages = Math.max(1, Math.ceil(links.length / 100));
-  neighborPage = Math.max(0, Math.min(neighborPage, pages - 1));
-  document.getElementById('map-neighbors-page').textContent = `Seite ${neighborPage + 1} / ${pages} · ${links.length} Verbindungen`;
+  const url = `/api/repeater-neighbors/table?${params}`;
+  const cached = neighborTableCache?.url === url ? neighborTableCache : null;
+  const message = document.getElementById('neighbors-status');
+  try {
+    const response = await fetch(url, {signal: controller.signal, cache: 'no-cache',
+      headers: cached?.etag ? {'If-None-Match': cached.etag} : {}});
+    if (response.status !== 304 && !response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = response.status === 304 ? cached.result : await response.json();
+    if (request !== neighborTableRequest || paused) return;
+    neighborTableCache = {url, result, etag: response.headers.get('ETag') || cached?.etag};
+    renderNeighborTable(result);
+    message.textContent = `${result.total_all} beobachtete Verbindungen · ${result.one_way_total} nur in einer Richtung beobachtet · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
+  } catch (error) {
+    if (request !== neighborTableRequest || error.name === 'AbortError') return;
+    message.textContent = `Verbindungen konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 30 Sekunden; bisherige Daten bleiben stehen.`;
+  }
+}
+
+function renderNeighborTable(result) {
+  neighborPage = result.page;
+  const pages = Math.max(1, Math.ceil(result.total / 100));
+  document.getElementById('map-neighbors-page').textContent = `Seite ${neighborPage + 1} / ${pages} · ${result.total} Verbindungen`;
   document.getElementById('map-neighbors-prev').disabled = neighborPage === 0;
   document.getElementById('map-neighbors-next').disabled = neighborPage === pages - 1;
   const table = text('table', '');
@@ -215,13 +242,13 @@ function renderNeighborTable() {
       neighborSortDirection = active ? -neighborSortDirection : (['source', 'target', 'direction'].includes(key) ? 1 : -1);
       neighborSortKey = key;
       neighborPage = 0;
-      renderNeighborTable();
+      loadNeighborTable();
     });
     cell.append(button);
     head.append(cell);
   }
   table.append(head);
-  for (const link of links.slice(neighborPage * 100, (neighborPage + 1) * 100)) {
+  for (const link of result.items) {
     const row = text('tr', '');
     for (const value of [neighborLabel(link.source), neighborLabel(link.target), link.forward_count,
       link.reverse_count, neighborDirection(link), link.count,
@@ -393,10 +420,17 @@ neighborsToggle.addEventListener('change', () => {
   } catch { /* The toggle still works without persistent storage. */ }
   drawMapNeighbors();
 });
-document.getElementById('map-neighbors-search').addEventListener('input', () => { neighborPage = 0; renderNeighborTable(); });
-document.getElementById('neighbors-one-way').addEventListener('change', () => { neighborPage = 0; renderNeighborTable(); });
-document.getElementById('map-neighbors-prev').addEventListener('click', () => { neighborPage--; renderNeighborTable(); });
-document.getElementById('map-neighbors-next').addEventListener('click', () => { neighborPage++; renderNeighborTable(); });
+document.getElementById('map-neighbors-search').maxLength = 200;
+document.getElementById('map-neighbors-search').addEventListener('input', () => {
+  neighborPage = 0;
+  ++neighborTableRequest;
+  neighborTableController?.abort();
+  clearTimeout(neighborSearchTimer);
+  neighborSearchTimer = setTimeout(loadNeighborTable, 250);
+});
+document.getElementById('neighbors-one-way').addEventListener('change', () => { neighborPage = 0; loadNeighborTable(); });
+document.getElementById('map-neighbors-prev').addEventListener('click', () => { neighborPage--; loadNeighborTable(); });
+document.getElementById('map-neighbors-next').addEventListener('click', () => { neighborPage++; loadNeighborTable(); });
 setInterval(() => {
   if (!document.getElementById('panel-map').hidden) loadMapNodes();
 }, 5000);

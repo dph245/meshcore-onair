@@ -346,9 +346,16 @@ Die Spalten **A → B** und **B → A** zählen beide Weiterleitungsrichtungen s
 ein Filter zeigt nur in einer Richtung beobachtete Verbindungen. A → B bedeutet:
 erst von A, dann von B weitergeleitet. Einseitige Beobachtung ist kein Beweis für
 eine Funk-Einbahnstraße; Verkehr, Routing und Observer-Standorte beeinflussen sie.
-Nachbarschaftsdaten werden alle 30 Sekunden abgerufen. Der Server hält die fertig
-kodierte JSON-Antwort für 30 Sekunden gemeinsam für alle Browser im Speicher;
-gleichzeitige Anfragen lösen keine mehrfachen Berechnungen aus. Die Hash-Auflösung
+Nachbarschaftsdaten werden für den sichtbaren Tab alle 30 Sekunden abgerufen.
+Der Server hält einen gemeinsamen Snapshot für 30 Sekunden im Speicher;
+gleichzeitige Anfragen lösen keine mehrfachen Berechnungen aus. Suche, Richtungsfilter,
+Sortierung und Seitenauswahl der Tabelle laufen auf dem Server; pro Abruf kommen
+höchstens 100 Zeilen zurück. Die Karte lädt separat nur Verbindungen mit zwei
+bekannten Positionen und überträgt jeden beteiligten Node einmal.
+Beide Endpunkte verwenden ETags: Bei unveränderten Daten antworten sie auf
+`If-None-Match` mit HTTP 304 ohne Antwortinhalt. Pro Snapshot werden höchstens
+64 Antwortvarianten gespeichert. Die Berechnung des Snapshots wertet weiterhin
+alle gespeicherten Pfade aus. Die Hash-Auflösung
 verwendet einen Präfixindex statt paarweiser Vergleiche aller Kennungen. Die
 übrige Karten- und Liveaktualisierung behält ihren bisherigen Takt.
 
@@ -366,7 +373,15 @@ bekannten Nodes zusammengeführt. Mehrdeutige Hashes bleiben separat; bekannte
 Nicht-Repeater werden ausgeschlossen. Kartenlinien benötigen zwei eindeutig
 zugeordnete Repeater mit sichtbaren Positionen.
 
-`GET /api/repeater-neighbors` liefert die Verbindungen mit `source`, `target`,
+`GET /api/repeater-neighbors/table` liefert `items`, `page`, `total` (gefiltert),
+`total_all` und `one_way_total`. Parameter: `q` (maximal 200 Zeichen), `one_way`,
+`sort` (`source`, `target`, `forward_count`, `reverse_count`, `direction`, `count`,
+`last_seen`, `distance_km`), `descending`, `page` (ab 0), `limit` (1–100).
+`GET /api/repeater-neighbors/map` liefert `nodes` als `[id,name]` und `links` als
+`[source_index,target_index,count,forward_count,reverse_count,last_seen,distance_km]`
+sowie `total` einschließlich nicht auf der Karte zuordenbarer Verbindungen.
+
+Der bisherige Endpunkt bleibt kompatibel: `GET /api/repeater-neighbors` liefert die Verbindungen mit `source`, `target`,
 `count`, `forward_count` (source → target), `reverse_count` (target → source),
 `first_seen`, `last_seen` und `distance_km` (Luftlinie in Kilometern, sonst `null`). Die Richtungen werden auch aus bereits gespeicherten
 Pfaden ausgewertet; dafür ist keine weitere Migration nötig. Schema 9 baut beim nächsten Start einmalig
