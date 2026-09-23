@@ -330,6 +330,10 @@ Platzgründen; die Zähler bleiben per Klick oder Touch verfügbar. Die Linienst
 wächst mit der Anzahl der archivierten Empfänge. Die
 Nachbartabelle im eigenen Tab **Nachbarn** rechts neben **Map** lässt sich nach Name oder Hash durchsuchen und zeigt
 auch unaufgelöste Verbindungen, jeweils 100 pro Seite.
+Die Spalte **Entfernung (Luftlinie)** sowie die Kartenverbindungen zeigen die
+Entfernung in Kilometern aus den zuletzt gespeicherten GPS-Positionen beider
+eindeutig zugeordneten Repeater. Fehlende oder ungültige Positionen (einschließlich
+0°/0°) erscheinen als **—** und stehen beim Sortieren immer hinten.
 Alle Spalten lassen sich per Klick auf die Überschrift sortieren; ein weiterer
 Klick kehrt die Reihenfolge um. Die Sortierung gilt über alle gefilterten Seiten
 hinweg und bleibt bei automatischen Aktualisierungen erhalten. Standardmäßig
@@ -360,7 +364,7 @@ zugeordnete Repeater mit sichtbaren Positionen.
 
 `GET /api/repeater-neighbors` liefert die Verbindungen mit `source`, `target`,
 `count`, `forward_count` (source → target), `reverse_count` (target → source),
-`first_seen` und `last_seen`. Die Richtungen werden auch aus bereits gespeicherten
+`first_seen`, `last_seen` und `distance_km` (Luftlinie in Kilometern, sonst `null`). Die Richtungen werden auch aus bereits gespeicherten
 Pfaden ausgewertet; dafür ist keine weitere Migration nötig. Schema 9 baut beim nächsten Start einmalig
 die Tabelle `repeater_paths` aus dem vorhandenen Archiv auf und aktualisiert sie
 danach mit jedem archivierten Empfang. Rohe Pfade bleiben erhalten, damit später

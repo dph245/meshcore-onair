@@ -10,6 +10,7 @@ const neighborColumns = [
   ['direction', 'Beobachtung', link => neighborDirection(link)],
   ['count', 'Empfänge gesamt', link => link.count],
   ['last_seen', 'Zuletzt beobachtet', link => link.last_seen],
+  ['distance_km', 'Entfernung (Luftlinie)', link => link.distance_km],
 ];
 let neighborsLoading = false;
 let selectedMapRepeater = null;
@@ -77,6 +78,12 @@ function neighborDirection(link) {
   return `Nur ${link.forward_count ? 'A → B' : 'B → A'} beobachtet`;
 }
 
+function neighborDistance(link) {
+  return Number.isFinite(link.distance_km)
+    ? `${link.distance_km.toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1})} km`
+    : '—';
+}
+
 function drawNeighborArrow(from, to, fraction, color) {
   const a = nodeMap.project(from), b = nodeMap.project(to);
   const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
@@ -106,7 +113,7 @@ function drawMapNeighbors() {
     if (!link.source.resolved || !link.target.resolved || !a || !b) continue;
     mapped++;
     if (!document.getElementById('map-neighbors-toggle').checked) continue;
-    const label = `A: ${neighborLabel(link.source)} · B: ${neighborLabel(link.target)} · A → B: ${link.forward_count} · B → A: ${link.reverse_count}`;
+    const label = `A: ${neighborLabel(link.source)} · B: ${neighborLabel(link.target)} · A → B: ${link.forward_count} · B → A: ${link.reverse_count} · Luftlinie: ${neighborDistance(link)}`;
     const info = text('div', label);
     info.append(text('div', `${neighborDirection(link)} · ${link.count} Empfänge insgesamt`));
     info.append(text('div', `Zuletzt beobachtet: ${new Date(link.last_seen * 1000).toLocaleString('de-DE')}`));
@@ -168,6 +175,7 @@ function renderNeighborTable() {
   const sortValue = neighborColumns.find(([key]) => key === neighborSortKey)[2];
   links.sort((a, b) => {
     const left = sortValue(a), right = sortValue(b);
+    if (left == null || right == null) return (left == null) - (right == null);
     const order = typeof left === 'number' ? left - right
       : left.localeCompare(right, 'de', {numeric: true, sensitivity: 'base'});
     return order * neighborSortDirection || a.source.id.localeCompare(b.source.id)
@@ -202,7 +210,7 @@ function renderNeighborTable() {
     const row = text('tr', '');
     for (const value of [neighborLabel(link.source), neighborLabel(link.target), link.forward_count,
       link.reverse_count, neighborDirection(link), link.count,
-      new Date(link.last_seen * 1000).toLocaleString('de-DE')]) row.append(text('td', value));
+      new Date(link.last_seen * 1000).toLocaleString('de-DE'), neighborDistance(link)]) row.append(text('td', value));
     table.append(row);
   }
   const focusedSort = document.activeElement?.id;

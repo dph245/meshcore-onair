@@ -1,6 +1,22 @@
 """Observed adjacency in received flood paths, retaining ambiguous raw hashes."""
 import json
+import math
 from datetime import datetime
+
+
+def distance_km(a, b):
+    """Great-circle distance from known positions; (0, 0) means unset."""
+    for node in (a, b):
+        if not node:
+            return None
+        lat, lon = node['latitude'], node['longitude']
+        if (lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180)
+                or (lat == 0 and lon == 0)):
+            return None
+    lat_a, lat_b = math.radians(a['latitude']), math.radians(b['latitude'])
+    delta_lon = math.radians(b['longitude'] - a['longitude'])
+    h = math.sin((lat_b - lat_a) / 2) ** 2 + math.cos(lat_a) * math.cos(lat_b) * math.sin(delta_lon / 2) ** 2
+    return 6371.0088 * 2 * math.asin(math.sqrt(max(0, min(1, h))))
 
 
 def record_path(db, packet):
@@ -17,8 +33,9 @@ def record_path(db, packet):
 
 
 def neighbor_summary(db):
-    nodes = {row[0]: {'id': row[0], 'name': row[1] or row[0], 'node_type': row[2]}
-             for row in db.execute('SELECT public_key,name,node_type FROM nodes')}
+    nodes = {row[0]: {'id': row[0], 'name': row[1] or row[0], 'node_type': row[2],
+                      'latitude': row[3], 'longitude': row[4]}
+             for row in db.execute('SELECT public_key,name,node_type,latitude,longitude FROM nodes')}
     paths = [(json.loads(path), count, first, last) for path, count, first, last
              in db.execute('SELECT * FROM repeater_paths')]
     tokens = {token for hops, *_ in paths for token in hops}
@@ -53,7 +70,9 @@ def neighbor_summary(db):
                 continue
             if key not in links:
                 links[key] = dict(source=a, target=b, count=0, forward_count=0,
-                                  reverse_count=0, first_seen=first, last_seen=last)
+                                  reverse_count=0, first_seen=first, last_seen=last,
+                                  distance_km=distance_km(nodes.get(a['id']), nodes.get(b['id']))
+                                  if a['resolved'] and b['resolved'] and not a['ambiguous'] and not b['ambiguous'] else None)
             link = links[key]
             if key not in seen:
                 link['count'] += count

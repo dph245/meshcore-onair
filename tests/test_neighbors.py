@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from onair_archive import Archive
 from onair_mqtt import build_packet
+from onair_neighbors import distance_km
 
 
 def packet(raw, **extra):
@@ -15,6 +16,35 @@ def packet(raw, **extra):
 
 
 class NeighborTests(unittest.TestCase):
+    def test_distance_positions_and_geographic_edges(self):
+        def position(lat, lon):
+            return dict(latitude=lat, longitude=lon)
+        self.assertAlmostEqual(distance_km(position(0, 1), position(0, 2)), 111.195, places=3)
+        self.assertEqual(distance_km(position(52, 13), position(52, 13)), 0)
+        self.assertAlmostEqual(distance_km(position(0, 179), position(0, -179)), 222.390, places=3)
+        self.assertAlmostEqual(distance_km(position(0, 90), position(0, -90)), 20015.114, places=3)
+        for invalid in [None, position(None, 13), position(52, None), position(0, 0),
+                        position(91, 13), position(52, 181), position(float('nan'), 13)]:
+            self.assertIsNone(distance_km(invalid, position(52, 13)))
+            self.assertIsNone(distance_km(position(52, 13), invalid))
+
+    def test_distance_requires_unambiguous_positioned_repeaters(self):
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Archive(Path(folder) / 'archive.db')
+            archive.accept(packet('1502aabb'))
+            archive.close()
+            self.assertIsNone(archive.neighbors()['items'][0]['distance_km'])
+            with archive.connect() as db, db:
+                for key, lat, lon in [('aa' + '0' * 62, 52.52, 13.405),
+                                      ('bb' + '0' * 62, 48.137, 11.575)]:
+                    db.execute('''INSERT INTO nodes(public_key,advert_time,first_seen,last_seen,node_type,latitude,longitude)
+                                  VALUES(?,1,1,1,2,?,?)''', (key, lat, lon))
+            self.assertAlmostEqual(archive.neighbors()['items'][0]['distance_km'], 504.3, delta=0.2)
+            with archive.connect() as db, db:
+                db.execute('''INSERT INTO nodes(public_key,advert_time,first_seen,last_seen,node_type,latitude,longitude)
+                              VALUES(?,1,1,1,2,50,10)''', ('aa' + '1' * 62,))
+            self.assertIsNone(archive.neighbors()['items'][0]['distance_km'])
+
     def test_counts_only_adjacent_rx_flood_pairs_once_per_reception(self):
         with tempfile.TemporaryDirectory() as folder:
             archive = Archive(Path(folder) / 'archive.db')

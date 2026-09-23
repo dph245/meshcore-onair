@@ -34,7 +34,7 @@ new Function('lines', 'getPopup', `${source}
 const assert = (ok, message) => { if (!ok) throw Error(message); };
 document.getElementById('neighbors-one-way').checked = false;
 const a = {id:'aabb', name:'<A>', resolved:true}, b = {id:'ccdd', name:'B', resolved:true};
-const link = {source:a, target:b, count:8, forward_count:6, reverse_count:2, last_seen:123};
+const link = {source:a, target:b, count:8, forward_count:6, reverse_count:2, last_seen:123, distance_km:12.34};
 nodeMap = {project: p => ({x:p[0]*100, y:p[1]*100}), unproject: p => p};
 mapMarkers.set(a.id, {marker:{getLatLng: () => [1,2]}});
 mapMarkers.set(b.id, {marker:{getLatLng: () => [3,4]}});
@@ -47,6 +47,7 @@ assert(lines.length === 3 && lines[0].options.color === '#3388ff', 'Two arrowhea
 lines[0].events.click({latlng:[2,3]});
 const snapshot = getPopup();
 assert(snapshot.content.textContent.includes('A → B: 6'), 'Clicked popup shows initial counts');
+assert(snapshot.content.textContent.includes('Luftlinie: 12,3 km'), 'Popup shows geographic distance');
 renderMapNeighbors({items:[{...link, forward_count:99}]}); drawMapNeighbors();
 assert(getPopup() === snapshot && snapshot.content.textContent.includes('A → B: 6'), 'Refresh preserves popup and original text');
 assert(snapshot.position[0] === 2 && snapshot.position[1] === 3, 'Popup remains at clicked position');
@@ -119,6 +120,15 @@ assert(firstValue(5) === 100, 'Chosen sort survives refresh');
 document.getElementById('neighbors-one-way').checked = true;
 renderMapNeighbors({items:[{...link, count:100}, {...link, count:9, reverse_count:0}, {...link, count:20, reverse_count:0}]});
 assert(firstValue(5) === 20 && table().children.length === 3, 'Sorting combines with one-way filter');
+document.getElementById('neighbors-one-way').checked = false;
+renderMapNeighbors({items:[{...link, distance_km:null}, {...link, distance_km:2},
+  {...link, distance_km:100}, {...link, distance_km:0}]});
+sortBy(7);
+assert(firstValue(7) === '100,0 km', 'Distances sort numerically descending');
+assert(table().children[4].children[7].textContent === '—', 'Unknown distance sorts last descending');
+sortBy(7);
+assert(firstValue(7) === '0,0 km', 'Zero distance is shown and sorts first ascending');
+assert(table().children[4].children[7].textContent === '—', 'Unknown distance sorts last ascending');
 document.getElementById('map-neighbors-toggle').checked = false; drawMapNeighbors();
 console.log('Neighbor UI: resolution, labels, pagination, search, sorting and toggle passed');
 `)(lines, () => activePopup);
