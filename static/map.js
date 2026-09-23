@@ -102,10 +102,16 @@ function drawMapNeighbors() {
     info.append(text('div', `Zuletzt beobachtet: ${new Date(link.last_seen * 1000).toLocaleString('de-DE')}`));
     const color = link.forward_count && link.reverse_count ? '#3388ff' : '#d97706';
     const start = a.marker.getLatLng(), end = b.marker.getLatLng();
-    L.polyline([start, end], {
+    const line = L.polyline([start, end], {
       color, weight: Math.min(8, 1 + Math.log2(1 + link.count)), opacity: 0.65,
       bubblingMouseEvents: false
-    }).bindTooltip(text('span', label)).bindPopup(info).addTo(neighborLayer);
+    }).bindTooltip(text('span', label)).addTo(neighborLayer);
+    line.on('click', event => {
+      line.closeTooltip();
+      // Keep the clicked values as a snapshot, independent of redrawn layers.
+      // Leaflet closes this popup on another map/marker click as usual.
+      L.popup().setLatLng(event.latlng).setContent(info).openOn(nodeMap);
+    });
     if (link.forward_count) drawNeighborArrow(start, end, 0.65, color);
     if (link.reverse_count) drawNeighborArrow(end, start, 0.65, color);
   }

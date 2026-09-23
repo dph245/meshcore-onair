@@ -12,15 +12,24 @@ globalThis.document = {
 globalThis.text = (_, value) => Object.assign(new Element(), {textContent: value});
 globalThis.setInterval = () => {};
 const lines = [];
+let activePopup;
 globalThis.L = {
+  popup: () => ({
+    setLatLng(position) { this.position = position; return this; },
+    setContent(content) { this.content = content; return this; },
+    openOn() { activePopup = this; return this; },
+  }),
   layerGroup: () => ({addTo() { return this; }, clearLayers() { lines.length = 0; }}),
   polyline: (positions, options) => ({
+    events: {},
+    on(event, handler) { this.events[event] = handler; return this; },
+    closeTooltip() {},
     bindTooltip() { return this; }, bindPopup(info) { this.info = info; return this; },
-    addTo() { lines.push({positions, options, info: this.info}); return this; }
+    addTo() { lines.push({positions, options, info: this.info, events:this.events}); return this; }
   }),
 };
 const source = await Deno.readTextFile('static/map.js');
-new Function('lines', `${source}
+new Function('lines', 'getPopup', `${source}
 const assert = (ok, message) => { if (!ok) throw Error(message); };
 document.getElementById('neighbors-one-way').checked = false;
 const a = {id:'aabb', name:'<A>', resolved:true}, b = {id:'ccdd', name:'B', resolved:true};
@@ -34,6 +43,16 @@ assert(document.getElementById('map-neighbors-status').textContent.includes('1 a
 assert(neighborLabel({id:'aa', name:'aa', ambiguous:true}).includes('mehrdeutig'), 'Collision label');
 assert(document.getElementById('map-neighbors-list').children[0].children.length === 3, 'All links in table');
 assert(lines.length === 3 && lines[0].options.color === '#3388ff', 'Two arrowheads for bidirectional link');
+lines[0].events.click({latlng:[2,3]});
+const snapshot = getPopup();
+assert(snapshot.content.textContent.includes('A → B: 6'), 'Clicked popup shows initial counts');
+renderMapNeighbors({items:[{...link, forward_count:99}]}); drawMapNeighbors();
+assert(getPopup() === snapshot && snapshot.content.textContent.includes('A → B: 6'), 'Refresh preserves popup and original text');
+assert(snapshot.position[0] === 2 && snapshot.position[1] === 3, 'Popup remains at clicked position');
+drawMapNeighbors();
+assert(getPopup() === snapshot, 'Layout redraw also keeps popup');
+lines[0].events.click({latlng:[3,4]});
+assert(getPopup() !== snapshot && getPopup().content.textContent.includes('A → B: 99'), 'Next click opens fresh values');
 const c = {id:'eeff', name:'C', resolved:true};
 mapMarkers.set(c.id, {marker:{getLatLng: () => [5,6]}});
 renderMapNeighbors({items:[link, {...link, source:b, target:c}]});
@@ -67,5 +86,5 @@ document.getElementById('map-neighbors-search').value = 'Node200'; renderNeighbo
 assert(neighborPage === 0 && document.getElementById('map-neighbors-list').children[0].children.length === 2, 'Search and page clamp');
 document.getElementById('map-neighbors-toggle').checked = false; drawMapNeighbors();
 console.log('Neighbor UI: resolution, labels, pagination, search and toggle passed');
-`)(lines);
+`)(lines, () => activePopup);
 if (lines.length) throw Error('Toggle must clear connections');

@@ -44,13 +44,20 @@ body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>main{flex:1;min-h
 
 #panel-live:not([hidden]){height:100%;min-height:0;overflow:auto}
 
-/* Fill the available browser height while keeping small windows scrollable. */
-#panel-map:not([hidden]){display:flex;flex-direction:column;height:100%;min-height:0;overflow:auto}
-#panel-map>*{flex-shrink:0}
-#panel-map #node-map{flex:1 0 240px;height:auto;min-height:50vh;min-height:clamp(240px,50dvh,600px)}
+/* Keep the map full-height; controls scroll independently on the right. */
+#panel-map:not([hidden]){display:grid;grid-template-columns:minmax(0,1fr) 240px;grid-template-rows:minmax(240px,1fr);gap:14px;height:100%;min-height:0;overflow:auto}
+#panel-map #node-map{height:100%;min-height:240px;min-width:0}
+.map-sidebar{min-height:0;min-width:0;overflow:auto;overflow-wrap:anywhere;padding-right:4px}
+#panel-map .map-toolbar{flex-direction:column;align-items:stretch;gap:10px}
 #panel-map .map-toolbar>label{flex-direction:row;align-items:center;gap:6px}
-#panel-map>h2{margin:0 0 8px}
-#panel-map>p{margin:8px 0}
-#panel-map .map-help{margin-top:4px}
+.map-sidebar>h2{margin:0 0 12px}
+.map-sidebar>p{margin:12px 0;line-height:1.5}
+#panel-map .map-help{margin-top:12px;line-height:1.5}
+@media(max-width:800px){
+  #panel-map:not([hidden]){display:flex;flex-direction:column}
+  #panel-map #node-map{flex:1 0 60vh;flex-basis:60dvh;min-height:280px}
+  .map-sidebar{flex-shrink:0;overflow:visible;padding-right:0}
+  #panel-map .map-toolbar{flex-direction:row;align-items:center;flex-wrap:wrap}
+}
 
 .archive .neighbors-direction-filter{flex-direction:row;align-items:center;gap:6px;margin-bottom:12px}
