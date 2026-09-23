@@ -45,16 +45,24 @@ def neighbor_summary(db):
     links = {}
     for hops, count, first, last in paths:
         seen = set()
+        directions = set()
         for left, right in zip(hops, hops[1:]):
             a, b = sorted((resolved[left], resolved[right]), key=lambda item: item['id'])
             key = (a['id'], b['id'])
-            if a['excluded'] or b['excluded'] or key[0] == key[1] or key in seen:
+            if a['excluded'] or b['excluded'] or key[0] == key[1]:
                 continue
-            seen.add(key)
             if key not in links:
-                links[key] = dict(source=a, target=b, count=0, first_seen=first, last_seen=last)
+                links[key] = dict(source=a, target=b, count=0, forward_count=0,
+                                  reverse_count=0, first_seen=first, last_seen=last)
             link = links[key]
-            link['count'] += count
+            if key not in seen:
+                link['count'] += count
+                seen.add(key)
+            direction = 'forward_count' if resolved[left]['id'] == a['id'] else 'reverse_count'
+            directed_key = (*key, direction)
+            if directed_key not in directions:
+                link[direction] += count
+                directions.add(directed_key)
             link['first_seen'] = min(link['first_seen'], first)
             link['last_seen'] = max(link['last_seen'], last)
     return {'items': sorted(links.values(), key=lambda item: (-item['count'], item['source']['id'], item['target']['id']))}

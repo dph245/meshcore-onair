@@ -27,6 +27,9 @@ class NeighborTests(unittest.TestCase):
             links = archive.neighbors()['items']
             pairs = {(link['source']['id'], link['target']['id']): link['count'] for link in links}
             self.assertEqual(pairs, {('aa', 'bb'): 4, ('aa', 'cc'): 1})
+            directions = {(link['source']['id'], link['target']['id']):
+                          (link['forward_count'], link['reverse_count']) for link in links}
+            self.assertEqual(directions, {('aa', 'bb'): (3, 2), ('aa', 'cc'): (1, 0)})
             import onair_web as web
             with patch.object(web.app.state, 'archive', archive, create=True):
                 response = web.repeater_neighbors()
@@ -54,6 +57,7 @@ class NeighborTests(unittest.TestCase):
             links = archive.neighbors()['items']
             known = next(link for link in links if link['target']['id'] == b)
             self.assertEqual(known['count'], 2)
+            self.assertEqual((known['forward_count'], known['reverse_count']), (2, 0))
             self.assertTrue(known['source']['resolved'])
             # A later collision must separate the shorter tokens again.
             with sqlite3.connect(archive.path) as db:
@@ -66,6 +70,19 @@ class NeighborTests(unittest.TestCase):
             with sqlite3.connect(archive.path) as db:
                 db.execute('UPDATE nodes SET node_type=1 WHERE public_key=?', (b,))
             self.assertFalse(any(link['target']['id'] == b for link in archive.neighbors()['items']))
+
+    def test_direction_loops_and_reverse_only(self):
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Archive(Path(folder) / 'archive.db')
+            archive.accept(packet('1505aabbaabbaa'))
+            archive.accept(packet('1502ddcc'))
+            archive.close()
+            links = {(link['source']['id'], link['target']['id']): link
+                     for link in archive.neighbors()['items']}
+            loop = links['aa', 'bb']
+            self.assertEqual((loop['count'], loop['forward_count'], loop['reverse_count']), (1, 1, 1))
+            reverse = links['cc', 'dd']
+            self.assertEqual((reverse['count'], reverse['forward_count'], reverse['reverse_count']), (1, 0, 1))
 
     def test_shared_json_cache_refreshes_after_expiry(self):
         with tempfile.TemporaryDirectory() as folder:

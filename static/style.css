@@ -47,5 +47,10 @@ body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>main{flex:1;min-h
 /* Fill the available browser height while keeping small windows scrollable. */
 #panel-map:not([hidden]){display:flex;flex-direction:column;height:100%;min-height:0;overflow:auto}
 #panel-map>*{flex-shrink:0}
-#panel-map #node-map{flex:1 0 180px;height:auto;min-height:180px}
-#panel-map>p:has(#map-neighbors-toggle)>label{flex-direction:row;align-items:center;gap:6px}
+#panel-map #node-map{flex:1 0 240px;height:auto;min-height:50vh;min-height:clamp(240px,50dvh,600px)}
+#panel-map .map-toolbar>label{flex-direction:row;align-items:center;gap:6px}
+#panel-map>h2{margin:0 0 8px}
+#panel-map>p{margin:8px 0}
+#panel-map .map-help{margin-top:4px}
+
+.archive .neighbors-direction-filter{flex-direction:row;align-items:center;gap:6px;margin-bottom:12px}

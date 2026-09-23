@@ -37,19 +37,22 @@
 </section>
 <section id="panel-map" class="archive" role="tabpanel" aria-labelledby="tab-map" tabindex="0" hidden>
 <h2>Map</h2>
-<p class="muted">Letzte bekannte Positionen aus gültig signierten ADVERTs · Details mit Maus, Klick oder Touch · Aktualisierung alle 5 Sekunden. Nodes an identischer Position werden auseinandergezogen; Linien markieren den tatsächlichen Standort.</p>
-<div class="map-toolbar"><span class="map-legend repeater" data-node-style="repeater">Repeater</span><span class="map-legend room" data-node-style="room">RoomServer</span><span class="map-legend companion" data-node-style="companion">Companion</span><span class="map-legend other" data-node-style="other">Weitere Nodes</span><button id="map-fit" type="button">Alle Nodes anzeigen</button></div>
+<div class="map-toolbar"><span class="map-legend repeater" data-node-style="repeater">Repeater</span><span class="map-legend room" data-node-style="room">RoomServer</span><span class="map-legend companion" data-node-style="companion">Companion</span><span class="map-legend other" data-node-style="other">Weitere Nodes</span><button id="map-fit" type="button">Alle Nodes anzeigen</button><button id="map-neighbors-reset" type="button" hidden>Alle Verbindungen anzeigen</button><label><input id="map-neighbors-toggle" type="checkbox" checked> Repeater-Verbindungen anzeigen</label></div>
 <p id="map-status" role="status">Noch keine Daten geladen.</p>
 <p id="map-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden. Bitte Internetverbindung prüfen.</p>
 <div id="node-map" aria-label="OpenStreetMap mit bekannten MeshCore-Nodes"></div>
-<p><label><input id="map-neighbors-toggle" type="checkbox" checked> Repeater-Verbindungen anzeigen</label></p>
-<p class="muted">Dickere blaue Linien bedeuten mehr Beobachtungen; keine Aussage über aktuelle Erreichbarkeit oder Funkqualität. Nur eindeutig zugeordnete Repeater mit sichtbarer Position werden verbunden. Alle Verbindungen mit Suche und Häufigkeiten im Tab „Nachbarn“.</p>
 <p id="map-neighbors-status" role="status">Noch keine Verbindungen geladen.</p>
+<details class="map-help"><summary>Hinweise zur Karte · Blau: beide Richtungen · Orange: eine Richtung beobachtet</summary>
+<p class="muted">Letzte bekannte Positionen aus gültig signierten ADVERTs · Details mit Maus, Klick oder Touch · Aktualisierung alle 5 Sekunden. Nodes an identischer Position werden auseinandergezogen; Linien markieren den tatsächlichen Standort.</p>
+<p class="muted">Pfeile zeigen die beobachtete Weiterleitungsrichtung. Blau: beide Richtungen, Orange: nur eine Richtung beobachtet. Dickere Linien bedeuten mehr Beobachtungen; keine Aussage über aktuelle Erreichbarkeit oder Funkqualität. Nur eindeutig zugeordnete Repeater mit sichtbarer Position werden verbunden. Alle Verbindungen mit Suche und Häufigkeiten im Tab „Nachbarn“.</p>
+</details>
 </section>
 <section id="panel-neighbors" class="archive" role="tabpanel" aria-labelledby="tab-neighbors" tabindex="0" hidden>
 <h2>Beobachtete Repeater-Nachbarn</h2>
-<p class="muted">Nachbarn aus aufeinanderfolgenden Hops empfangener Flood-Pfade · gesamtes Archiv · pro Empfang höchstens einmal je Verbindung, einschließlich Wiederholungen und mehrerer Observer · Aktualisierung alle 30 Sekunden. Keine Aussage über aktuelle Erreichbarkeit oder Funkqualität.</p>
+<p class="muted">Nachbarn aus aufeinanderfolgenden Hops empfangener Flood-Pfade · gesamtes Archiv · pro Empfang höchstens einmal je Verbindung und je Richtung, einschließlich Wiederholungen und mehrerer Observer · Aktualisierung alle 30 Sekunden. Keine Aussage über aktuelle Erreichbarkeit oder Funkqualität.</p>
+<p class="muted">A → B: erst von A, dann von B weitergeleitet. Nur eine beobachtete Richtung beweist keine Funk-Einbahnstraße. Bei Schleifen kann ein Empfang für beide Richtungen zählen; die Summe der Richtungszähler kann deshalb größer als „Empfänge gesamt“ sein.</p>
 <p id="neighbors-status" role="status">Noch keine Verbindungen geladen.</p>
+<label class="neighbors-direction-filter"><input id="neighbors-one-way" type="checkbox"> Nur in einer Richtung beobachtet</label>
 <label>Repeater suchen <input id="map-neighbors-search" type="search" placeholder="Name oder Hash"></label>
 <p><button id="map-neighbors-prev" type="button">Zurück</button> <span id="map-neighbors-page"></span> <button id="map-neighbors-next" type="button">Weiter</button></p>
 <div id="map-neighbors-list" class="noise-scroll"></div>

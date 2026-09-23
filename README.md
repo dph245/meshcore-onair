@@ -319,10 +319,21 @@ Lese-Endpunkt. Beim ersten Start wird automatisch eine indizierte Hop-Zuordnung
 in der Pakettabelle ergänzt und aus vorhandenen Archivdaten befüllt (Schema 4).
 
 Der Tab **Map** zeigt außerdem beobachtete Repeater-Nachbarschaften als einblendbare
-blaue Linien. Die Linienstärke wächst mit der Anzahl der archivierten Empfänge;
-Klick oder Touch zeigt den Zähler und den letzten Beobachtungszeitpunkt. Die
+Verbindungen. Ein Klick auf einen Repeater filtert die Linien auf seine direkten
+Nachbarn in beiden Richtungen. Ein Klick auf die freie Karte oder auf **Alle
+Verbindungen anzeigen** hebt den Filter auf. Die Auswahl bleibt bei automatischen
+Aktualisierungen erhalten; die Checkbox zur Sichtbarkeit der Verbindungen gilt weiterhin.
+Die Karte zeichnet die Verbindungen als
+Linien mit Richtungspfeilen. Blau bedeutet beide Richtungen beobachtet, Orange
+nur eine Richtung beobachtet. Bei sehr kurzen Linien entfallen die Pfeile aus
+Platzgründen; die Zähler bleiben per Klick oder Touch verfügbar. Die Linienstärke
+wächst mit der Anzahl der archivierten Empfänge. Die
 Nachbartabelle im eigenen Tab **Nachbarn** rechts neben **Map** lässt sich nach Name oder Hash durchsuchen und zeigt
 auch unaufgelöste Verbindungen, jeweils 100 pro Seite.
+Die Spalten **A → B** und **B → A** zählen beide Weiterleitungsrichtungen separat;
+ein Filter zeigt nur in einer Richtung beobachtete Verbindungen. A → B bedeutet:
+erst von A, dann von B weitergeleitet. Einseitige Beobachtung ist kein Beweis für
+eine Funk-Einbahnstraße; Verkehr, Routing und Observer-Standorte beeinflussen sie.
 Nachbarschaftsdaten werden alle 30 Sekunden abgerufen. Der Server hält die fertig
 kodierte JSON-Antwort für 30 Sekunden gemeinsam für alle Browser im Speicher;
 gleichzeitige Anfragen lösen keine mehrfachen Berechnungen aus. Die Hash-Auflösung
@@ -332,7 +343,10 @@ verwendet einen Präfixindex statt paarweiser Vergleiche aller Kennungen. Die
 Die Auswertung verwendet ausschließlich benachbarte Hops empfangener Flood- und
 TC-Flood-Pfade. A–B und B–A zählen als dieselbe Verbindung, höchstens einmal pro
 Empfang, auch bei Schleifen. Wiederholungen und Empfänge mehrerer Observer zählen
-erneut. Direct-Pfade, TX-Pakete und Selbstverbindungen werden nicht gezählt.
+erneut. Zusätzlich zählt jede Richtung höchstens einmal pro Empfang. Enthält ein
+Pfad beide Richtungen, steigen beide Richtungszähler, der Gesamtzähler aber nur
+einmal. Die Richtungssumme kann deshalb größer als die Gesamtzahl sein.
+Direct-Pfade, TX-Pakete und Selbstverbindungen werden nicht gezählt.
 Sender und Observer werden nicht künstlich an den Pfad angehängt. Die Statistik
 umfasst das gesamte Archiv und belegt weder aktuelle Erreichbarkeit noch Funkqualität.
 Kurze Hashes werden nur bei eindeutiger Zuordnung mit längeren Kennungen bzw.
@@ -341,7 +355,9 @@ Nicht-Repeater werden ausgeschlossen. Kartenlinien benötigen zwei eindeutig
 zugeordnete Repeater mit sichtbaren Positionen.
 
 `GET /api/repeater-neighbors` liefert die Verbindungen mit `source`, `target`,
-`count`, `first_seen` und `last_seen`. Schema 9 baut beim nächsten Start einmalig
+`count`, `forward_count` (source → target), `reverse_count` (target → source),
+`first_seen` und `last_seen`. Die Richtungen werden auch aus bereits gespeicherten
+Pfaden ausgewertet; dafür ist keine weitere Migration nötig. Schema 9 baut beim nächsten Start einmalig
 die Tabelle `repeater_paths` aus dem vorhandenen Archiv auf und aktualisiert sie
 danach mit jedem archivierten Empfang. Rohe Pfade bleiben erhalten, damit später
 bekannt gewordene Hash-Kollisionen bei der Zuordnung berücksichtigt werden.

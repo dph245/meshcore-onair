@@ -2,6 +2,7 @@ let nodeMap, mapLoading = false;
 let neighborLayer, neighborLinks = [], neighborSignature;
 let neighborPage = 0;
 let neighborsLoading = false;
+let selectedMapRepeater = null;
 const mapMarkers = new Map();
 const mapTypes = {1: ['Companion', 'companion'], 2: ['Repeater', 'repeater'],
   3: ['RoomServer', 'room']};
@@ -61,24 +62,57 @@ function neighborLabel(node) {
   return `${node.name === node.id ? node.id : `${node.name} [${node.id.slice(0, 6)}]`}${node.ambiguous ? ' (mehrdeutig)' : node.resolved ? '' : ' (unaufgelöst)'}`;
 }
 
+function neighborDirection(link) {
+  if (link.forward_count && link.reverse_count) return 'Beide Richtungen beobachtet';
+  return `Nur ${link.forward_count ? 'A → B' : 'B → A'} beobachtet`;
+}
+
+function drawNeighborArrow(from, to, fraction, color) {
+  const a = nodeMap.project(from), b = nodeMap.project(to);
+  const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
+  if (length < 24) return;
+  const ux = dx / length, uy = dy / length;
+  const x = a.x + dx * fraction, y = a.y + dy * fraction;
+  const points = [[x - ux * 9 - uy * 5, y - uy * 9 + ux * 5], [x, y],
+    [x - ux * 9 + uy * 5, y - uy * 9 - ux * 5]].map(point => nodeMap.unproject(point));
+  L.polyline(points, {color, weight: 3, opacity: 1, interactive: false}).addTo(neighborLayer);
+}
+
+function selectMapRepeater(identity) {
+  selectedMapRepeater = identity;
+  drawMapNeighbors();
+}
+
 function drawMapNeighbors() {
   if (!nodeMap) return;
+  if (selectedMapRepeater && !mapMarkers.has(selectedMapRepeater)) selectedMapRepeater = null;
+  document.getElementById('map-neighbors-reset').hidden = !selectedMapRepeater;
   if (!neighborLayer) neighborLayer = L.layerGroup().addTo(nodeMap);
   neighborLayer.clearLayers();
   let mapped = 0;
   for (const link of neighborLinks) {
+    if (selectedMapRepeater && link.source.id !== selectedMapRepeater && link.target.id !== selectedMapRepeater) continue;
     const a = mapMarkers.get(link.source.id), b = mapMarkers.get(link.target.id);
     if (!link.source.resolved || !link.target.resolved || !a || !b) continue;
     mapped++;
     if (!document.getElementById('map-neighbors-toggle').checked) continue;
-    const label = `${neighborLabel(link.source)} ↔ ${neighborLabel(link.target)} · ${link.count} Empfänge`;
+    const label = `A: ${neighborLabel(link.source)} · B: ${neighborLabel(link.target)} · A → B: ${link.forward_count} · B → A: ${link.reverse_count}`;
     const info = text('div', label);
+    info.append(text('div', `${neighborDirection(link)} · ${link.count} Empfänge insgesamt`));
     info.append(text('div', `Zuletzt beobachtet: ${new Date(link.last_seen * 1000).toLocaleString('de-DE')}`));
-    L.polyline([a.marker.getLatLng(), b.marker.getLatLng()], {
-      color: '#3388ff', weight: Math.min(8, 1 + Math.log2(1 + link.count)), opacity: 0.65
+    const color = link.forward_count && link.reverse_count ? '#3388ff' : '#d97706';
+    const start = a.marker.getLatLng(), end = b.marker.getLatLng();
+    L.polyline([start, end], {
+      color, weight: Math.min(8, 1 + Math.log2(1 + link.count)), opacity: 0.65,
+      bubblingMouseEvents: false
     }).bindTooltip(text('span', label)).bindPopup(info).addTo(neighborLayer);
+    if (link.forward_count) drawNeighborArrow(start, end, 0.65, color);
+    if (link.reverse_count) drawNeighborArrow(end, start, 0.65, color);
   }
-  document.getElementById('map-neighbors-status').textContent = `${neighborLinks.length} beobachtete Verbindungen · ${mapped} auf der Karte zuordenbar`;
+  const selected = mapMarkers.get(selectedMapRepeater);
+  document.getElementById('map-neighbors-status').textContent = selected
+    ? `Nachbarn von ${selected.label || selectedMapRepeater} · ${mapped} Verbindungen auf der Karte zuordenbar · Klick auf die freie Karte hebt den Filter auf`
+    : `${neighborLinks.length} beobachtete Verbindungen · ${mapped} auf der Karte zuordenbar · Repeater anklicken, um seine Nachbarn zu sehen`;
 }
 
 function renderMapNeighbors(result) {
@@ -100,7 +134,8 @@ async function loadNeighbors() {
     if (paused) return;
     renderMapNeighbors(result);
     drawMapNeighbors();
-    message.textContent = `${neighborLinks.length} beobachtete Verbindungen · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
+    const oneWay = neighborLinks.filter(link => !link.forward_count || !link.reverse_count).length;
+    message.textContent = `${neighborLinks.length} beobachtete Verbindungen · ${oneWay} nur in einer Richtung beobachtet · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
   } catch (error) {
     message.textContent = `Verbindungen konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 30 Sekunden; bisherige Daten bleiben stehen.`;
     document.getElementById('map-neighbors-status').textContent = message.textContent;
@@ -111,7 +146,8 @@ async function loadNeighbors() {
 
 function renderNeighborTable() {
   const query = document.getElementById('map-neighbors-search').value.trim().toLocaleLowerCase();
-  const links = neighborLinks.filter(link => [link.source, link.target].some(node =>
+  const onlyOneWay = document.getElementById('neighbors-one-way').checked;
+  const links = neighborLinks.filter(link => (!onlyOneWay || !link.forward_count || !link.reverse_count) && [link.source, link.target].some(node =>
     `${node.name} ${node.id}`.toLocaleLowerCase().includes(query)));
   const pages = Math.max(1, Math.ceil(links.length / 100));
   neighborPage = Math.max(0, Math.min(neighborPage, pages - 1));
@@ -120,11 +156,12 @@ function renderNeighborTable() {
   document.getElementById('map-neighbors-next').disabled = neighborPage === pages - 1;
   const table = text('table', '');
   const head = text('tr', '');
-  for (const label of ['Repeater', 'Nachbar', 'Empfänge', 'Zuletzt beobachtet']) head.append(text('th', label));
+  for (const label of ['Repeater A', 'Nachbar B', 'A → B', 'B → A', 'Beobachtung', 'Empfänge gesamt', 'Zuletzt beobachtet']) head.append(text('th', label));
   table.append(head);
   for (const link of links.slice(neighborPage * 100, (neighborPage + 1) * 100)) {
     const row = text('tr', '');
-    for (const value of [neighborLabel(link.source), neighborLabel(link.target), link.count,
+    for (const value of [neighborLabel(link.source), neighborLabel(link.target), link.forward_count,
+      link.reverse_count, neighborDirection(link), link.count,
       new Date(link.last_seen * 1000).toLocaleString('de-DE')]) row.append(text('td', value));
     table.append(row);
   }
@@ -171,6 +208,7 @@ function showNodeMap() {
   if (!nodeMap) {
     const view = savedMapView();
     nodeMap = L.map('node-map').setView(view.center, view.zoom);
+    nodeMap.on('click', () => selectMapRepeater(null));
     // Flex layout also changes when headers or status messages wrap.
     const resizeObserver = new ResizeObserver(() => {
       if (!document.getElementById('panel-map').hidden) {
@@ -240,17 +278,23 @@ async function loadMapNodes() {
       const markerIcon = L.divIcon({html: icon, className: 'map-marker', iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18]});
       if (!view) {
         const marker = L.marker([item.latitude, item.longitude], {icon: markerIcon,
-          title: `${type}: ${label}`, alt: `${type}: ${label}`, riseOnHover: true}).addTo(nodeMap);
+          title: `${type}: ${label}`, alt: `${type}: ${label}`, riseOnHover: true,
+          bubblingMouseEvents: false}).addTo(nodeMap);
         marker.bindTooltip(mapNodeInfo(item), {direction: 'top', offset: [0, -18]});
         marker.bindPopup(mapNodeInfo(item));
         view = {marker};
         mapMarkers.set(item.public_key, view);
+        marker.on('click', () => {
+          if (view.nodeType === 2) selectMapRepeater(item.public_key);
+        });
       } else {
         view.marker.setLatLng([item.latitude, item.longitude]).setIcon(markerIcon);
         view.marker.getElement().title = `${type}: ${label}`;
         view.marker.setTooltipContent(mapNodeInfo(item)).setPopupContent(mapNodeInfo(item));
       }
       view.position = [item.latitude, item.longitude];
+      view.label = label;
+      view.nodeType = item.node_type;
       view.signature = signature;
     }
     for (const [key, view] of mapMarkers) {
@@ -269,6 +313,7 @@ for (const legend of document.querySelectorAll('.map-legend[data-node-style]')) 
   legend.prepend(mapNodeSymbol(legend.dataset.nodeStyle));
 }
 document.getElementById('map-fit').addEventListener('click', fitMapNodes);
+document.getElementById('map-neighbors-reset').addEventListener('click', () => selectMapRepeater(null));
 const neighborsToggle = document.getElementById('map-neighbors-toggle');
 neighborsToggle.checked = true;
 try {
@@ -281,6 +326,7 @@ neighborsToggle.addEventListener('change', () => {
   drawMapNeighbors();
 });
 document.getElementById('map-neighbors-search').addEventListener('input', () => { neighborPage = 0; renderNeighborTable(); });
+document.getElementById('neighbors-one-way').addEventListener('change', () => { neighborPage = 0; renderNeighborTable(); });
 document.getElementById('map-neighbors-prev').addEventListener('click', () => { neighborPage--; renderNeighborTable(); });
 document.getElementById('map-neighbors-next').addEventListener('click', () => { neighborPage++; renderNeighborTable(); });
 setInterval(() => {
