@@ -35,9 +35,20 @@ const assert = (ok, message) => { if (!ok) throw Error(message); };
 document.getElementById('neighbors-one-way').checked = false;
 const a = {id:'aabb', name:'<A>', resolved:true}, b = {id:'ccdd', name:'B', resolved:true};
 const link = {source:a, target:b, count:8, forward_count:6, reverse_count:2, last_seen:123, distance_km:12.34};
-nodeMap = {project: p => ({x:p[0]*100, y:p[1]*100}), unproject: p => p};
-mapMarkers.set(a.id, {marker:{getLatLng: () => [1,2]}});
-mapMarkers.set(b.id, {marker:{getLatLng: () => [3,4]}});
+const layers = new Set();
+const classes = new Set();
+nodeMap = {
+  project: p => ({x:p[0]*100, y:p[1]*100}), unproject: p => p,
+  hasLayer: layer => layers.has(layer),
+  getContainer: () => ({classList:{toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); }}}),
+};
+function marker(position) {
+  const layer = {getLatLng: () => position,
+    addTo() { layers.add(this); return this; }, remove() { layers.delete(this); }};
+  return layer.addTo(nodeMap);
+}
+mapMarkers.set(a.id, {marker:marker([1,2])});
+mapMarkers.set(b.id, {marker:marker([3,4])});
 renderMapNeighbors({items:[link, {...link, target:{id:'ee', name:'ee', ambiguous:true}}]});
 drawMapNeighbors();
 assert(document.getElementById('map-neighbors-status').textContent.includes('1 auf der Karte'), 'Only resolved positioned links mapped');
@@ -56,18 +67,33 @@ assert(getPopup() === snapshot, 'Layout redraw also keeps popup');
 lines[0].events.click({latlng:[3,4]});
 assert(getPopup() !== snapshot && getPopup().content.textContent.includes('A → B: 99'), 'Next click opens fresh values');
 const c = {id:'eeff', name:'C', resolved:true};
-mapMarkers.set(c.id, {marker:{getLatLng: () => [5,6]}});
+mapMarkers.set(c.id, {marker:marker([5,6]), line:marker([5,6])});
 renderMapNeighbors({items:[link, {...link, source:b, target:c}]});
 selectMapRepeater(a.id);
+assert(layers.has(mapMarkers.get(a.id).marker) && layers.has(mapMarkers.get(b.id).marker), 'Selected repeater and direct neighbor remain visible');
+assert(!layers.has(mapMarkers.get(c.id).marker) && !layers.has(mapMarkers.get(c.id).line), 'Unrelated icon, name and position line are removed');
+assert(classes.has('map-neighbor-focus'), 'Focused neighbors keep labels visible at low zoom');
+document.getElementById('map-neighbors-toggle').checked = false; drawMapNeighbors();
+assert([...mapMarkers.values()].every(view => layers.has(view.marker)), 'Disabling links restores all markers');
+assert(layers.has(mapMarkers.get(c.id).line) && !classes.has('map-neighbor-focus'), 'Disabling links restores position lines and normal labels');
+document.getElementById('map-neighbors-toggle').checked = true; drawMapNeighbors();
+assert(!layers.has(mapMarkers.get(c.id).marker), 'Enabling links reapplies the selection');
 assert(lines.length === 3 && !document.getElementById('map-neighbors-reset').hidden, 'Source selection hides unrelated lines and arrows');
 drawMapNeighbors();
 assert(lines.length === 3, 'Selection survives redraw');
 selectMapRepeater(c.id);
 assert(lines.length === 3 && lines[0].positions[0][0] === 3, 'Target selection includes incoming neighbors');
 selectMapRepeater(b.id);
+assert([...mapMarkers.values()].every(view => layers.has(view.marker)), 'Switching selection restores newly involved neighbors');
 assert(lines.length === 6, 'Both incoming and outgoing connections retained');
 selectMapRepeater(null);
 assert(lines.length === 6 && document.getElementById('map-neighbors-reset').hidden, 'Reset restores all lines');
+selectMapRepeater(a.id);
+renderMapNeighbors({items:[]}); drawMapNeighbors();
+assert(layers.has(mapMarkers.get(a.id).marker) && !layers.has(mapMarkers.get(b.id).marker), 'Refresh without links retains only selected repeater');
+selectMapRepeater(null);
+assert([...mapMarkers.values()].every(view => layers.has(view.marker)), 'Reset restores all icons and names');
+renderMapNeighbors({items:[link, {...link, source:b, target:c}]});
 selectMapRepeater(c.id); mapMarkers.delete(c.id); drawMapNeighbors();
 assert(selectedMapRepeater === null && lines.length === 3, 'Expired selection is cleared');
 renderMapNeighbors({items:[{...link, forward_count:0, reverse_count:8}]}); drawMapNeighbors();

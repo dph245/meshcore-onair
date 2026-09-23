@@ -320,7 +320,11 @@ in der Pakettabelle ergänzt und aus vorhandenen Archivdaten befüllt (Schema 4)
 
 Der Tab **Map** zeigt außerdem beobachtete Repeater-Nachbarschaften als einblendbare
 Verbindungen. Ein Klick auf einen Repeater filtert die Linien auf seine direkten
-Nachbarn in beiden Richtungen. Ein Klick auf die freie Karte oder auf **Alle
+Nachbarn in beiden Richtungen. Bei aktivierter Checkbox **Repeater-Verbindungen anzeigen**
+bleiben nur der ausgewählte Repeater und seine direkten, auf der Karte zuordenbaren
+Nachbarn mit Icons und Namen sichtbar; alle anderen Nodes werden ausgeblendet.
+Die Namen bleiben dabei auch bei kleiner Zoomstufe sichtbar. Ausschalten der
+Checkbox zeigt wieder alle Nodes. Ein Klick auf die freie Karte oder auf **Alle
 Verbindungen anzeigen** hebt den Filter auf. Die Auswahl bleibt bei automatischen
 Aktualisierungen erhalten; die Checkbox zur Sichtbarkeit der Verbindungen gilt weiterhin.
 Die Karte zeichnet die Verbindungen als

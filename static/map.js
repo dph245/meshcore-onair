@@ -103,6 +103,10 @@ function selectMapRepeater(identity) {
 function drawMapNeighbors() {
   if (!nodeMap) return;
   if (selectedMapRepeater && !mapMarkers.has(selectedMapRepeater)) selectedMapRepeater = null;
+  const showLinks = document.getElementById('map-neighbors-toggle').checked;
+  const focused = showLinks && selectedMapRepeater !== null;
+  const visibleNodes = new Set(focused ? [selectedMapRepeater] : []);
+  nodeMap.getContainer().classList.toggle('map-neighbor-focus', focused);
   document.getElementById('map-neighbors-reset').hidden = !selectedMapRepeater;
   if (!neighborLayer) neighborLayer = L.layerGroup().addTo(nodeMap);
   neighborLayer.clearLayers();
@@ -112,7 +116,9 @@ function drawMapNeighbors() {
     const a = mapMarkers.get(link.source.id), b = mapMarkers.get(link.target.id);
     if (!link.source.resolved || !link.target.resolved || !a || !b) continue;
     mapped++;
-    if (!document.getElementById('map-neighbors-toggle').checked) continue;
+    if (!showLinks) continue;
+    visibleNodes.add(link.source.id);
+    visibleNodes.add(link.target.id);
     const label = `A: ${neighborLabel(link.source)} · B: ${neighborLabel(link.target)} · A → B: ${link.forward_count} · B → A: ${link.reverse_count} · Luftlinie: ${neighborDistance(link)}`;
     const info = text('div', label);
     info.append(text('div', `${neighborDirection(link)} · ${link.count} Empfänge insgesamt`));
@@ -131,6 +137,15 @@ function drawMapNeighbors() {
     });
     if (link.forward_count) drawNeighborArrow(start, end, 0.65, color);
     if (link.reverse_count) drawNeighborArrow(end, start, 0.65, color);
+  }
+  for (const [key, view] of mapMarkers) {
+    const visible = !focused || visibleNodes.has(key);
+    // Removing the layer also removes its label, tooltip and popup.
+    for (const layer of [view.marker, view.line]) {
+      if (!layer) continue;
+      if (visible && !nodeMap.hasLayer(layer)) layer.addTo(nodeMap);
+      else if (!visible && nodeMap.hasLayer(layer)) layer.remove();
+    }
   }
   const selected = mapMarkers.get(selectedMapRepeater);
   document.getElementById('map-neighbors-status').textContent = selected
@@ -220,6 +235,7 @@ function renderNeighborTable() {
 
 function fitMapNodes() {
   if (!nodeMap || !mapMarkers.size) return;
+  selectMapRepeater(null);
   nodeMap.fitBounds(L.latLngBounds([...mapMarkers.values()].map(view => view.marker.getLatLng())),
     {padding: [45, 45], maxZoom: 14});
 }
@@ -339,7 +355,9 @@ async function loadMapNodes() {
         });
       } else {
         view.marker.setLatLng([item.latitude, item.longitude]).setIcon(markerIcon);
-        view.marker.getElement().title = `${type}: ${label}`;
+        view.marker.options.title = `${type}: ${label}`;
+        const markerElement = view.marker.getElement();
+        if (markerElement) markerElement.title = `${type}: ${label}`;
         view.marker.setTooltipContent(mapNodeInfo(item)).setPopupContent(mapNodeInfo(item));
       }
       view.position = [item.latitude, item.longitude];
