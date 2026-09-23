@@ -330,6 +330,10 @@ Platzgründen; die Zähler bleiben per Klick oder Touch verfügbar. Die Linienst
 wächst mit der Anzahl der archivierten Empfänge. Die
 Nachbartabelle im eigenen Tab **Nachbarn** rechts neben **Map** lässt sich nach Name oder Hash durchsuchen und zeigt
 auch unaufgelöste Verbindungen, jeweils 100 pro Seite.
+Alle Spalten lassen sich per Klick auf die Überschrift sortieren; ein weiterer
+Klick kehrt die Reihenfolge um. Die Sortierung gilt über alle gefilterten Seiten
+hinweg und bleibt bei automatischen Aktualisierungen erhalten. Standardmäßig
+stehen die Verbindungen mit den meisten Empfängen oben.
 Die Spalten **A → B** und **B → A** zählen beide Weiterleitungsrichtungen separat;
 ein Filter zeigt nur in einer Richtung beobachtete Verbindungen. A → B bedeutet:
 erst von A, dann von B weitergeleitet. Einseitige Beobachtung ist kein Beweis für

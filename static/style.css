@@ -61,3 +61,5 @@ body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>main{flex:1;min-h
 }
 
 .archive .neighbors-direction-filter{flex-direction:row;align-items:center;gap:6px;margin-bottom:12px}
+#map-neighbors-list th button{font:inherit;color:inherit;background:transparent;border:0;padding:0;text-align:left;white-space:nowrap;cursor:pointer}
+#map-neighbors-list th[aria-sort="ascending"],#map-neighbors-list th[aria-sort="descending"]{color:var(--accent)}

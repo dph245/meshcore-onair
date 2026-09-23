@@ -1,8 +1,9 @@
 class Element {
-  constructor() { this.children = []; this.value = ''; this.checked = true; }
+  constructor() { this.children = []; this.value = ''; this.checked = true; this.attributes = {}; this.events = {}; }
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
-  addEventListener() {}
+  setAttribute(name, value) { this.attributes[name] = value; }
+  addEventListener(name, callback) { this.events[name] = callback; }
 }
 const elements = new Map();
 globalThis.document = {
@@ -84,7 +85,41 @@ neighborPage = 2; renderNeighborTable();
 assert(document.getElementById('map-neighbors-list').children[0].children.length === 2, 'Last page');
 document.getElementById('map-neighbors-search').value = 'Node200'; renderNeighborTable();
 assert(neighborPage === 0 && document.getElementById('map-neighbors-list').children[0].children.length === 2, 'Search and page clamp');
+document.getElementById('map-neighbors-search').value = '';
+const table = () => document.getElementById('map-neighbors-list').children[0];
+const sortBy = index => table().children[0].children[index].children[0].events.click();
+const firstValue = index => table().children[1].children[index].textContent;
+renderMapNeighbors({items:[
+  {...link, source:{...a, name:'Node10'}, count:10, last_seen:100},
+  {...link, source:{...a, name:'Node2'}, count:2, last_seen:200},
+]});
+assert(firstValue(5) === 10, 'Default sorts counts numerically descending');
+sortBy(5);
+assert(firstValue(5) === 2, 'Repeated column click reverses sort');
+assert(table().children[0].children[5].attributes['aria-sort'] === 'ascending', 'Accessible sort direction');
+sortBy(0);
+assert(firstValue(0).includes('Node2'), 'Names use natural alphabetical order');
+sortBy(0);
+assert(firstValue(0).includes('Node10'), 'Names can be sorted descending');
+sortBy(6);
+assert(firstValue(5) === 2, 'Timestamps sort newest first');
+sortBy(6);
+assert(firstValue(5) === 10, 'Timestamps sort oldest first');
+for (const [column, field] of [[2, 'forward_count'], [3, 'reverse_count']]) {
+  renderMapNeighbors({items:[{...link, [field]:2}, {...link, [field]:10}]});
+  sortBy(column);
+  assert(firstValue(column) === 10, 'Directional counts sort numerically');
+}
+renderMapNeighbors({items:Array.from({length:201}, (_, i) => ({...link, count:i}))});
+neighborPage = 2; renderNeighborTable();
+sortBy(5);
+assert(neighborPage === 0 && firstValue(5) === 200, 'Sorting resets page and includes all pages');
+renderMapNeighbors({items:[{...link, count:9}, {...link, count:100}]});
+assert(firstValue(5) === 100, 'Chosen sort survives refresh');
+document.getElementById('neighbors-one-way').checked = true;
+renderMapNeighbors({items:[{...link, count:100}, {...link, count:9, reverse_count:0}, {...link, count:20, reverse_count:0}]});
+assert(firstValue(5) === 20 && table().children.length === 3, 'Sorting combines with one-way filter');
 document.getElementById('map-neighbors-toggle').checked = false; drawMapNeighbors();
-console.log('Neighbor UI: resolution, labels, pagination, search and toggle passed');
+console.log('Neighbor UI: resolution, labels, pagination, search, sorting and toggle passed');
 `)(lines, () => activePopup);
 if (lines.length) throw Error('Toggle must clear connections');

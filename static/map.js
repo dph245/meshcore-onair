@@ -1,6 +1,16 @@
 let nodeMap, mapLoading = false;
 let neighborLayer, neighborLinks = [], neighborSignature;
 let neighborPage = 0;
+let neighborSortKey = 'count', neighborSortDirection = -1;
+const neighborColumns = [
+  ['source', 'Repeater A', link => neighborLabel(link.source)],
+  ['target', 'Nachbar B', link => neighborLabel(link.target)],
+  ['forward_count', 'A → B', link => link.forward_count],
+  ['reverse_count', 'B → A', link => link.reverse_count],
+  ['direction', 'Beobachtung', link => neighborDirection(link)],
+  ['count', 'Empfänge gesamt', link => link.count],
+  ['last_seen', 'Zuletzt beobachtet', link => link.last_seen],
+];
 let neighborsLoading = false;
 let selectedMapRepeater = null;
 const mapMarkers = new Map();
@@ -155,6 +165,14 @@ function renderNeighborTable() {
   const onlyOneWay = document.getElementById('neighbors-one-way').checked;
   const links = neighborLinks.filter(link => (!onlyOneWay || !link.forward_count || !link.reverse_count) && [link.source, link.target].some(node =>
     `${node.name} ${node.id}`.toLocaleLowerCase().includes(query)));
+  const sortValue = neighborColumns.find(([key]) => key === neighborSortKey)[2];
+  links.sort((a, b) => {
+    const left = sortValue(a), right = sortValue(b);
+    const order = typeof left === 'number' ? left - right
+      : left.localeCompare(right, 'de', {numeric: true, sensitivity: 'base'});
+    return order * neighborSortDirection || a.source.id.localeCompare(b.source.id)
+      || a.target.id.localeCompare(b.target.id);
+  });
   const pages = Math.max(1, Math.ceil(links.length / 100));
   neighborPage = Math.max(0, Math.min(neighborPage, pages - 1));
   document.getElementById('map-neighbors-page').textContent = `Seite ${neighborPage + 1} / ${pages} · ${links.length} Verbindungen`;
@@ -162,7 +180,23 @@ function renderNeighborTable() {
   document.getElementById('map-neighbors-next').disabled = neighborPage === pages - 1;
   const table = text('table', '');
   const head = text('tr', '');
-  for (const label of ['Repeater A', 'Nachbar B', 'A → B', 'B → A', 'Beobachtung', 'Empfänge gesamt', 'Zuletzt beobachtet']) head.append(text('th', label));
+  for (const [key, label] of neighborColumns) {
+    const active = key === neighborSortKey;
+    const cell = text('th', '');
+    cell.scope = 'col';
+    cell.setAttribute('aria-sort', active ? (neighborSortDirection === 1 ? 'ascending' : 'descending') : 'none');
+    const button = text('button', `${label} ${active ? (neighborSortDirection === 1 ? '↑' : '↓') : '↕'}`);
+    button.type = 'button';
+    button.id = `neighbors-sort-${key}`;
+    button.addEventListener('click', () => {
+      neighborSortDirection = active ? -neighborSortDirection : (['source', 'target', 'direction'].includes(key) ? 1 : -1);
+      neighborSortKey = key;
+      neighborPage = 0;
+      renderNeighborTable();
+    });
+    cell.append(button);
+    head.append(cell);
+  }
   table.append(head);
   for (const link of links.slice(neighborPage * 100, (neighborPage + 1) * 100)) {
     const row = text('tr', '');
@@ -171,7 +205,9 @@ function renderNeighborTable() {
       new Date(link.last_seen * 1000).toLocaleString('de-DE')]) row.append(text('td', value));
     table.append(row);
   }
+  const focusedSort = document.activeElement?.id;
   document.getElementById('map-neighbors-list').replaceChildren(table);
+  if (focusedSort?.startsWith('neighbors-sort-')) document.getElementById(focusedSort)?.focus();
 }
 
 function fitMapNodes() {
