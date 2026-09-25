@@ -74,6 +74,33 @@ function scopeLabel(decoded) {
   return `Unbekannt (0x${(raw.slice(2, 4) + raw.slice(0, 2)).toUpperCase()})`;
 }
 const liveFilter = document.getElementById('live-repeater');
+const liveObserver = document.getElementById('live-observer');
+const liveObservers = new Map();
+function updateLiveObservers(source) {
+  let changed = false;
+  for (const group of source) {
+    for (const packet of group.receptions) {
+      if (!packet.origin_id) continue;
+      const label = observerLabel(packet, true);
+      if (liveObservers.get(packet.origin_id) !== label) {
+        liveObservers.set(packet.origin_id, label);
+        changed = true;
+      }
+    }
+  }
+  if (!changed) return;
+  const selected = liveObserver.value;
+  const all = text('option', 'Alle Observer');
+  all.value = '';
+  liveObserver.replaceChildren(all);
+  for (const [id, label] of [...liveObservers].sort((a, b) => a[1].localeCompare(b[1], 'de'))) {
+    const option = text('option', label);
+    option.value = id;
+    option.title = id;
+    liveObserver.append(option);
+  }
+  liveObserver.value = selected;
+}
 let displayedGroups = [], displayedStatus = {};
 function matchesRepeater(packet, query) {
   const d = packet.decoded;
@@ -87,10 +114,11 @@ function matchesRepeater(packet, query) {
   return Boolean(a && !d.advert_status && a.node_type === 2 && a.signature_status === 'Gültig'
     && [a.public_key, a.name || ''].some(value => value.toLowerCase().includes(query)));
 }
-function filteredLiveGroups(source, query) {
+function filteredLiveGroups(source, query, observerId = '') {
   return source.flatMap(group => {
-    if (!query) return [group];
-    const receptions = group.receptions.filter(packet => matchesRepeater(packet, query));
+    if (!query && !observerId) return [group];
+    const receptions = group.receptions.filter(packet =>
+      (!observerId || packet.origin_id === observerId) && (!query || matchesRepeater(packet, query)));
     if (!receptions.length) return [];
     return [{...group, receptions, latest: receptions[receptions.length - 1]}];
   }).sort((a, b) => b.latest.number - a.latest.number);
@@ -111,8 +139,11 @@ function render(force = false) {
     renderRaw();
   }
   const query = liveFilter.value.trim().toLowerCase();
+  updateLiveObservers(displayedGroups);
+  const observerId = liveObserver.value;
+  const filtered = Boolean(query || observerId);
   const fragment = document.createDocumentFragment();
-  const sorted = filteredLiveGroups(displayedGroups, query);
+  const sorted = filteredLiveGroups(displayedGroups, query, observerId);
   for (const group of sorted) {
     const p = group.latest, d = p.decoded, open = expanded.has(group.id);
     const receptions = receptionsBySnr(group.receptions);
@@ -161,7 +192,7 @@ function render(force = false) {
       hashLabel.append(observer);
     }
     repeats.append(hashLabel);
-    if (query) {
+    if (filtered) {
       repeats.append(text('div', `${group.receptions.length} passende gespeicherte Empfänge`, 'muted live-reception-line'));
       for (const cell of [rssiCell, snrCell]) cell.append(text('div', '', 'live-reception-line'));
     }
@@ -183,7 +214,7 @@ function render(force = false) {
     fragment.append(row);
     if (open) {
       const detail = text('tr', '', 'detail'), cell = text('td', ''); cell.colSpan = 10;
-      cell.append(text('div', `${group.count} Empfänge in dieser Gruppe · ${group.receptions.length} ${query ? 'passende gespeichert' : 'gespeichert'} · zuerst lokal: ${group.first_seen}`, 'muted'));
+      cell.append(text('div', `${group.count} Empfänge in dieser Gruppe · ${group.receptions.length} ${filtered ? 'passende gespeichert' : 'gespeichert'} · zuerst lokal: ${group.first_seen}`, 'muted'));
       for (const reception of receptions) {
         const decoded = reception.decoded, block = text('section', '', 'reception');
         const receptionSummary = text('div', `#${reception.number} · ${reception.time} · ${decoded.route_name} · ${measurement(reception.rssi, 'dBm')} · `);
@@ -210,10 +241,10 @@ function render(force = false) {
   }
   body.replaceChildren(fragment);
   document.getElementById('empty').hidden = sorted.length > 0;
-  document.getElementById('empty').textContent = query
+  document.getElementById('empty').textContent = filtered
     ? 'Keine passenden Empfänge im Live-Puffer. Filter ändern oder zurücksetzen.'
     : 'Noch keine RX-Pakete empfangen. Die Ansicht aktualisiert sich automatisch.';
-  document.getElementById('live-filter-status').textContent = query
+  document.getElementById('live-filter-status').textContent = filtered
     ? `${sorted.length} von ${displayedGroups.length} Paketgruppen · nur passende gespeicherte Empfänge${paused ? ' · Ansicht pausiert' : ''}` : '';
   document.getElementById('counts').textContent = `${displayedGroups.length} Paketgruppen · ${displayedStatus.received || 0} RX seit Start · ${displayedStatus.dropped || 0} bei Überlast verworfen`;
   if (displayedStatus.archive) {
@@ -224,8 +255,10 @@ function render(force = false) {
   }
 }
 liveFilter.addEventListener('input', () => render(true));
+liveObserver.addEventListener('change', () => render(true));
 document.getElementById('live-filter-reset').onclick = () => {
   liveFilter.value = '';
+  liveObserver.value = '';
   render(true);
   liveFilter.focus();
 };
