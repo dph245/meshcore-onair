@@ -32,9 +32,9 @@ SHOW_TX = False
 #
 # Ein längerer Hash wie "6f33a9" matcht trotzdem auf "6f33".
 ALIASES = {
-    "8dbc": "TjülüTjülü",
-    "dd4c": "Funkfeuer",
-    "abba": "DatenScheune"
+    "1234": "Repeater 1234",
+    "9876": "Repeater 9876",
+    "1111": "Repeater 1111"
 }
 
 
