@@ -43,6 +43,7 @@ function mapNodeSymbol(style) {
 // Recompute pixel spacing at every zoom; stored coordinates remain untouched.
 function layoutMapNodes() {
   if (!nodeMap) return;
+  const symbolSize = mapNodeSize();
   const positions = new Map();
   for (const [key, view] of mapMarkers) {
     const positionKey = JSON.stringify(view.position);
@@ -54,7 +55,7 @@ function layoutMapNodes() {
     const origin = group[0].view.position;
     const center = nodeMap.project(origin);
     group.forEach(({view}, index) => {
-      const offset = group.length > 1 ? L.point(40, (index - (group.length - 1) / 2) * 46) : L.point(0, 0);
+      const offset = group.length > 1 ? L.point(symbolSize + 4, (index - (group.length - 1) / 2) * (symbolSize + 10)) : L.point(0, 0);
       const displayed = group.length > 1 ? nodeMap.unproject(center.add(offset)) : origin;
       view.marker.setLatLng(displayed);
       if (group.length > 1) {
@@ -286,9 +287,15 @@ function saveMapView() {
   } catch { /* The map also works when browser storage is unavailable. */ }
 }
 
+function mapNodeSize() {
+  // Keep symbols readable in regional views and full-size from zoom 12.
+  return Math.max(18, Math.min(36, 18 + (nodeMap.getZoom() - 6) * 3));
+}
+
 function updateMapLabels() {
   const zoom = nodeMap.getZoom();
   const container = nodeMap.getContainer();
+  container.style.setProperty('--map-node-size', `${mapNodeSize()}px`);
   container.classList.toggle('map-labels-small', zoom >= 10 && zoom < 12);
   container.classList.toggle('map-labels-hidden', zoom < 10);
 }
@@ -360,6 +367,8 @@ async function loadMapNodes() {
       if (view?.signature === signature) continue;
       const [type, style] = mapTypes[item.node_type] || ['Weiterer Node', 'other'];
       const label = `${item.name || 'Ohne Namen'} [${item.public_key.slice(0, 6)}]`;
+      const tooltipOptions = {direction: 'top', offset: [0, -18],
+        className: item.node_type === 2 ? 'map-repeater-tooltip' : ''};
       const icon = text('div', '', 'map-marker-content');
       icon.append(mapNodeSymbol(style));
       if (item.node_type === 2) {
@@ -371,9 +380,9 @@ async function loadMapNodes() {
       const markerIcon = L.divIcon({html: icon, className: 'map-marker', iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18]});
       if (!view) {
         const marker = L.marker([item.latitude, item.longitude], {icon: markerIcon,
-          title: `${type}: ${label}`, alt: `${type}: ${label}`, riseOnHover: true,
+          alt: `${type}: ${label}`, riseOnHover: true,
           bubblingMouseEvents: false}).addTo(nodeMap);
-        marker.bindTooltip(mapNodeInfo(item), {direction: 'top', offset: [0, -18]});
+        marker.bindTooltip(text('span', label), tooltipOptions);
         marker.bindPopup(mapNodeInfo(item));
         view = {marker};
         mapMarkers.set(item.public_key, view);
@@ -382,10 +391,10 @@ async function loadMapNodes() {
         });
       } else {
         view.marker.setLatLng([item.latitude, item.longitude]).setIcon(markerIcon);
-        view.marker.options.title = `${type}: ${label}`;
-        const markerElement = view.marker.getElement();
-        if (markerElement) markerElement.title = `${type}: ${label}`;
-        view.marker.setTooltipContent(mapNodeInfo(item)).setPopupContent(mapNodeInfo(item));
+        if (view.nodeType !== item.node_type) {
+          view.marker.unbindTooltip().bindTooltip(text('span', label), tooltipOptions);
+        }
+        view.marker.setTooltipContent(text('span', label)).setPopupContent(mapNodeInfo(item));
       }
       view.position = [item.latitude, item.longitude];
       view.label = label;

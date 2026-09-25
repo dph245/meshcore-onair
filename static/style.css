@@ -26,6 +26,8 @@ tr.packet td{vertical-align:top}td.message{white-space:pre-wrap;overflow-wrap:an
 #node-map .map-position-link{stroke:var(--secondary)}
 #node-map.map-labels-small .map-repeater-label{font-size:10px;line-height:13px;padding:1px 4px}
 #node-map.map-labels-hidden:not(.map-neighbor-focus) .map-repeater-label{display:none}
+#node-map:not(.map-labels-hidden) .map-repeater-tooltip,
+#node-map.map-neighbor-focus .map-repeater-tooltip{display:none}
 
 .live-filter{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 18px}.live-filter input,.live-filter select{font:inherit;background:var(--surface);color:var(--fg);border:1px solid var(--control-border);padding:5px;max-width:100%}.live-filter input{width:280px}.live-filter select{max-width:min(100%,360px)}.live-filter p{flex-basis:100%;margin:0}.live-filter p:empty{display:none}
 
@@ -63,3 +65,8 @@ body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>main{flex:1;min-h
 .archive .neighbors-direction-filter{flex-direction:row;align-items:center;gap:6px;margin-bottom:12px}
 #map-neighbors-list th button{font:inherit;color:inherit;background:transparent;border:0;padding:0;text-align:left;white-space:nowrap;cursor:pointer}
 #map-neighbors-list th[aria-sort="ascending"],#map-neighbors-list th[aria-sort="descending"]{color:var(--accent)}
+
+/* Scale map symbols around their geographic anchor; keep the click target stable. */
+#node-map .map-marker-content{display:flex;align-items:center;justify-content:center}
+#node-map .map-node-symbol{width:var(--map-node-size,36px);height:var(--map-node-size,36px);border-radius:calc(var(--map-node-size,36px) * 2 / 9)}
+#node-map .map-node-symbol svg{width:calc(var(--map-node-size,36px) - 8px);height:calc(var(--map-node-size,36px) - 8px)}
