@@ -70,3 +70,5 @@ body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>main{flex:1;min-h
 #node-map .map-marker-content{display:flex;align-items:center;justify-content:center}
 #node-map .map-node-symbol{width:var(--map-node-size,36px);height:var(--map-node-size,36px);border-radius:calc(var(--map-node-size,36px) * 2 / 9)}
 #node-map .map-node-symbol svg{width:calc(var(--map-node-size,36px) - 8px);height:calc(var(--map-node-size,36px) - 8px)}
+
+#routes-search{align-items:end}#routes-search input[list]{width:300px;max-width:100%}#routes-max-hops{width:100px}.route-card{margin:16px 0;padding:16px;border:1px solid var(--border);border-radius:4px;background:var(--surface)}.route-card h3{margin:0 0 10px;color:var(--strong)}.route-path{padding-left:28px;line-height:1.7;overflow-wrap:anywhere}.route-path li{padding:5px 0}.route-step{color:var(--secondary);font-size:11px}.route-one-way{color:var(--warning)}

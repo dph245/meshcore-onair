@@ -8,10 +8,11 @@ from queue import Empty, Full, Queue
 
 from typing import Literal
 
-from fastapi import Request, FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import Request, FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
 import onair_mqtt
 import onair_channels
 from onair_archive import Archive
+from onair_routes import route_nodes, plan_routes
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -251,6 +252,23 @@ def repeater_neighbors_table(request: Request, q: str = Query('', max_length=200
                              limit: int = Query(100, ge=1, le=100)):
     return conditional_neighbors(request, 'table', q=q, one_way=one_way, sort=sort,
                                  descending=descending, page=page, limit=limit)
+
+
+@app.get('/api/routes/nodes')
+def routing_nodes():
+    return route_nodes(app.state.archive.route_snapshot())
+
+
+@app.get('/api/routes')
+def routing_plan(start: str = Query(..., min_length=1, max_length=200),
+                 target: str = Query(..., min_length=1, max_length=200),
+                 observed_only: bool = False, limit: int = Query(5, ge=1, le=5),
+                 max_hops: int = Query(32, ge=1, le=64)):
+    try:
+        return plan_routes(app.state.archive.route_snapshot(), start, target,
+                           observed_only, limit, max_hops)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.websocket("/ws")

@@ -403,6 +403,42 @@ die Tabelle `repeater_paths` aus dem vorhandenen Archiv auf und aktualisiert sie
 danach mit jedem archivierten Empfang. Rohe Pfade bleiben erhalten, damit später
 bekannt gewordene Hash-Kollisionen bei der Zuordnung berücksichtigt werden.
 
+### Routenplaner
+
+Der Tab **Routen** sucht Start und Ziel nach Name, Hash oder Public Key. Bei mehreren
+Treffern einen eindeutigen Eintrag aus den Vorschlägen auswählen. **Tauschen** kehrt
+Start und Ziel um. Die Suche liefert bis zu fünf unterschiedliche, schleifenfreie
+Routen, aufsteigend nach Anzahl der Funkstrecken; gleich kurze Alternativen sind
+entsprechend markiert. Eine direkte Nachbarverbindung zählt als eine Funkstrecke.
+Standardmäßig sind höchstens 32 Funkstrecken erlaubt (einstellbar von 1 bis 64).
+
+Grundlage sind die Repeater-Nachbarn aus dem gesamten Archiv, auch ohne Position.
+Einseitig bekannte Verbindungen sind standardmäßig in beiden Richtungen nutzbar.
+Jede Strecke zeigt die beobachteten Richtungen, deren Empfangszähler und den letzten
+Beobachtungszeitpunkt. Eine nur in Gegenrichtung beobachtete Strecke wird ausdrücklich
+markiert. **Nur in Reiserichtung beobachtet** schließt solche Strecken aus.
+Die Kilometerangabe summiert die Luftlinien zwischen den Nodes, sofern alle
+Positionen bekannt sind; optimiert wird nach Funkstrecken, nicht nach Entfernung.
+
+Mehrdeutige Hashes werden samt ihren Verbindungen ausgeschlossen. Eindeutige, noch
+nicht einem bekannten Node zugeordnete Hashes bleiben mit Kennzeichnung nutzbar.
+Nodes ohne Nachbarverbindungen und bekannte Nicht-Repeater stehen nicht zur Auswahl.
+Die Routen kombinieren einzelne Beobachtungen: Sie müssen nicht als Ganzes empfangen
+worden sein und garantieren keine aktuelle Erreichbarkeit. Die Suche verwendet den
+gemeinsamen Nachbar-Datenstand (bis zu 30 Sekunden alt); Ergebnisse werden mit
+**Routen suchen** neu berechnet. Es werden keine Pakete ins Mesh gesendet.
+
+`GET /api/routes/nodes` liefert die auswählbaren Nodes. `GET /api/routes` akzeptiert
+`start`, `target` (Name oder Hash, eindeutig), `observed_only` (Standard `false`),
+`limit` (1–5, Standard 5) und `max_hops` (1–64, Standard 32). Unbekannte oder
+mehrdeutige Eingaben ergeben HTTP 400, ungültige Parameter HTTP 422; ohne Verbindung
+ist `routes` leer. Identischer Start und Ziel ergibt eine Route mit null Funkstrecken.
+
+```bash
+.venv/bin/python -m unittest discover -s tests -p test_routes.py -v
+deno run --allow-read=static/routes.js tests/test_routes_ui.js
+```
+
 Der Tab **Map** zeigt alle bekannten Nodes mit letzter bekannter Position auf
 OpenStreetMap: Repeater als Funkturm (grün), RoomServer als drei Figuren
 (orange), Companions als Handfunkgerät (magenta) und weitere Typen als Raute

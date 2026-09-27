@@ -235,6 +235,12 @@ class Archive:
                                                  separators=(',', ':')).encode('utf-8')
             return self._neighbors_json
 
+    def route_snapshot(self):
+        # Snapshots are replaced, never mutated. Search outside the shared lock.
+        with self._neighbors_lock:
+            self._refresh_neighbors()
+            return self._neighbors_items
+
     def neighbor_response(self, mode, **options):
         with self._neighbors_lock:
             self._refresh_neighbors()

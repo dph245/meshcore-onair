@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <header><h1>MeshCore <span>OnAir</span></h1><span id="connection" role="status">WebSocket verbindet …</span><span id="noise-floor">Noise Floor: —</span><span class="radio">869.618 MHz · BW 62.5 · SF8 · CR4/8</span><button id="theme-toggle" type="button" aria-pressed="false">Lightmode</button></header>
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
@@ -14,9 +14,26 @@
 <button id="tab-nodes" type="button" role="tab" aria-controls="panel-nodes" aria-selected="false" tabindex="-1">Nodes</button>
 <button id="tab-map" type="button" role="tab" aria-controls="panel-map" aria-selected="false" tabindex="-1">Map</button>
 <button id="tab-neighbors" type="button" role="tab" aria-controls="panel-neighbors" aria-selected="false" tabindex="-1">Nachbarn</button>
+<button id="tab-routes" type="button" role="tab" aria-controls="panel-routes" aria-selected="false" tabindex="-1">Routen</button>
 <button id="tab-noise" type="button" role="tab" aria-controls="panel-noise" aria-selected="false" tabindex="-1">Noise Floor</button>
 </div>
 <main>
+<section id="panel-routes" class="archive" role="tabpanel" aria-labelledby="tab-routes" tabindex="0" hidden>
+<h2>Mesh-Routenplaner</h2>
+<p class="muted">Kürzeste Wege nach Anzahl der Funkstrecken plus Alternativen aus beobachteten Repeater-Nachbarn. Auch einseitig bekannte Verbindungen sind nutzbar; nicht beobachtete Gegenrichtungen werden markiert.</p>
+<form id="routes-search">
+<label>Startnode <input id="routes-start" list="routes-nodes" placeholder="Name oder Hash" maxlength="200" required autocomplete="off"></label>
+<button id="routes-swap" type="button" aria-label="Start und Ziel tauschen">⇄ Tauschen</button>
+<label>Zielnode <input id="routes-target" list="routes-nodes" placeholder="Name oder Hash" maxlength="200" required autocomplete="off"></label>
+<datalist id="routes-nodes"></datalist>
+<label>Richtungen <select id="routes-direction"><option value="all">Auch unbeobachtete Gegenrichtung</option><option value="observed">Nur in Reiserichtung beobachtet</option></select></label>
+<label>Max. Funkstrecken <input id="routes-max-hops" type="number" min="1" max="64" value="32" required></label>
+<button id="routes-submit" type="submit">Routen suchen</button>
+</form>
+<p class="muted">Gesamtes Archiv · Datenstand bis zu 30 Sekunden alt · keine Zusage aktueller Erreichbarkeit. Nur Nodes mit bekannten Nachbarverbindungen; mehrdeutige Hashes werden ausgeschlossen. Eine Route kombiniert einzelne Beobachtungen und muss nicht als Ganzes empfangen worden sein.</p>
+<p id="routes-status" role="status">Start und Ziel nach Name oder Hash auswählen.</p>
+<div id="routes-results"></div>
+</section>
 <section id="panel-raw" class="archive" role="tabpanel" aria-labelledby="tab-raw" tabindex="0" hidden>
 <h2>Rohdaten</h2>
 <p class="muted">Paket-Ausgabe wie im Terminal · letzte 500 RX-Empfänge einschließlich Wiederholungen · neueste Pakete unten · „Ansicht pausieren“ hält die Anzeige an.</p>
