@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 from onair_repeaters import record_repeater, repeater_summary, repeater_token
 from onair_scopes import scope_label
+from onair_payload import decode_payload_details
 from onair_observers import record_observer, observer_comparison
 from onair_neighbors import record_path, neighbor_summary, neighbor_page, neighbor_map
 
@@ -366,4 +367,5 @@ class Archive:
         for item in items:
             decoded = item['packet']['decoded']
             decoded['scope_label'] = scope_label(decoded)
+            decoded.update(decode_payload_details(decoded))
         return {'items': items, 'next_before': items[-1]['id'] if len(rows) > limit else None}

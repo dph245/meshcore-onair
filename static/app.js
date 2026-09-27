@@ -48,6 +48,14 @@ const text = (tag, value, className) => {
   return node;
 };
 const measurement = (value, unit) => value == null ? '—' : `${value} ${unit}`;
+function appendPayloadDetails(container, decoded) {
+  if (!decoded.payload_summary) return;
+  container.append(text('div', decoded.payload_summary));
+  for (const field of decoded.payload_fields || []) {
+    container.append(text('pre', `${field.label}: ${field.value}`));
+  }
+  if (decoded.payload_status) container.append(text('div', decoded.payload_status, 'muted'));
+}
 // Central thresholds for the live SNR indicator; values are in dB.
 const snrThresholds = { low: -2, high: 0 };
 function snrMeasurement(value) {
@@ -173,6 +181,9 @@ function render(force = false) {
         }
       }
       if (d.advert_status) content.append(text('div', d.advert_status, 'muted'));
+    } else if (d.payload_summary) {
+      content.append(text('div', d.payload_summary));
+      if (d.payload_status) content.append(text('div', d.payload_status, 'muted'));
     }
     row.append(content);
     row.append(text('td', p.last_hop));
@@ -225,6 +236,7 @@ function render(force = false) {
         block.append(observer);
         block.append(text('div', `Pfad: ${reception.path}`));
         block.append(text('div', `Scope: ${scopeLabel(decoded)}`));
+        appendPayloadDetails(block, decoded);
         if (decoded.advert) {
           const a = decoded.advert;
           block.append(text('div', `Advert: ${a.name || 'Ohne Namen'} · ${a.node_type_name}`));
@@ -414,10 +426,11 @@ async function searchArchive(more = false) {
       const entry = text('details', '', 'reception');
       const content = d.payload_name === 'GRP_TXT'
         ? (d.group_text ?? d.group_text_status ?? 'Nicht entschlüsselbar')
-        : ((a && a.name) || d.advert_status || '');
+        : ((a && a.name) || d.advert_status || d.payload_summary || '');
       entry.append(text('summary', `${new Date(p.received_at).toLocaleString()} · ${d.payload_name} · ${d.group_channel || ''} · Scope: ${scopeLabel(d)} · ${content} · ${p.last_hop}`));
       entry.append(text('div', `Pfad: ${p.path} · RSSI: ${measurement(p.rssi, 'dBm')} · SNR: ${measurement(p.snr, 'dB')} · Hash: ${p.observer_hash || '—'}`));
       entry.append(text('div', `Observer: ${observerLabel(p)}`));
+      appendPayloadDetails(entry, d);
       entry.append(text('pre', JSON.stringify(p, null, 2)));
       archiveResults.append(entry);
     }

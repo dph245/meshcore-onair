@@ -15,5 +15,7 @@ tests/*
 !tests/test_noise_ui.js
 !tests/test_raw.py
 !tests/test_raw_ui.js
+!tests/test_payload.py
+!tests/test_payload_ui.js
 *.log
 .env

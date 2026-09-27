@@ -262,6 +262,7 @@ WireGuard-, Firewall- und Broker-ACL-Konfiguration sind damit nicht verifiziert.
 - `onair_mqtt.py`: unveränderter Raw-Decoder, `Packet`-Dataclass, Terminal und MQTT.
 - `onair_channels.py`: lokale Kanalkonfiguration und GRP_TXT-Entschlüsselung.
 - `onair_advert.py`: ADVERT-Decoder mit Signaturprüfung.
+- `onair_payload.py`: sichtbare Peer-Header und ACK-/Multipart-ACK-Details.
 - `onair_archive.py`: SQLite-Speicherung, Namensauflösung und Archivsuche.
 - `onair_web.py`: FastAPI-Lebenszyklus, begrenzter Gruppenspeicher, WebSocket.
 - `static/`: lokale Webseite ohne CDN oder Build-Schritt.
@@ -271,6 +272,19 @@ WireGuard-, Firewall- und Broker-ACL-Konfiguration sind damit nicht verifiziert.
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 ```
+
+PATH, REQ, RESPONSE, TEXT_MSG und ANON_REQ zeigen in der Live-Ansicht, im
+aufgeklappten Paket und im Archiv die sichtbaren Ziel-/Absender-Hashes (bei
+ANON_REQ den Absender-Public-Key), den ungeprüften MAC und den Chiffretext.
+Die 1-Byte-Hashes identifizieren Nodes nicht eindeutig. PATH ist eine
+Pfad-Rückgabe: Der zurückgemeldete Pfad und mögliche eingebettete ACKs sind
+verschlüsselt, ebenso Request-Typ und REQ-Inhalt. Dafür wäre der gemeinsame
+Schlüssel der beteiligten Nodes nötig; `channels.json` entschlüsselt diese
+Peer-Pakete nicht. Der sichtbare Routing-Pfad bleibt separat dargestellt.
+ACKs zeigen den Bestätigungs-Hash in Wire-Reihenfolge und als Little-Endian-Wert;
+Multipart-ACKs zusätzlich die Anzahl weiterer Pakete. Alte Archivpakete werden
+beim Lesen ergänzt, ohne die gespeicherten Daten umzuschreiben.
+Protokollgrundlage: [MeshCore Mesh.cpp](https://github.com/meshcore-dev/MeshCore/blob/main/src/Mesh.cpp).
 
 Der Tab **Rohdaten** zeigt die RX-Pakete mit derselben Formatierung wie im
 Terminal, einschließlich einzelner Wiederholungen. Die letzten 500 Empfänge

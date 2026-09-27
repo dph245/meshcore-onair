@@ -35,7 +35,7 @@ tr.packet td{vertical-align:top}td.message{white-space:pre-wrap;overflow-wrap:an
 
 .noise-observer{padding:12px 0;border-top:1px solid var(--border)}.noise-observer h3{font-size:13px;overflow-wrap:anywhere}#noise-floor{display:flex;flex-direction:column;gap:4px}
 
-#raw-output{flex:1;min-height:0;min-width:0;margin:12px 0 0;overflow:auto;white-space:pre;font:inherit;line-height:1.6;color:var(--fg);background:var(--bg);border:1px solid var(--border);padding:12px;tab-size:4}
+#raw-output{flex:1;min-height:0;min-width:0;margin:12px 0 0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.6;color:var(--fg);background:var(--bg);border:1px solid var(--border);padding:12px;tab-size:4}
 
 body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden])){height:100vh;height:100dvh;display:flex;flex-direction:column}
 body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>header,body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>.toolbar,body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>.tabs,body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>footer{flex-shrink:0}

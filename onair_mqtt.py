@@ -10,6 +10,7 @@ import paho.mqtt.client as mqtt
 from onair_channels import decode_group_text
 from onair_advert import decode_advert
 from onair_scopes import scope_label
+from onair_payload import decode_payload_details
 
 
 # ============================================================
@@ -353,6 +354,7 @@ def build_packet(data):
     if not isinstance(raw_hex, str) or not raw_hex:
         raise ValueError("Packet ohne gültiges raw-Feld")
     decoded = decode_raw_packet(raw_hex)
+    decoded.update(decode_payload_details(decoded))
     decoded['scope_label'] = scope_label(decoded)
     decoded["hop_labels"] = [node_label(hop) for hop in decoded["hops"]]
     if decoded["payload_type"] == 0x04:
@@ -485,6 +487,12 @@ def format_packet(packet):
             lines.append(f"Signatur: {advert['signature_status']}")
         if decoded.get("advert_status"):
             lines.append(decoded["advert_status"])
+
+    if decoded.get('payload_summary'):
+        lines.append(decoded['payload_summary'])
+        lines.extend(f"{field['label']}: {field['value']}" for field in decoded['payload_fields'])
+        if decoded.get('payload_status'):
+            lines.append(decoded['payload_status'])
 
     return "\n".join(lines) + "\n"
 
