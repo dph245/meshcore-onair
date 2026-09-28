@@ -196,6 +196,12 @@ def list_channels():
     return {'channels': list(onair_channels.CHANNELS)}
 
 
+@app.get('/api/discovery')
+def discovery(hours: int = Query(24, ge=1, le=168),
+              limit: int = Query(100, ge=1, le=100)):
+    return app.state.archive.discovery(hours, limit)
+
+
 @app.get("/api/observer-comparison")
 def compare_observers():
     return app.state.archive.observer_comparison()

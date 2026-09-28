@@ -13,6 +13,7 @@ from datetime import datetime
 from onair_repeaters import record_repeater, repeater_summary, repeater_token
 from onair_scopes import scope_label
 from onair_payload import decode_payload_details
+from onair_discovery import discovery_sessions
 from onair_observers import record_observer, observer_comparison
 from onair_neighbors import record_path, neighbor_summary, neighbor_page, neighbor_map
 
@@ -140,6 +141,19 @@ class Archive:
             return None
         matches = [name for key, name in self.names.items() if key.startswith(token)]
         return matches[0] if len(matches) == 1 else None
+
+    def discovery(self, hours=24, limit=100):
+        cutoff = time.time() - hours * 3600
+        with self.connect() as db:
+            rows = db.execute('''SELECT id,received,packet_json FROM packets
+                WHERE kind='CONTROL' AND received>=? ORDER BY id DESC LIMIT 5001''',
+                              (cutoff,)).fetchall()
+            names = dict(db.execute('SELECT public_key,name FROM nodes'))
+        sessions, ignored = discovery_sessions(
+            [(row_id, received, json.loads(raw)) for row_id, received, raw in rows[:5000]], names)
+        return dict(items=sessions[:limit], hours=hours, window_seconds=60,
+                    scanned=min(len(rows), 5000), ignored=ignored,
+                    truncated=len(rows) > 5000, more_sessions=len(sessions) > limit)
 
     def accept(self, packet):
         self._enqueue(packet.to_dict())

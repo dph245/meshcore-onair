@@ -10,6 +10,7 @@ function selectTab(selected) {
   if (selected.id === 'tab-channels' && !channelsReady) loadChannelMessages();
   if (selected.id === 'tab-observers') loadObservers();
   if (selected.id === 'tab-repeaters') loadRepeaters();
+  if (selected.id === 'tab-discovery') loadDiscovery();
   if (selected.id === 'tab-map') showNodeMap();
   if (selected.id === 'tab-neighbors') loadNeighbors();
   if (selected.id === 'tab-routes') loadRouteNodes();
@@ -317,6 +318,7 @@ document.getElementById('pause').onclick = event => {
     render();
     if (!document.getElementById('panel-observers').hidden) loadObservers();
     if (!document.getElementById('panel-repeaters').hidden) loadRepeaters();
+    if (!document.getElementById('panel-discovery').hidden) loadDiscovery();
     if (!document.getElementById('panel-map').hidden) loadMapNodes();
   }
 };

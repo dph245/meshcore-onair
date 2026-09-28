@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <header><h1>MeshCore <span>OnAir</span></h1><span id="connection" role="status">WebSocket verbindet …</span><span id="noise-floor">Noise Floor: —</span><span class="radio">869.618 MHz · BW 62.5 · SF8 · CR4/8</span><button id="theme-toggle" type="button" aria-pressed="false">Lightmode</button></header>
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
@@ -15,9 +15,21 @@
 <button id="tab-map" type="button" role="tab" aria-controls="panel-map" aria-selected="false" tabindex="-1">Map</button>
 <button id="tab-neighbors" type="button" role="tab" aria-controls="panel-neighbors" aria-selected="false" tabindex="-1">Nachbarn</button>
 <button id="tab-routes" type="button" role="tab" aria-controls="panel-routes" aria-selected="false" tabindex="-1">Routen</button>
+<button id="tab-discovery" type="button" role="tab" aria-controls="panel-discovery" aria-selected="false" tabindex="-1">Discovery</button>
 <button id="tab-noise" type="button" role="tab" aria-controls="panel-noise" aria-selected="false" tabindex="-1">Noise Floor</button>
 </div>
 <main>
+<section id="panel-discovery" class="archive" role="tabpanel" aria-labelledby="tab-discovery" tabindex="0" hidden>
+<h2>Discovery-Chronik</h2>
+<p class="muted">Wer antwortet auf die Node-Suche? Passiv beobachtete Suchanfragen und Antworten · Node-Namen aus bekannten ADVERTs · Aktualisierung alle 10 Sekunden.</p>
+<form id="discovery-search">
+<label>Zeitraum <select id="discovery-hours"><option value="1">Letzte Stunde</option><option value="24" selected>24 Stunden</option><option value="168">7 Tage</option></select></label>
+<button type="submit">Aktualisieren</button>
+</form>
+<p class="muted">Zuordnung nach Tag und Scope in einem 60-Sekunden-Fenster, ohne eindeutigen Nachweis der Zusammengehörigkeit. Der Suchende ist im Paket nicht identifiziert. SNR: Empfang der Suchanfrage beim antwortenden Node, nicht beim Observer. Fehlende Antworten bedeuten nicht automatisch „offline“.</p>
+<p id="discovery-status" role="status">Noch keine Daten geladen.</p>
+<div id="discovery-results"></div>
+</section>
 <section id="panel-routes" class="archive" role="tabpanel" aria-labelledby="tab-routes" tabindex="0" hidden>
 <h2>Mesh-Routenplaner</h2>
 <p class="muted">Kürzeste Wege nach Anzahl der Funkstrecken plus Alternativen aus beobachteten Repeater-Nachbarn. Auch einseitig bekannte Verbindungen sind nutzbar; nicht beobachtete Gegenrichtungen werden markiert.</p>

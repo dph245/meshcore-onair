@@ -64,6 +64,9 @@ def decode_payload_details(decoded):
                   if since else 'Keine Zeitbegrenzung (0)')
             if len(payload) > 10:
                 field('Weitere CONTROL-Daten (Hex)', payload[10:].hex())
+            result['discovery'] = dict(kind='request', tag=f'{tag:08x}',
+                                       node_types=types, type_filter=node_filter,
+                                       prefix_only=bool(flags & 1), since=since)
         else:
             node_type = flags & 15
             name = NODE_TYPES.get(node_type, f'Typ {node_type}')
@@ -75,6 +78,9 @@ def decode_payload_details(decoded):
                 return invalid('Ungültige Discovery-Public-Key-Länge: 8 oder 32 Byte erforderlich')
             field('Public-Key-Präfix (8 Byte)' if len(key) == 8 else 'Public Key (32 Byte)', key.hex())
             result['payload_summary'] += f' · {name} {key[:8].hex()} · {snr:g} dB · Tag 0x{tag:08x}'
+            result['discovery'] = dict(kind='response', tag=f'{tag:08x}',
+                                       node_type=node_type, node_type_name=name,
+                                       public_key=key.hex(), snr=snr)
         return result
 
     if kind in (3, 10):

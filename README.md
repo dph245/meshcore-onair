@@ -538,3 +538,23 @@ Noise-Floor-Regressionstests (Trennung, Migration, Neustart und Step-Kurven):
 .venv/bin/python -m unittest discover -s tests -p test_noise_observers.py -v
 deno run --allow-read=static/noise.js tests/test_noise_ui.js
 ```
+
+Der Tab **Discovery** gruppiert passiv empfangene `DISCOVER_REQ` und
+`DISCOVER_RESP` nach Discovery-Tag und Scope innerhalb eines festen
+60-Sekunden-Fensters. Die Zuordnung ist eine zeitliche Näherung, kein Nachweis
+identischer Suchender. Suchende Nodes werden nicht aus Observern oder Hops
+abgeleitet. Antworten ohne mitgehörte Anfrage bleiben sichtbar.
+
+Aufklappbare Gruppen zeigen Suchfilter, Zeitbegrenzung, Observer und antwortende
+Nodes mit Public Key, Namen aus der Node-Datenbank und SNR der Suchanfrage beim
+antwortenden Node. Wiederholte Antworten derselben Kennung erhöhen den
+Empfangszähler; unterschiedliche SNR-Werte erscheinen als Bereich. Eindeutige
+8-Byte-Präfixe werden bekannten Public Keys zugeordnet, mehrdeutige bleiben
+markiert. Discovery allein erzeugt keine verifizierten Node-Einträge.
+
+Zeiträume: eine Stunde, 24 Stunden oder sieben Tage. Alle zehn Sekunden wird der
+sichtbare Tab aktualisiert; die globale Pause gilt auch hier. Die Auswertung
+liest vorhandene Archivpakete ohne Migration, höchstens die neuesten 5000
+CONTROL-Empfänge im Zeitraum, und zeigt maximal 100 Gruppen. Begrenzungen werden
+angezeigt. Fehlende Antworten sind kein Offline-Nachweis. API: `/api/discovery`
+mit `hours=1..168` und `limit=1..100`.

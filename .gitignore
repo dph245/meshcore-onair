@@ -24,3 +24,5 @@ tests/*
 !tests/test_payload_ui.js
 *.log
 .env
+!tests/test_discovery.py
+!tests/test_discovery_ui.js
