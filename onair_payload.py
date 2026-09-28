@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from onair_advert import NODE_TYPES
 
 KINDS = {0: 'Anfrage', 1: 'Antwort', 2: 'Direktnachricht', 3: 'Bestätigung',
-         7: 'Anonyme Anfrage', 8: 'Pfad-Rückgabe', 10: 'Multipart', 11: 'CONTROL'}
+         7: 'Anonyme Anfrage', 8: 'Pfad-Rückgabe', 9: 'TRACE',
+         10: 'Multipart', 11: 'CONTROL'}
 
 
 def decode_payload_details(decoded):
@@ -19,6 +20,10 @@ def decode_payload_details(decoded):
     fields = []
     result = {'payload_summary': summary, 'payload_fields': fields,
               'payload_status': None}
+    if kind == 9:
+        # Old archive records stored the SNR bytes as hop hashes.
+        result.update(hops=[], hop_labels=[], trace=None,
+                      path_hex=decoded.get('path_hex', ''.join(decoded.get('hops', []))))
     if decoded.get('payload_ver', 0) != 0:
         result['payload_status'] = 'Nicht unterstützte Payload-Version'
         return result
@@ -33,6 +38,47 @@ def decode_payload_details(decoded):
 
     def invalid(message):
         result['payload_status'] = message
+        return result
+
+    if kind == 9:
+        # Mesh.cpp: createTrace(), sendDirect(), onRecvPacket().
+        field('TRACE-Nutzdaten (Hex)', payload.hex())
+        if len(payload) < 9:
+            return invalid('Unvollständiger TRACE-Header: mindestens 9 Byte erforderlich')
+        tag = int.from_bytes(payload[:4], 'little')
+        auth = int.from_bytes(payload[4:8], 'little')
+        flags = payload[8]
+        size = 1 << (flags & 3)
+        field('TRACE-Tag (uint32, Little Endian)', f'0x{tag:08x}')
+        field('Auth-Code (ungeprüft, uint32, Little Endian)', f'0x{auth:08x}')
+        field('Flags', f'0x{flags:02x}')
+        field('TRACE-Hashgröße', f'{size} Byte')
+        field('Pfad-Bedeutung', 'Der äußere Pfad enthält SNR-Werte; die angefragte Route liegt in der Payload.')
+        result['payload_summary'] += f' · Tag 0x{tag:08x}'
+        if decoded.get('route_type') not in (2, 3):
+            return invalid('TRACE benötigt DIRECT- oder TC_DIRECT-Routing')
+        if flags & 0xfc:
+            return invalid('Nicht unterstützte TRACE-Flags; Inhalt als Hexdaten verfügbar')
+        if len(payload[9:]) % size:
+            return invalid('Unvollständiger TRACE-Routenhash')
+        route = [payload[i:i + size].hex() for i in range(9, len(payload), size)]
+        field('Angefragte Route', ' → '.join(route) or 'Leer')
+        try:
+            path = bytes.fromhex(result['path_hex'])
+        except (ValueError, TypeError):
+            return invalid('Ungültige TRACE-SNR-Hexdaten')
+        if decoded.get('hash_size', 1) != 1:
+            return invalid('Ungültiger TRACE-Pfad: ein Byte pro SNR-Wert erforderlich')
+        snrs = [(value if value < 128 else value - 256) / 4 for value in path]
+        field('Gesammelte SNR-Werte', ', '.join(f'{snr:g} dB' for snr in snrs) or 'Noch keine')
+        if len(snrs) > len(route):
+            return invalid('Mehr TRACE-SNR-Werte als Routen-Hops')
+        for index, hop in enumerate(route):
+            value = f'{snrs[index]:g} dB' if index < len(snrs) else 'Noch kein SNR'
+            field(f'TRACE-Hop {index + 1} ({hop})', value)
+        result['trace'] = dict(tag=f'{tag:08x}', auth_code=f'{auth:08x}',
+                               flags=flags, hash_size=size, route=route, snrs=snrs)
+        result['payload_summary'] += f' · {len(snrs)}/{len(route)} Hops'
         return result
 
     if kind == 11:

@@ -14,6 +14,7 @@ from onair_repeaters import record_repeater, repeater_summary, repeater_token
 from onair_scopes import scope_label
 from onair_payload import decode_payload_details
 from onair_discovery import discovery_sessions
+from onair_trace import trace_sessions, WINDOW_SECONDS as TRACE_WINDOW_SECONDS
 from onair_observers import record_observer, observer_comparison
 from onair_neighbors import record_path, neighbor_summary, neighbor_page, neighbor_map
 
@@ -154,6 +155,20 @@ class Archive:
         return dict(items=sessions[:limit], hours=hours, window_seconds=60,
                     scanned=min(len(rows), 5000), ignored=ignored,
                     truncated=len(rows) > 5000, more_sessions=len(sessions) > limit)
+
+    def traces(self, hours=24, limit=100):
+        cutoff = time.time() - hours * 3600
+        with self.connect() as db:
+            rows = db.execute('''SELECT id,received,packet_json FROM packets
+                WHERE kind='TRACE' AND received>=? ORDER BY id DESC LIMIT 5001''',
+                              (cutoff,)).fetchall()
+            names = dict(db.execute('SELECT public_key,name FROM nodes'))
+        sessions, histories, ignored = trace_sessions(
+            [(row_id, received, json.loads(raw)) for row_id, received, raw in rows[:5000]], names)
+        return dict(items=sessions[:limit], histories=histories[:100], hours=hours,
+                    window_seconds=TRACE_WINDOW_SECONDS, scanned=min(len(rows), 5000),
+                    ignored=ignored, truncated=len(rows) > 5000,
+                    more_sessions=len(sessions) > limit, more_routes=len(histories) > 100)
 
     def accept(self, packet):
         self._enqueue(packet.to_dict())
@@ -428,4 +443,6 @@ class Archive:
             decoded = item['packet']['decoded']
             decoded['scope_label'] = scope_label(decoded)
             decoded.update(decode_payload_details(decoded))
+            if decoded.get('payload_type') == 9:
+                item['packet'].update(path='TRACE (SNR-Pfad)', last_hop='Unbekannt')
         return {'items': items, 'next_before': items[-1]['id'] if len(rows) > limit else None}

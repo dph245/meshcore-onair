@@ -79,3 +79,4 @@ body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>main{flex:1;min-h
 .map-advert-hops li{padding:2px 0}
 .map-advert-missing{margin-top:8px;color:#52616b}
 .discovery-entry{padding:12px 0;border-bottom:1px solid var(--border);white-space:normal;overflow-wrap:anywhere}.discovery-entry summary{color:var(--strong);line-height:1.8}.discovery-replies{padding:0 12px}
+.trace-chart{display:block;width:100%;min-width:700px;max-height:360px}.trace-chart text{fill:var(--secondary);font-size:11px}.trace-chart circle{cursor:crosshair}.trace-chart circle:focus{outline:2px solid var(--strong)}.trace-legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:8px 0}.trace-legend span{border-left:4px solid;padding-left:6px;font-size:11px}#trace-route{font:inherit;max-width:100%;background:var(--surface);color:var(--fg)}

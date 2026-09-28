@@ -262,7 +262,7 @@ WireGuard-, Firewall- und Broker-ACL-Konfiguration sind damit nicht verifiziert.
 - `onair_mqtt.py`: unveränderter Raw-Decoder, `Packet`-Dataclass, Terminal und MQTT.
 - `onair_channels.py`: lokale Kanalkonfiguration und GRP_TXT-Entschlüsselung.
 - `onair_advert.py`: ADVERT-Decoder mit Signaturprüfung.
-- `onair_payload.py`: sichtbare Peer-Header, ACK-/Multipart-ACK-Details und CONTROL-Discovery.
+- `onair_payload.py`: sichtbare Peer-Header, ACK-/Multipart-ACK-Details, TRACE und CONTROL-Discovery.
 - `onair_archive.py`: SQLite-Speicherung, Namensauflösung und Archivsuche.
 - `onair_web.py`: FastAPI-Lebenszyklus, begrenzter Gruppenspeicher, WebSocket.
 - `static/`: lokale Webseite ohne CDN oder Build-Schritt.
@@ -294,6 +294,41 @@ ein Channel-Schlüssel ist nicht erforderlich. Die Details erscheinen auch in
 Rohdaten, Terminal und bestehenden Archivpaketen. Unbekannte CONTROL-Untertypen
 bleiben als Hexdaten sichtbar; unvollständige Inhalte werden gekennzeichnet.
 Format: [MeshCore Control data](https://github.com/meshcore-dev/MeshCore/blob/main/docs/payloads.md#control-data).
+
+TRACE zeigt Tag, ungeprüften Auth-Code, Flags und die angefragte Route mit
+1-, 2-, 4- oder 8-Byte-Hashes. Der äußere Paketpfad enthält hier SNR-Werte
+(vorzeichenbehaftete Viertel-dB), keine Node-Hashes. Die Details ordnen jedem
+Routen-Hop seinen bereits gesammelten SNR zu; noch ausstehende Messungen bleiben
+kenntlich. Der letzte Sender wird nicht aus diesen Messwerten abgeleitet.
+Die unverschlüsselten Details erscheinen in Liveansicht, Terminal, Rohdaten und
+auch beim Lesen alter Archivpakete. Ein Channel-Schlüssel ist nicht nötig.
+Unvollständige Inhalte und nicht unterstützte Flags werden gekennzeichnet.
+Format: [MeshCore TRACE-Implementierung](https://github.com/meshcore-dev/MeshCore/blob/main/src/Mesh.cpp).
+
+Der Tab **TRACE** wertet archivierte TRACE-Empfänge für eine Stunde, 24 Stunden
+oder sieben Tage aus und aktualisiert sich alle zehn Sekunden. Die Chronik
+gruppiert gleiche Tags, Auth-Codes, Routen und Scopes in festen 60-Sekunden-Fenstern.
+Sie zeigt bekannte Node-Namen (mehrdeutige Präfixe bleiben markiert), beteiligte
+Observer, gemessene Hops sowie SNR-Minimum und -Maximum je Hop. Der niedrigste
+beobachtete SNR wird mit seiner Hop-Position hervorgehoben. Diese passive
+Zuordnung ist kein eindeutiger Nachweis einer zusammengehörigen Messung.
+
+Für jede Route gibt es einen **SNR-Verlauf über mehrere Messgruppen**. Jeder
+Punkt zeigt das Minimum eines Hops innerhalb einer Gruppe; per Maus, Klick oder
+Tastaturfokus erscheinen Zeitpunkt und Wertebereich. Wiederholte Empfänge
+derselben Gruppe erzeugen keine zusätzlichen Messpunkte. Fehlende Messwerte
+unterbrechen die Linien und belegen keinen Routenausfall. Auch vollständig
+gesammelte Hop-Werte bestätigen keinen Empfang am endgültigen Ziel.
+
+`GET /api/traces?hours=24&limit=100` liest höchstens 5000 TRACE-Empfänge,
+liefert höchstens 100 Chronikgruppen und 100 Routenverläufe mit jeweils den
+neuesten 200 Messgruppen. Die Oberfläche zeigt erreichte Grenzen an.
+Die Auswertung unterstützt alte Archivpakete ohne Datenmigration.
+
+```bash
+.venv/bin/python -m unittest discover -s tests -p 'test_trace.py'
+deno run --allow-read=static/trace.js tests/test_trace_ui.js
+```
 
 Der Tab **Rohdaten** zeigt die RX-Pakete mit derselben Formatierung wie im
 Terminal, einschließlich einzelner Wiederholungen. Die letzten 500 Empfänge

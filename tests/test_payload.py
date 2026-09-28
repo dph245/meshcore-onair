@@ -17,6 +17,76 @@ def fields(decoded):
 
 
 class PayloadTests(unittest.TestCase):
+    def test_trace_route_widths_and_signed_snr(self):
+        for flags, size in enumerate((1, 2, 4, 8)):
+            for route_type in (2, 3):
+                route = bytes(range(3 * size))
+                transport = bytes.fromhex('11223344') if route_type == 3 else b''
+                raw = (bytes([9 << 2 | route_type]) + transport + bytes.fromhex('02f519')
+                       + bytes.fromhex('1234567887654321') + bytes([flags]) + route)
+                p = build_packet({'raw': raw.hex()})
+                d, f = p.decoded, fields(p.decoded)
+                self.assertIsNone(d['payload_status'])
+                self.assertEqual(d['trace'], dict(tag='78563412', auth_code='21436587',
+                    flags=flags, hash_size=size,
+                    route=[route[i:i + size].hex() for i in range(0, len(route), size)],
+                    snrs=[-2.75, 6.25]))
+                self.assertEqual(d['hops'], [])
+                self.assertEqual(d['hop_labels'], [])
+                self.assertEqual(d['path_hex'], 'f519')
+                self.assertEqual(p.last_hop, 'Unbekannt')
+                self.assertIn('SNR', p.path)
+                self.assertEqual(f[f'TRACE-Hop 3 ({route[2 * size:].hex()})'], 'Noch kein SNR')
+                self.assertIn('2/3 Hops', format_packet(p))
+                self.assertIn('-2.75 dB', format_packet(p))
+
+    def test_trace_empty_and_complete_routes(self):
+        for samples, route in ((b'', b''), (b'', b'\xaa'), (b'\x80\x7f', b'\xaa\xbb')):
+            raw = bytes([0x26, len(samples)]) + samples + bytes(9) + route
+            d = build_packet({'raw': raw.hex()}).decoded
+            self.assertIsNone(d['payload_status'])
+            self.assertEqual(d['trace']['snrs'], [-32, 31.75] if samples else [])
+
+    def test_trace_malformed(self):
+        cases = [(bytes([0x26, 0]) + bytes(n), 'Header') for n in range(9)]
+        cases += [
+            (bytes.fromhex('2600') + bytes(8) + b'\x01\xaa', 'Routenhash'),
+            (bytes.fromhex('2601ff') + bytes(9), 'Mehr TRACE-SNR'),
+            (bytes.fromhex('2600') + bytes(8) + b'\x04', 'Flags'),
+            (bytes.fromhex('2500') + bytes(9), 'Routing'),
+            (bytes.fromhex('2641ff00') + bytes(11), 'ein Byte'),
+            (bytes.fromhex('6600') + bytes(9), 'Version'),
+        ]
+        for raw, status in cases:
+            with self.subTest(raw=raw.hex()):
+                d = build_packet({'raw': raw.hex()}).decoded
+                self.assertIn(status, d['payload_status'])
+                self.assertIsNone(d['trace'])
+                self.assertEqual(d['hops'], [])
+                json.dumps(d, allow_nan=False)
+
+    def test_old_trace_archive_snr_is_not_a_node(self):
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Archive(Path(folder) / 'test.sqlite3')
+            try:
+                p = build_packet({'raw': '2601f5123456780000000000aabb'}).to_dict()
+                d = p['decoded']
+                for key in ('payload_summary', 'payload_fields', 'payload_status', 'trace', 'path_hex'):
+                    del d[key]
+                d.update(hops=['f5'], hop_labels=['f5'])
+                p.update(path='f5', last_hop='f5')
+                with archive.connect() as db:
+                    archive._write(db, [p])
+                enriched = archive.search()['items'][0]['packet']
+                self.assertEqual(enriched['decoded']['trace']['snrs'], [-2.75])
+                self.assertEqual(enriched['decoded']['hops'], [])
+                self.assertEqual(enriched['last_hop'], 'Unbekannt')
+                with archive.connect() as db:
+                    stored = json.loads(db.execute('SELECT packet_json FROM packets').fetchone()[0])
+                self.assertEqual(stored['decoded']['hops'], ['f5'])
+            finally:
+                archive.close()
+
     def test_control_discovery_requests(self):
         for flags in (0x80, 0x81):
             for suffix in (b'', bytes(4), bytes.fromhex('01000000')):

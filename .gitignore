@@ -26,3 +26,5 @@ tests/*
 .env
 !tests/test_discovery.py
 !tests/test_discovery_ui.js
+!tests/test_trace.py
+!tests/test_trace_ui.js

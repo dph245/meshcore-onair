@@ -11,6 +11,7 @@ function selectTab(selected) {
   if (selected.id === 'tab-observers') loadObservers();
   if (selected.id === 'tab-repeaters') loadRepeaters();
   if (selected.id === 'tab-discovery') loadDiscovery();
+  if (selected.id === 'tab-trace') loadTraces();
   if (selected.id === 'tab-map') showNodeMap();
   if (selected.id === 'tab-neighbors') loadNeighbors();
   if (selected.id === 'tab-routes') loadRouteNodes();
@@ -185,6 +186,14 @@ function render(force = false) {
       if (d.advert_status) content.append(text('div', d.advert_status, 'muted'));
     } else if (d.payload_summary) {
       content.append(text('div', d.payload_summary));
+      if (d.trace) {
+        const {route, snrs} = d.trace;
+        content.append(text('div', `Route: ${route.join(' → ') || 'Leer'}`, 'muted'));
+        content.append(text('div', `Hops: ${snrs.length}/${route.length} mit SNR-Messung`, 'muted'));
+        const hopSnrs = route.map((_, index) =>
+          `Hop ${index + 1}: ${index < snrs.length ? `${snrs[index]} dB` : 'ausstehend'}`);
+        content.append(text('div', `SNR: ${hopSnrs.join(' · ') || 'Noch keine'}`, 'muted'));
+      }
       if (d.payload_status) content.append(text('div', d.payload_status, 'muted'));
     }
     row.append(content);
@@ -246,7 +255,8 @@ function render(force = false) {
           block.append(text('pre', `Public Key: ${a.public_key}\nAdvert-Zeit: ${new Date(a.timestamp * 1000).toISOString()} (Unix: ${a.timestamp})\nFlags: ${a.flags == null ? '—' : '0x' + a.flags.toString(16).padStart(2, '0')} · Feature 1: ${a.feature_1 ?? '—'} · Feature 2: ${a.feature_2 ?? '—'}\nSignatur (${a.signature_status}): ${a.signature}`));
         }
         if (decoded.advert_status) block.append(text('div', decoded.advert_status, 'muted'));
-        block.append(text('div', `Transport-Code: ${decoded.transport_code || '—'} · Hashgröße: ${decoded.hash_size} Byte · Länge: ${measurement(reception.length, 'B')}`));
+        const pathSize = decoded.payload_type === 9 ? 'SNR-Pfad: 1 Byte je Messwert' : `Hashgröße: ${decoded.hash_size} Byte`;
+        block.append(text('div', `Transport-Code: ${decoded.transport_code || '—'} · ${pathSize} · Länge: ${measurement(reception.length, 'B')}`));
         block.append(text('pre', `Raw: ${reception.raw_hex}\nPayload: ${decoded.payload_hex}\nHeader: 0x${decoded.header.toString(16).padStart(2, '0')} · Payload-Typ: ${decoded.payload_type} · Version: ${decoded.payload_ver} · Path-Length: 0x${decoded.path_len_raw.toString(16).padStart(2, '0')}\nHop-Hashes: ${decoded.hops.join(' → ') || '—'}\nLokal empfangen: ${reception.received_at}`));
         cell.append(block);
       }
@@ -319,6 +329,7 @@ document.getElementById('pause').onclick = event => {
     if (!document.getElementById('panel-observers').hidden) loadObservers();
     if (!document.getElementById('panel-repeaters').hidden) loadRepeaters();
     if (!document.getElementById('panel-discovery').hidden) loadDiscovery();
+    if (!document.getElementById('panel-trace').hidden) loadTraces();
     if (!document.getElementById('panel-map').hidden) loadMapNodes();
   }
 };

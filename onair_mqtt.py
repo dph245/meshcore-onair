@@ -246,6 +246,10 @@ def decode_raw_packet(raw_hex):
         hop = path_data[i:i + hash_size].hex()
         hops.append(hop)
 
+    # TRACE carries signed SNR samples here, not node hashes.
+    if payload_type == 0x09:
+        hops = []
+
     payload = data[offset:]
 
     return {
@@ -266,6 +270,7 @@ def decode_raw_packet(raw_hex):
         "hash_size": hash_size,
         "hop_count": hop_count,
         "hops": hops,
+        "path_hex": path_data.hex(),
         "payload_hex": payload.hex(),
     }
 
@@ -391,8 +396,9 @@ def build_packet(data):
         repeat_count=entry["count"], first_number=entry["first_number"],
         rssi=parse_int(data.get("RSSI")), snr=parse_float(data.get("SNR")),
         length=parse_int(data.get("len")), raw_hex=raw_hex,
-        decoded=decoded, path=format_path(decoded["hops"]),
-        last_hop=node_label(decoded["hops"][-1]) if decoded["hops"] else "direct",
+        decoded=decoded, path='TRACE (SNR-Pfad)' if decoded['payload_type'] == 9 else format_path(decoded["hops"]),
+        last_hop=('Unbekannt' if decoded['payload_type'] == 9 else
+                  node_label(decoded["hops"][-1]) if decoded["hops"] else "direct"),
     )
 
 
@@ -467,9 +473,8 @@ def format_packet(packet):
         f"{path}"
     )
 
-    lines.append(
-        f"Path hash size: {decoded['hash_size']} byte"
-    )
+    lines.append('TRACE path: SNR samples (1 byte each)' if decoded['payload_type'] == 9
+                 else f"Path hash size: {decoded['hash_size']} byte")
 
     lines.append(f"Scope: {scope_label(decoded)}")
     if decoded["transport_code"]:

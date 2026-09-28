@@ -207,6 +207,12 @@ def compare_observers():
     return app.state.archive.observer_comparison()
 
 
+@app.get('/api/traces')
+def traces(hours: int = Query(24, ge=1, le=168),
+           limit: int = Query(100, ge=1, le=100)):
+    return app.state.archive.traces(hours, limit)
+
+
 @app.get("/api/repeaters")
 def list_repeaters():
     return app.state.archive.repeaters()
