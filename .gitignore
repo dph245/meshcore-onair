@@ -5,6 +5,7 @@ __pycache__/
 *.sqlite3-wal
 *.sqlite3-shm
 tests/*
+!tests/test_map_advert.py
 !tests/test_neighbors.py
 !tests/test_neighbors_ui.js
 !tests/test_neighbors_api.py

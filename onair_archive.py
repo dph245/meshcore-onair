@@ -117,6 +117,12 @@ class Archive:
                     for (raw,) in db.execute('SELECT packet_json FROM packets ORDER BY id'):
                         record_path(db, json.loads(raw))
                     db.execute('PRAGMA user_version=9')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 10:
+                    db.execute('''CREATE TABLE IF NOT EXISTS node_advert_paths (
+                        public_key TEXT PRIMARY KEY, received REAL NOT NULL, reception TEXT NOT NULL)''')
+                    for (raw,) in db.execute("SELECT packet_json FROM packets WHERE kind='ADVERT' ORDER BY id"):
+                        self._record_advert_path(db, json.loads(raw))
+                    db.execute('PRAGMA user_version=10')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -170,6 +176,7 @@ class Archive:
                     (received, d['payload_name'], d.get('group_channel'), p['observer_hash'], search,
                      json.dumps(p, ensure_ascii=False), repeater_token(p), p.get('origin_id'), p.get('origin')))
                 self._record_node(db, p)
+                self._record_advert_path(db, p)
             names = dict(db.execute('SELECT public_key, name FROM nodes'))
         self.saved += sum('noise_sample' not in p for p in batch)
         self.names = names
@@ -196,10 +203,32 @@ class Archive:
             (a['public_key'], a.get('name'), a['timestamp'], received, received,
              a.get('node_type'), a.get('latitude'), a.get('longitude'), position_time))
 
+    @staticmethod
+    def _record_advert_path(db, packet):
+        decoded = packet['decoded']
+        advert = decoded.get('advert')
+        if (packet.get('direction') != 'rx' or not advert or decoded.get('advert_status')
+                or advert.get('signature_status') != 'Gültig'):
+            return
+        received = datetime.fromisoformat(packet['received_at']).timestamp()
+        reception = dict(received=received, origin=packet.get('origin'),
+                         origin_id=packet.get('origin_id'),
+                         hops=decoded.get('hops', []) if decoded.get('route_type') in (0, 1) else None)
+        db.execute('''INSERT INTO node_advert_paths VALUES(?,?,?)
+            ON CONFLICT(public_key) DO UPDATE SET received=excluded.received, reception=excluded.reception
+            WHERE excluded.received >= node_advert_paths.received''',
+            (advert['public_key'], received, json.dumps(reception, ensure_ascii=False)))
+
     def map_nodes(self):
         with self.connect() as db:
             db.row_factory = sqlite3.Row
-            rows = db.execute('SELECT * FROM nodes ORDER BY public_key').fetchall()
+            rows = db.execute('''SELECT nodes.*, reception FROM nodes
+                LEFT JOIN node_advert_paths USING(public_key) ORDER BY public_key''').fetchall()
+        prefixes = {}
+        for row in rows:
+            for length in range(2, len(row['public_key']) + 1, 2):
+                token = row['public_key'][:length]
+                prefixes[token] = None if token in prefixes else row
         cutoff = time.time() - 28 * 24 * 60 * 60
         items = []
         without_position = inactive = 0
@@ -210,7 +239,18 @@ class Archive:
                   (row['latitude'] == 0 and row['longitude'] == 0)):
                 without_position += 1
             else:
-                items.append(dict(row))
+                item = dict(row)
+                raw = item.pop('reception')
+                item['advert_path'] = reception = json.loads(raw) if raw else None
+                if reception and reception['hops'] is not None:
+                    hops = []
+                    for token in reception['hops']:
+                        match = prefixes.get(token)
+                        hops.append(dict(token=token, name=match['name'] if match else None,
+                                         resolved=match is not None,
+                                         ambiguous=token in prefixes and match is None))
+                    reception['hops'] = hops
+                items.append(item)
         return {'items': items, 'without_position': without_position, 'inactive': inactive}
 
     def neighbors(self):

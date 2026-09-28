@@ -32,6 +32,19 @@ globalThis.L = {
 const source = await Deno.readTextFile('static/map.js');
 new Function('lines', 'getPopup', `${source}
 const assert = (ok, message) => { if (!ok) throw Error(message); };
+const sample = {name:'Sender', public_key:'aabb', advert_path:{received:123, origin:'<Observer>',
+  hops:[{token:'cc', name:'<Relay>', resolved:true}, {token:'dd', ambiguous:true}, {token:'ee'}]}};
+const details = mapAdvertPath(sample);
+assert(!details.open && details.children[0].textContent.includes('3 Hops'), 'Path is collapsed with compact hop count');
+const steps = details.children[2].children;
+assert(steps.length === 5 && steps[1].textContent === '<Relay> [cc]', 'Ordered path includes sender and safely rendered relay name');
+assert(steps[2].textContent.includes('mehrdeutig') && steps[3].textContent.includes('unaufgelöst'), 'Ambiguous and unknown hops are explicit');
+assert(steps[4].textContent === 'Empfänger: <Observer>', 'Reception identifies observer');
+sample.advert_path.hops = [];
+assert(mapAdvertPath(sample).children[0].textContent.includes('direkt'), 'Empty flood path means direct reception');
+sample.advert_path.hops = null;
+assert(mapAdvertPath(sample).children[0].textContent.includes('nicht verfügbar'), 'Other route types are not labeled direct');
+assert(mapAdvertPath({}).textContent.includes('kein Empfang'), 'Missing reception is explicit');
 document.getElementById('neighbors-one-way').checked = false;
 const a = {id:'aabb', name:'<A>', resolved:true}, b = {id:'ccdd', name:'B', resolved:true};
 const link = {source:a, target:b, count:8, forward_count:6, reverse_count:2, last_seen:123, distance_km:12.34};

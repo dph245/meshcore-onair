@@ -336,6 +336,29 @@ function showNodeMap() {
   loadNeighbors();
 }
 
+function mapAdvertPath(item) {
+  const reception = item.advert_path;
+  if (!reception) return text('div', 'ADVERT-Pfad: kein Empfang gespeichert', 'map-advert-missing');
+  const details = text('details', '', 'map-advert-path');
+  const hops = reception.hops;
+  const summary = hops === null ? 'Pfad nicht verfügbar' : hops.length ? `${hops.length} Hops` : 'direkt';
+  details.append(text('summary', `Letzter ADVERT · ${summary}`));
+  details.append(text('div', new Date(reception.received * 1000).toLocaleString('de-DE')));
+  if (hops === null) {
+    details.append(text('div', 'Dieser Routentyp enthält keinen beobachteten Empfangspfad.'));
+  } else {
+    const path = text('ol', '', 'map-advert-hops');
+    path.append(text('li', item.name || `Sender [${item.public_key.slice(0, 6)}]`));
+    for (const hop of hops) {
+      const label = hop.name ? `${hop.name} [${hop.token}]` : `[${hop.token}]`;
+      path.append(text('li', label + (hop.ambiguous ? ' (mehrdeutig)' : hop.resolved ? '' : ' (unaufgelöst)')));
+    }
+    path.append(text('li', `Empfänger: ${reception.origin || reception.origin_id || 'unbekannter Observer'}`));
+    details.append(path);
+  }
+  return details;
+}
+
 function mapNodeInfo(item) {
   const info = text('div', '', 'map-node-info');
   const type = mapTypes[item.node_type]?.[0] || (item.node_type === 4 ? 'Sensor' : 'Unbekannt');
@@ -347,6 +370,7 @@ function mapNodeInfo(item) {
     `Zuletzt empfangen: ${new Date(item.last_seen * 1000).toLocaleString('de-DE')}`]) {
     info.append(text('div', value));
   }
+  if (item.node_type === 2) info.append(mapAdvertPath(item));
   return info;
 }
 
@@ -394,7 +418,11 @@ async function loadMapNodes() {
         if (view.nodeType !== item.node_type) {
           view.marker.unbindTooltip().bindTooltip(text('span', label), tooltipOptions);
         }
-        view.marker.setTooltipContent(text('span', label)).setPopupContent(mapNodeInfo(item));
+        const expanded = view.marker.getPopup()?.getContent()?.querySelector?.('.map-advert-path')?.open;
+        const info = mapNodeInfo(item);
+        const path = info.querySelector('.map-advert-path');
+        if (path) path.open = !!expanded;
+        view.marker.setTooltipContent(text('span', label)).setPopupContent(info);
       }
       view.position = [item.latitude, item.longitude];
       view.label = label;
