@@ -17,6 +17,45 @@ def fields(decoded):
 
 
 class PayloadTests(unittest.TestCase):
+    def test_control_discovery_requests(self):
+        for flags in (0x80, 0x81):
+            for suffix in (b'', bytes(4), bytes.fromhex('01000000')):
+                p = packet(11, bytes([flags, 0x94]) + bytes.fromhex('12345678') + suffix)
+                f = fields(p.decoded)
+                self.assertIsNone(p.decoded['payload_status'])
+                self.assertEqual(f['Discovery-Tag (uint32, Little Endian)'], '0x78563412')
+                self.assertEqual(f['Gesuchte Node-Typen'], 'Repeater, Sensor, Typ 7 (0x94)')
+                self.assertEqual(f['Angeforderter Public Key'],
+                                 '8-Byte-Präfix' if flags & 1 else 'Vollständig (32 Byte)')
+                self.assertEqual(f['Geändert seit (UTC)'], '1970-01-01T00:00:01+00:00'
+                                 if suffix == bytes.fromhex('01000000') else 'Keine Zeitbegrenzung (0)')
+                self.assertIn('DISCOVER_REQ', format_packet(p))
+
+    def test_control_discovery_responses(self):
+        for size in (8, 32):
+            for raw_snr, snr in ((0xf5, '-2.75'), (0x19, '6.25'), (0x80, '-32')):
+                p = packet(11, bytes([0x92, raw_snr]) + bytes.fromhex('12345678') + bytes(range(size)))
+                f = fields(p.decoded)
+                self.assertIsNone(p.decoded['payload_status'])
+                self.assertEqual(f['Node-Typ'], 'Repeater (2)')
+                self.assertEqual(f['SNR der Suchanfrage beim antwortenden Node'], f'{snr} dB')
+                self.assertEqual(f['Public-Key-Präfix (8 Byte)' if size == 8 else 'Public Key (32 Byte)'],
+                                 bytes(range(size)).hex())
+                self.assertIn('DISCOVER_RESP', format_packet(p))
+
+    def test_control_malformed_and_unknown(self):
+        for raw in [b''] + [bytes([0x80]) + bytes(n) for n in (0, 1, 2, 3, 4, 6, 7, 8)] + [
+                bytes([0x92]) + bytes(n) for n in range(39) if n not in (13, 37)]:
+            with self.subTest(raw=raw.hex()):
+                d = packet(11, raw).decoded
+                self.assertTrue(d['payload_status'])
+                self.assertEqual(fields(d)['CONTROL-Nutzdaten (Hex)'], raw.hex())
+                json.dumps(d, allow_nan=False)
+        d = packet(11, bytes.fromhex('70aabb')).decoded
+        self.assertIn('Unbekannter', d['payload_status'])
+        self.assertEqual(fields(d)['CONTROL-Untertyp'], '0x7')
+        self.assertIn('Version', packet(11, bytes(10), version=1).decoded['payload_status'])
+
     def test_ack_and_multipart_byte_order_and_extensions(self):
         for kind, prefix in ((3, b''), (10, b'\x23')):
             p = packet(kind, prefix + bytes.fromhex('12345678abcd'))
@@ -61,16 +100,22 @@ class PayloadTests(unittest.TestCase):
         self.assertIn('Hex', decode_payload_details({'payload_type': 3, 'payload_hex': 'zz'})['payload_status'])
 
     def test_old_archive_is_enriched_without_rewriting(self):
+        for kind, raw, summary in ((3, '12345678', 'ACK 12345678'),
+                                   (11, '800412345678', 'DISCOVER_REQ')):
+            with self.subTest(kind=kind):
+                self.check_archive_enrichment(kind, raw, summary)
+
+    def check_archive_enrichment(self, kind, raw, summary):
         with tempfile.TemporaryDirectory() as folder:
             archive = Archive(Path(folder) / 'test.sqlite3')
             try:
-                p = packet(3, bytes.fromhex('12345678')).to_dict()
+                p = packet(kind, bytes.fromhex(raw)).to_dict()
                 for key in ('payload_summary', 'payload_fields', 'payload_status'):
                     del p['decoded'][key]
                 with archive.connect() as db:
                     archive._write(db, [p])
                 d = archive.search()['items'][0]['packet']['decoded']
-                self.assertIn('ACK 12345678', d['payload_summary'])
+                self.assertIn(summary, d['payload_summary'])
                 with archive.connect() as db:
                     stored = json.loads(db.execute('SELECT packet_json FROM packets').fetchone()[0])
                 self.assertNotIn('payload_summary', stored['decoded'])

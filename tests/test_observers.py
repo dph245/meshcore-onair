@@ -10,6 +10,7 @@ import onair_mqtt as mqtt
 from onair_archive import Archive
 from onair_observers import reception_token
 from onair_web import PacketStore
+from node_fixtures import seed_nodes
 
 
 def packet(origin_id='east-id', origin='Ost', raw='1541dd4c', **extra):
@@ -19,11 +20,15 @@ def packet(origin_id='east-id', origin='Ost', raw='1541dd4c', **extra):
 
 class ObserverTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.object(mqtt, 'ALIASES', {}))
+        self.enterContext(patch.object(mqtt, 'learned_alias', None))
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         self.path = Path(self.folder.name) / 'archive.sqlite3'
 
     def test_repeats_identity_labels_metrics_and_restart(self):
+        public_key = 'dd4c' + '0' * 60
+        seed_nodes(self.path, {public_key: 'Funkfeuer'})
         archive = Archive(self.path)
         store = PacketStore()
         packets = [packet(RSSI=-100, SNR=7), packet(RSSI=-80, SNR=4),
@@ -45,7 +50,8 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(observers[None]['count'], 1)
         self.assertEqual(len(data['items']), 1)
         node = data['items'][0]
-        self.assertIn('Funkfeuer', node['name'])
+        self.assertEqual(node['id'], public_key)
+        self.assertEqual(node['name'], 'Funkfeuer')
         rx = {r['origin_id']: r for r in node['observers']}
         self.assertEqual((rx['east-id']['count'], rx['east-id']['best_rssi'], rx['east-id']['best_snr']), (3, -80, 7))
         self.assertEqual(rx['west-id']['best_snr'], 11.5)

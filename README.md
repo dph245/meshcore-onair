@@ -262,7 +262,7 @@ WireGuard-, Firewall- und Broker-ACL-Konfiguration sind damit nicht verifiziert.
 - `onair_mqtt.py`: unveränderter Raw-Decoder, `Packet`-Dataclass, Terminal und MQTT.
 - `onair_channels.py`: lokale Kanalkonfiguration und GRP_TXT-Entschlüsselung.
 - `onair_advert.py`: ADVERT-Decoder mit Signaturprüfung.
-- `onair_payload.py`: sichtbare Peer-Header und ACK-/Multipart-ACK-Details.
+- `onair_payload.py`: sichtbare Peer-Header, ACK-/Multipart-ACK-Details und CONTROL-Discovery.
 - `onair_archive.py`: SQLite-Speicherung, Namensauflösung und Archivsuche.
 - `onair_web.py`: FastAPI-Lebenszyklus, begrenzter Gruppenspeicher, WebSocket.
 - `static/`: lokale Webseite ohne CDN oder Build-Schritt.
@@ -285,6 +285,15 @@ ACKs zeigen den Bestätigungs-Hash in Wire-Reihenfolge und als Little-Endian-Wer
 Multipart-ACKs zusätzlich die Anzahl weiterer Pakete. Alte Archivpakete werden
 beim Lesen ergänzt, ohne die gespeicherten Daten umzuschreiben.
 Protokollgrundlage: [MeshCore Mesh.cpp](https://github.com/meshcore-dev/MeshCore/blob/main/src/Mesh.cpp).
+
+CONTROL zeigt Node-Suchanfragen (`DISCOVER_REQ`) mit Typfilter, gewünschter
+Public-Key-Länge, Discovery-Tag und optionaler Zeitbegrenzung. Suchantworten
+(`DISCOVER_RESP`) zeigen Node-Typ, Public Key oder 8-Byte-Präfix sowie den SNR
+der Suchanfrage beim antwortenden Node. Diese Discovery-Daten sind unverschlüsselt;
+ein Channel-Schlüssel ist nicht erforderlich. Die Details erscheinen auch in
+Rohdaten, Terminal und bestehenden Archivpaketen. Unbekannte CONTROL-Untertypen
+bleiben als Hexdaten sichtbar; unvollständige Inhalte werden gekennzeichnet.
+Format: [MeshCore Control data](https://github.com/meshcore-dev/MeshCore/blob/main/docs/payloads.md#control-data).
 
 Der Tab **Rohdaten** zeigt die RX-Pakete mit derselben Formatierung wie im
 Terminal, einschließlich einzelner Wiederholungen. Die letzten 500 Empfänge

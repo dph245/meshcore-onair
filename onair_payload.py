@@ -1,11 +1,14 @@
-"""Visible version-0 peer envelopes and acknowledgments (no peer secrets).
+"""Visible version-0 peer envelopes, acknowledgments and control data.
 
 Wire layout: meshcore-dev/MeshCore src/Mesh.cpp and src/Utils.cpp.
 The routing path outside the payload is not the encrypted PATH return path.
 """
+from datetime import datetime, timezone
+
+from onair_advert import NODE_TYPES
 
 KINDS = {0: 'Anfrage', 1: 'Antwort', 2: 'Direktnachricht', 3: 'Bestätigung',
-         7: 'Anonyme Anfrage', 8: 'Pfad-Rückgabe', 10: 'Multipart'}
+         7: 'Anonyme Anfrage', 8: 'Pfad-Rückgabe', 10: 'Multipart', 11: 'CONTROL'}
 
 
 def decode_payload_details(decoded):
@@ -30,6 +33,48 @@ def decode_payload_details(decoded):
 
     def invalid(message):
         result['payload_status'] = message
+        return result
+
+    if kind == 11:
+        # MeshCore docs/payloads.md: CONTROL subtype is the upper nibble.
+        field('CONTROL-Nutzdaten (Hex)', payload.hex())
+        if not payload:
+            return invalid('Unvollständiger CONTROL-Header')
+        flags, subtype = payload[0], payload[0] >> 4
+        field('Flags', f'0x{flags:02x}')
+        field('CONTROL-Untertyp', f'0x{subtype:x}')
+        names = {8: 'Node-Suche (DISCOVER_REQ)', 9: 'Suchantwort (DISCOVER_RESP)'}
+        result['payload_summary'] = names.get(subtype, f'CONTROL · Untertyp 0x{subtype:x}')
+        if subtype not in names:
+            return invalid('Unbekannter CONTROL-Untertyp; Inhalt als Hexdaten verfügbar')
+        if len(payload) < 6:
+            return invalid('Unvollständiger Discovery-Header: mindestens 6 Byte erforderlich')
+        tag = int.from_bytes(payload[2:6], 'little')
+        field('Discovery-Tag (uint32, Little Endian)', f'0x{tag:08x}')
+        if subtype == 8:
+            node_filter = payload[1]
+            types = [NODE_TYPES.get(n, f'Typ {n}') for n in range(8) if node_filter & (1 << n)]
+            field('Gesuchte Node-Typen', f'{", ".join(types) or "Keine"} (0x{node_filter:02x})')
+            field('Angeforderter Public Key', '8-Byte-Präfix' if flags & 1 else 'Vollständig (32 Byte)')
+            result['payload_summary'] += f' · {", ".join(types) or "Keine Node-Typen"} · Tag 0x{tag:08x}'
+            if 6 < len(payload) < 10:
+                return invalid('Unvollständiger Since-Zeitstempel: 4 Byte erforderlich')
+            since = int.from_bytes(payload[6:10], 'little') if len(payload) >= 10 else 0
+            field('Geändert seit (UTC)', datetime.fromtimestamp(since, timezone.utc).isoformat()
+                  if since else 'Keine Zeitbegrenzung (0)')
+            if len(payload) > 10:
+                field('Weitere CONTROL-Daten (Hex)', payload[10:].hex())
+        else:
+            node_type = flags & 15
+            name = NODE_TYPES.get(node_type, f'Typ {node_type}')
+            field('Node-Typ', f'{name} ({node_type})')
+            snr = int.from_bytes(payload[1:2], 'little', signed=True) / 4
+            field('SNR der Suchanfrage beim antwortenden Node', f'{snr:g} dB')
+            key = payload[6:]
+            if len(key) not in (8, 32):
+                return invalid('Ungültige Discovery-Public-Key-Länge: 8 oder 32 Byte erforderlich')
+            field('Public-Key-Präfix (8 Byte)' if len(key) == 8 else 'Public Key (32 Byte)', key.hex())
+            result['payload_summary'] += f' · {name} {key[:8].hex()} · {snr:g} dB · Tag 0x{tag:08x}'
         return result
 
     if kind in (3, 10):
