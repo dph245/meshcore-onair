@@ -13,7 +13,8 @@ services:
       ONAIR_SHOW_TX: "${ONAIR_SHOW_TX:-false}"
       ONAIR_DB_PATH: /data/onair.sqlite3
     volumes:
-      - onair-data:/data
+      - ./data:/data
+
       - type: bind
         source: ./channels.json
         target: /app/channels.json
