@@ -1,0 +1,25 @@
+services:
+  onair:
+    build: .
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    ports:
+      - "${ONAIR_HTTP_PORT:-8083}:8083"
+    environment:
+      ONAIR_MQTT_HOST: ${ONAIR_MQTT_HOST:-192.168.88.40}
+      ONAIR_MQTT_PORT: ${ONAIR_MQTT_PORT:-1883}
+      ONAIR_MQTT_TOPIC: ${ONAIR_MQTT_TOPIC:-meshcore/#}
+      ONAIR_SHOW_TX: "${ONAIR_SHOW_TX:-false}"
+      ONAIR_DB_PATH: /data/onair.sqlite3
+    volumes:
+      - onair-data:/data
+      - type: bind
+        source: ./channels.json
+        target: /app/channels.json
+        read_only: true
+        bind:
+          create_host_path: false
+
+volumes:
+  onair-data:

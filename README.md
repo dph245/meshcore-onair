@@ -21,11 +21,61 @@ Der bisherige reine Terminal-Modus bleibt verfügbar:
 .venv/bin/python onair_mqtt.py
 ```
 
-Broker und Topic stehen weiterhin in `onair_mqtt.py`: `192.168.88.40:1883`,
+Broker und Topic lassen sich über `ONAIR_MQTT_HOST`, `ONAIR_MQTT_PORT` und
+`ONAIR_MQTT_TOPIC` einstellen; Vorgaben sind `192.168.88.40:1883` und
 `meshcore/#`. Der Monitor subscribiert ausschließlich; er publiziert nichts und
 ändert weder Observer noch BSMesh. Jede Instanz hat eine eigene MQTT-Client-ID.
 Der Webmodus versucht bei Ausfällen automatisch die Verbindung wiederherzustellen.
 Die Kopfzeile unterscheidet MQTT-Ausfall und WebSocket-Ausfall.
+
+## Docker
+
+Voraussetzung: Docker mit Compose. Im Projektverzeichnis:
+
+```bash
+cp -n .env.example .env
+# .env öffnen und bei Bedarf Broker, Topic und Webport anpassen.
+# Nur falls channels.json noch nicht existiert: leere Kanalliste anlegen.
+test -e channels.json || printf '{}\n' > channels.json
+docker compose up -d --build
+```
+
+Im Browser **http://localhost:8083** öffnen (auf anderen Geräten die IP des
+Docker-Hosts verwenden). `ONAIR_HTTP_PORT` ändert den veröffentlichten Port.
+Der MQTT-Broker muss aus dem Container erreichbar sein; `localhost` bezeichnet
+dort den Container selbst. Für einen Broker auf dem Host dessen LAN-IP verwenden.
+Compose liest `.env`; beim direkten Python-Start die Variablen im Shell-Environment setzen.
+
+Mit `ONAIR_SHOW_TX=true` in `.env` erscheinen auch über MQTT gemeldete
+`direction: "tx"`-Pakete in Terminal bzw. Docker-Logs. Aktivierende Werte sind
+`1`, `true`, `yes` und `on` (Groß-/Kleinschreibung egal); standardmäßig ist die
+Anzeige aus. Webansicht und Archiv nehmen weiterhin nur RX-Pakete auf.
+Nach der ersten Installation dieser Änderung `docker compose up -d --build`
+ausführen; spätere Änderungen der Einstellung mit `docker compose up -d` übernehmen.
+Die Ausgabe lässt sich mit `docker compose logs -f onair` verfolgen.
+
+Das Image läuft als Benutzer ohne Root-Rechte mit genau einem Uvicorn-Worker.
+`channels.json` wird schreibgeschützt eingebunden. Nach Änderungen daran
+`docker compose restart onair` ausführen; bei Änderungen an `.env`
+`docker compose up -d` verwenden. Ohne zusätzliche Kanaleinträge ist Public verfügbar.
+Die lokale Datenbank, Kanalschlüssel und `.env` werden nicht ins Image kopiert.
+Zeitstempel im Container verwenden standardmäßig UTC.
+
+SQLite liegt im persistenten Docker-Volume `onair-data` unter `/data/onair.sqlite3`.
+Beim ersten Docker-Start entsteht ein **neues, leeres Archiv**; die vorhandene
+`onair.sqlite3` im Projektverzeichnis wird nicht automatisch übernommen.
+`docker compose down` erhält das Volume; `docker compose down -v` löscht es
+einschließlich des Archivs.
+
+```bash
+docker compose logs -f onair       # Webserver- und MQTT-Ausgabe
+docker compose ps                 # Containerzustand und HTTP-Healthcheck
+docker compose down               # sauber stoppen, Archiv behalten
+docker compose up -d --build       # nach Codeänderungen neu bauen und starten
+```
+
+Der Healthcheck prüft die HTTP-Erreichbarkeit. Den MQTT-Verbindungsstatus zeigt
+die Weboberfläche; ein Broker-Ausfall verhindert den Webstart nicht.
 
 ## Liveansicht
 

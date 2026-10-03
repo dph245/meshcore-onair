@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!requirements.txt
+!onair_*.py
+!static/
+!static/**

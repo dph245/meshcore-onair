@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import uuid
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
@@ -17,12 +18,12 @@ from onair_payload import decode_payload_details
 # Konfiguration
 # ============================================================
 
-BROKER_HOST = "192.168.88.40"
-BROKER_PORT = 1883
-MQTT_TOPIC = "meshcore/#"
+BROKER_HOST = os.environ.get("ONAIR_MQTT_HOST", "192.168.88.40")
+BROKER_PORT = int(os.environ.get("ONAIR_MQTT_PORT", "1883"))
+MQTT_TOPIC = os.environ.get("ONAIR_MQTT_TOPIC", "meshcore/#")
 
 SHOW_STATUS = True
-SHOW_TX = False
+SHOW_TX = os.environ.get("ONAIR_SHOW_TX", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 # Bekannte Nodes.
