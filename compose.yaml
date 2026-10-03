@@ -5,7 +5,7 @@ services:
     init: true
     stop_grace_period: 30s
     ports:
-      - "${ONAIR_HTTP_PORT:-8083}:8083"
+      - "127.0.0.1:${ONAIR_HTTP_PORT:-8083}:8083"
     environment:
       ONAIR_MQTT_HOST: ${ONAIR_MQTT_HOST:-192.168.88.40}
       ONAIR_MQTT_PORT: ${ONAIR_MQTT_PORT:-1883}
