@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import random
 from concurrent.futures import ThreadPoolExecutor
 import tempfile
 import unittest
@@ -8,7 +9,7 @@ from unittest.mock import patch
 
 from onair_archive import Archive
 from onair_mqtt import build_packet
-from onair_neighbors import distance_km
+from onair_neighbors import distance_km, neighbor_summary
 
 
 def packet(raw, **extra):
@@ -113,6 +114,71 @@ class NeighborTests(unittest.TestCase):
             self.assertEqual((loop['count'], loop['forward_count'], loop['reverse_count']), (1, 1, 1))
             reverse = links['cc', 'dd']
             self.assertEqual((reverse['count'], reverse['forward_count'], reverse['reverse_count']), (1, 0, 1))
+
+    def test_pair_migration_uses_paths_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Archive(Path(folder) / 'archive.db')
+            archive.close()
+            with archive.connect() as db, db:
+                db.execute('DROP TABLE repeater_pairs')
+                db.execute('PRAGMA user_version=10')
+                # No packets: upgrading must use historical path counters.
+                db.executemany('INSERT INTO repeater_paths VALUES(?,?,?,?)', [
+                    (json.dumps(['aa', 'bb', 'aa', 'bb']), 7, 10, 20),
+                    (json.dumps(['bb', 'aa']), 3, 5, 30)])
+            for _ in range(2):
+                archive = Archive(archive.path)
+                archive.close()
+                with archive.connect() as db:
+                    queries = []
+                    db.set_trace_callback(queries.append)
+                    link, = neighbor_summary(db)['items']
+                    self.assertFalse(any('repeater_paths' in query or 'packets' in query for query in queries))
+                self.assertEqual((link['count'], link['forward_count'], link['reverse_count'],
+                                  link['first_seen'], link['last_seen']), (10, 7, 10, 5, 30))
+
+    def test_loop_only_tokens_still_create_collisions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Archive(Path(folder) / 'archive.db')
+            for raw in ['1502aabb', '1542aa01aa01', '1542aa02aa02']:
+                archive.accept(packet(raw))
+            archive.close()
+            link, = archive.neighbors()['items']
+            self.assertEqual(link['source']['id'], 'aa')
+            self.assertTrue(link['source']['ambiguous'])
+            self.assertEqual(link['count'], 1)
+
+    def test_random_paths_match_per_reception_counts_across_batches(self):
+        rng = random.Random(42)
+        expected = {}
+        batch = []
+        for i in range(300):
+            hops = [rng.choice(['aa', 'bb', 'cc', 'dd']) for _ in range(rng.randrange(2, 20))]
+            batch.append(packet('15' + format(len(hops), '02x') + ''.join(hops)).to_dict())
+            directed = set(zip(hops, hops[1:]))
+            for a, b in {tuple(sorted(pair)) for pair in directed if pair[0] != pair[1]}:
+                counts = expected.setdefault((a, b), [0, 0, 0])
+                counts[0] += 1
+                counts[1] += (a, b) in directed
+                counts[2] += (b, a) in directed
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Archive(Path(folder) / 'archive.db')
+            archive.close()
+            with archive.connect() as db:
+                for start in range(0, len(batch), 17):
+                    archive._write(db, batch[start:start + 17])
+            actual = {(link['source']['id'], link['target']['id']):
+                      [link['count'], link['forward_count'], link['reverse_count']]
+                      for link in archive.neighbors()['items']}
+            self.assertEqual(actual, expected)
+            before_failure = archive.neighbors()
+            # A failed batch must roll back both paths and the new pair counters.
+            with archive.connect() as db:
+                with patch('onair_archive.record_path_pairs', side_effect=RuntimeError('failed')):
+                    with self.assertRaises(RuntimeError):
+                        archive._write(db, batch[:10])
+                self.assertEqual(db.execute('SELECT SUM(count) FROM repeater_paths').fetchone()[0], 300)
+            self.assertEqual(archive.neighbors(), before_failure)
 
     def test_shared_json_cache_refreshes_after_expiry(self):
         with tempfile.TemporaryDirectory() as folder:

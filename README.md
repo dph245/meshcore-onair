@@ -462,8 +462,15 @@ höchstens 100 Zeilen zurück. Die Karte lädt separat nur Verbindungen mit zwei
 bekannten Positionen und überträgt jeden beteiligten Node einmal.
 Beide Endpunkte verwenden ETags: Bei unveränderten Daten antworten sie auf
 `If-None-Match` mit HTTP 304 ohne Antwortinhalt. Pro Snapshot werden höchstens
-64 Antwortvarianten gespeichert. Die Berechnung des Snapshots wertet weiterhin
-alle gespeicherten Pfade aus. Die Hash-Auflösung
+64 Antwortvarianten gespeichert. Nachbarpaare und Richtungszähler werden beim
+Archivieren pro Schreibbatch zusammengefasst und dauerhaft gespeichert. Die
+Snapshot-Berechnung liest nur diese Paare statt sämtliche historischen Pfade
+erneut zu dekodieren. Schleifen zählen weiterhin höchstens einmal pro Empfang
+und Richtung. Die Auflösung der Roh-Hashes erfolgt beim Snapshot, sodass neue
+Nodes, Hash-Kollisionen und Positionsänderungen weiterhin berücksichtigt werden.
+Beim ersten Start nach dem Update wird die Paartabelle einmalig aus den vorhandenen
+Pfaden aufgebaut (Schema 11); dieser Start kann daher länger dauern. Weitere
+Starts verwenden die gespeicherten Zähler. Die Hash-Auflösung
 verwendet einen Präfixindex statt paarweiser Vergleiche aller Kennungen. Die
 übrige Karten- und Liveaktualisierung behält ihren bisherigen Takt.
 

@@ -33,13 +33,77 @@ def record_path(db, packet):
         (json.dumps(hops), received, received))
 
 
+def add_path_pairs(pairs, hops, count, first, last):
+    """Aggregate raw pairs once per path and direction, including loop tokens.
+
+    MeshCore uses one hash width per path. Distinct tokens within a path
+    therefore cannot resolve to the same identity: deduplication before name
+    resolution preserves the per-reception counts, even after new collisions.
+    """
+    directions = {}
+    for left, right in zip(hops, hops[1:]):
+        a, b = (left, right) if left <= right else (right, left)
+        key = (a, b)
+        directions[key] = directions.get(key, 0) | (1 if left == a else 2)
+    for key, direction in directions.items():
+        forward = count if direction & 1 else 0
+        reverse = count if direction & 2 else 0
+        if key not in pairs:
+            pairs[key] = [count, forward, reverse, first, last]
+        else:
+            values = pairs[key]
+            values[0] += count
+            values[1] += forward
+            values[2] += reverse
+            values[3] = min(values[3], first)
+            values[4] = max(values[4], last)
+
+
+def write_path_pairs(db, pairs):
+    db.executemany('''INSERT INTO repeater_pairs
+        (source,target,count,forward_count,reverse_count,first_seen,last_seen)
+        VALUES(?,?,?,?,?,?,?) ON CONFLICT(source,target) DO UPDATE SET
+        count=count+excluded.count,
+        forward_count=forward_count+excluded.forward_count,
+        reverse_count=reverse_count+excluded.reverse_count,
+        first_seen=MIN(first_seen,excluded.first_seen),
+        last_seen=MAX(last_seen,excluded.last_seen)''',
+        ((*key, *values) for key, values in pairs.items()))
+
+
+def rebuild_path_pairs(db):
+    """One-time upgrade from compact historical paths, without reading packets."""
+    db.execute('DELETE FROM repeater_pairs')
+    pairs = {}
+    for path, count, first, last in db.execute('SELECT path,count,first_seen,last_seen FROM repeater_paths'):
+        add_path_pairs(pairs, json.loads(path), count, first, last)
+        if len(pairs) >= 10000:
+            write_path_pairs(db, pairs)
+            pairs.clear()
+    write_path_pairs(db, pairs)
+
+
+def record_path_pairs(db, batch):
+    pairs = {}
+    for packet in batch:
+        if 'noise_sample' in packet:
+            continue
+        decoded = packet['decoded']
+        hops = decoded['hops']
+        if packet.get('direction') != 'rx' or decoded['route_type'] not in (0, 1) or len(hops) < 2:
+            continue
+        received = datetime.fromisoformat(packet['received_at']).timestamp()
+        add_path_pairs(pairs, hops, 1, received, received)
+    write_path_pairs(db, pairs)
+
+
 def neighbor_summary(db):
     nodes = {row[0]: {'id': row[0], 'name': row[1] or row[0], 'node_type': row[2],
                       'latitude': row[3], 'longitude': row[4]}
              for row in db.execute('SELECT public_key,name,node_type,latitude,longitude FROM nodes')}
-    paths = [(json.loads(path), count, first, last) for path, count, first, last
-             in db.execute('SELECT * FROM repeater_paths')]
-    tokens = {token for hops, *_ in paths for token in hops}
+    pairs = db.execute('''SELECT source,target,count,forward_count,reverse_count,first_seen,last_seen
+                          FROM repeater_pairs''').fetchall()
+    tokens = {token for row in pairs for token in row[:2]}
     # Include all known node types: a Companion sharing a prefix is a collision too.
     candidates = tokens | set(nodes) | {row[0] for row in db.execute('SELECT token FROM repeater_receptions')}
     # Each terminal identity contributes its prefixes once. Avoid scanning all
@@ -61,30 +125,25 @@ def neighbor_summary(db):
                                ambiguous=match is None,
                                excluded=bool(node and node['node_type'] != 2))
     links = {}
-    for hops, count, first, last in paths:
-        seen = set()
-        directions = set()
-        for left, right in zip(hops, hops[1:]):
-            a, b = sorted((resolved[left], resolved[right]), key=lambda item: item['id'])
-            key = (a['id'], b['id'])
-            if a['excluded'] or b['excluded'] or key[0] == key[1]:
-                continue
-            if key not in links:
-                links[key] = dict(source=a, target=b, count=0, forward_count=0,
-                                  reverse_count=0, first_seen=first, last_seen=last,
-                                  distance_km=distance_km(nodes.get(a['id']), nodes.get(b['id']))
-                                  if a['resolved'] and b['resolved'] and not a['ambiguous'] and not b['ambiguous'] else None)
-            link = links[key]
-            if key not in seen:
-                link['count'] += count
-                seen.add(key)
-            direction = 'forward_count' if resolved[left]['id'] == a['id'] else 'reverse_count'
-            directed_key = (*key, direction)
-            if directed_key not in directions:
-                link[direction] += count
-                directions.add(directed_key)
-            link['first_seen'] = min(link['first_seen'], first)
-            link['last_seen'] = max(link['last_seen'], last)
+    for left, right, count, forward, reverse, first, last in pairs:
+        a, b = resolved[left], resolved[right]
+        if a['id'] > b['id']:
+            a, b = b, a
+            forward, reverse = reverse, forward
+        key = (a['id'], b['id'])
+        if a['excluded'] or b['excluded'] or key[0] == key[1]:
+            continue
+        if key not in links:
+            links[key] = dict(source=a, target=b, count=0, forward_count=0,
+                              reverse_count=0, first_seen=first, last_seen=last,
+                              distance_km=distance_km(nodes.get(a['id']), nodes.get(b['id']))
+                              if a['resolved'] and b['resolved'] and not a['ambiguous'] and not b['ambiguous'] else None)
+        link = links[key]
+        link['count'] += count
+        link['forward_count'] += forward
+        link['reverse_count'] += reverse
+        link['first_seen'] = min(link['first_seen'], first)
+        link['last_seen'] = max(link['last_seen'], last)
     return {'items': sorted(links.values(), key=lambda item: (-item['count'], item['source']['id'], item['target']['id']))}
 
 

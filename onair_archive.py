@@ -16,7 +16,8 @@ from onair_payload import decode_payload_details
 from onair_discovery import discovery_sessions
 from onair_trace import trace_sessions, WINDOW_SECONDS as TRACE_WINDOW_SECONDS
 from onair_observers import record_observer, observer_comparison
-from onair_neighbors import record_path, neighbor_summary, neighbor_page, neighbor_map
+from onair_neighbors import (record_path, record_path_pairs, rebuild_path_pairs,
+                             neighbor_summary, neighbor_page, neighbor_map)
 
 
 def database_path():
@@ -125,6 +126,14 @@ class Archive:
                     for (raw,) in db.execute("SELECT packet_json FROM packets WHERE kind='ADVERT' ORDER BY id"):
                         self._record_advert_path(db, json.loads(raw))
                     db.execute('PRAGMA user_version=10')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 11:
+                    db.execute('''CREATE TABLE IF NOT EXISTS repeater_pairs (
+                        source TEXT NOT NULL, target TEXT NOT NULL, count INTEGER NOT NULL,
+                        forward_count INTEGER NOT NULL, reverse_count INTEGER NOT NULL,
+                        first_seen REAL NOT NULL, last_seen REAL NOT NULL,
+                        PRIMARY KEY(source,target)) WITHOUT ROWID''')
+                    rebuild_path_pairs(db)
+                    db.execute('PRAGMA user_version=11')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -206,6 +215,7 @@ class Archive:
                      json.dumps(p, ensure_ascii=False), repeater_token(p), p.get('origin_id'), p.get('origin')))
                 self._record_node(db, p)
                 self._record_advert_path(db, p)
+            record_path_pairs(db, batch)
             names = dict(db.execute('SELECT public_key, name FROM nodes'))
         self.saved += sum('noise_sample' not in p for p in batch)
         self.names = names
