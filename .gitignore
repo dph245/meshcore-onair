@@ -32,3 +32,6 @@ tests/*
 !tests/test_meshlive.py
 !tests/test_meshlive_ui.js
 !tests/browser_meshlive.py
+!tests/test_replay.py
+!tests/test_replay_ui.js
+!tests/browser_replay.py

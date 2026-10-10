@@ -141,7 +141,7 @@ def main():
             baseline.goto('http://baseline.test/')
             baseline.wait_for_function('window.__sockets.length === 1')
             assert text_regression(baseline) == current_text, 'Text LiveView DOM changed from baseline'
-            original_tabs = baseline.locator('[role=tab]').evaluate_all('(tabs) => tabs.map(t => [t.id,t.textContent])')
+            original_tabs = baseline.locator('[role=tab]').evaluate_all('(tabs) => tabs.filter(t=>t.id!=="tab-meshlive").map(t => [t.id,t.textContent])')
             current_tabs = page.locator('[role=tab]').evaluate_all('(tabs) => tabs.filter(t=>t.id!=="tab-meshlive").map(t => [t.id,t.textContent])')
             assert current_tabs == original_tabs, 'Existing tab order or labels changed'
             baseline.close()

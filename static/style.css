@@ -99,6 +99,12 @@ body:has(#panel-meshlive:not([hidden]))>main{flex:1;min-height:0}
 .meshlive-key{display:inline-block;width:24px;border-top:2px solid #087f92;vertical-align:middle;margin-right:4px}
 .meshlive-key.reconstructed{border-top-style:dashed;opacity:.7}
 #meshlive-tiles-status{color:var(--warning)}
+#meshlive-replay-badge{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:650;padding:7px 12px;border-radius:4px;background:#805100;color:#fff;font-weight:700;pointer-events:none;white-space:nowrap}
+#meshlive-replay-controls{margin-top:14px;padding:12px;border:2px solid var(--warning);border-radius:4px;line-height:1.5}
+#meshlive-replay-controls>strong{color:var(--warning)}
+#meshlive-replay-progress{display:block;width:100%;margin-top:10px;accent-color:var(--warning)}
+#meshlive-replay-controls button{margin-top:6px}
+#meshlive-replay-message:empty{display:none}
 @media(max-width:700px){
   #panel-meshlive:not([hidden]){display:flex;flex-direction:column}
   #meshlive-map{flex:1 0 55vh;flex-basis:55dvh;min-height:280px}

@@ -682,7 +682,8 @@ Teilstrecken eines Ereignisses starten gleichzeitig; die Animation behauptet kei
 Hop-Zeitmessungen. Alle Spuren haben dieselbe Farbe. Ein Lichtpunkt bewegt sich
 300 ms vom Sender zum Empfänger; die zurückbleibende Spur verblasst anschließend
 700 ms. Nach insgesamt 1.000 ms wird die Animation entfernt. Keine dauerhaften
-Funkverbindungslinien, kein historisches Replay.
+Funkverbindungslinien. Der Livebetrieb spielt keine historischen Ereignisse nach;
+der zusätzliche Replay-Modus wird ausdrücklich gestartet (siehe unten).
 
 Die Konstanten stehen am Anfang von `static/meshlive.js`:
 
@@ -759,3 +760,98 @@ noch MQTT und schreibt nicht in das Archiv. Desktop-/Mobilaufnahmen landen unter
 Live-Filter, Details, Pause/Fortsetzen, bestehende Tabreihenfolge, getrennte Schalter,
 Snapshots, Tabwechsel, Kartenbedienung und Animationsbereinigung. Kein Deployment
 ist Teil dieser Tests.
+
+### MeshLive Replay · letzte zehn Minuten mit 10×
+
+Im MeshLive-Tab startet **Letzte 10 Minuten wiedergeben** einen isolierten Replay.
+Die Karte trägt gut sichtbar **REPLAY · 10×**. Fortschritt, historischer Zeitpunkt,
+**Replay pausieren / fortsetzen** und **Replay beenden** stehen in der Seitenleiste.
+Die textbasierte Liveansicht und ihre Filter laufen unverändert weiter.
+
+Replay verwendet einmalig `GET /api/meshlive/replay`, ohne zusätzliche WebSocket- oder
+MQTT-Verbindung. Der Server bestimmt ein festes Fenster `[jetzt − 600 s, jetzt)`.
+Es werden nur bereits archivierte Empfänge geliefert. Der Archivwriter kann die
+letzten Sekunden noch zurückhalten; der angezeigte Archivstand ist keine Zusage
+vollständiger Funkbeobachtung. Es gibt keinen erzwungenen Commit und keine Ergänzung
+mit Live-Ereignissen.
+
+Die Antwort enthält `window_start`, `window_end`, `speed: 10`, `events` mit Archiv-ID,
+`received` und kompaktem Paket sowie `bootstrap` mit Knoten, Kollisionskennungen und
+historischen `seed_packets`. Zusätzlich werden `archive_latest_received`,
+`seed_adverts_scanned` und `seed_scan_limited` geliefert. Das Zeitfenster und die
+Grenzen können nicht über Anfrageparameter vergrößert werden. Die Antwort ist
+`Cache-Control: no-store`.
+
+Schutzgrenzen in `onair_replay.py`:
+
+- 5.000 Empfangszeilen; eine weitere Zeile erkennt Überlauf, statt still abzuschneiden.
+- Maximal 2.000 untersuchte ADVERT-Zeilen für den Positions-Startbestand. Neuere und
+  zu alte Empfänge werden erst **nach** der Begrenzung ausgeschlossen, damit auch bei
+  ungewöhnlichen Zeitstempeln keine unbeschränkte Suche entsteht.
+- Maximal 4 MiB Antwort, zusätzlich 16 MiB eingelesene Paket-JSONs.
+- SQLite-Fortschrittsüberwachung mit drei Sekunden SQL-Zeitbudget.
+
+Ereignis- oder Größenüberlauf liefert HTTP 413 und eine verständliche Fehlermeldung.
+Ein nicht lesbares Archiv beziehungsweise SQL-Zeitüberschreitung liefert HTTP 503.
+Fehlende historische Positionen führen nur zum Auslassen betroffener Strecken;
+begrenzte Positionssuche wird ausdrücklich angezeigt. Keine neue Tabelle, kein
+neuer Index, keine Änderung an Nachbarstatistiken. Zeitbereich und Sortierung nutzen
+`packets_received`, die begrenzte ADVERT-Suche `packets_kind_id`. Alle SELECTs laufen
+in einem gemeinsamen, mit `query_only` geschützten Lesesnapshot.
+
+**Historische Positionen:** Ein Knoten-Snapshot ist nur dann als Startbestand erlaubt,
+wenn sein `last_seen` vor dem Fensterbeginn liegt. Bei später gehörten Nodes werden
+aktuelle Position, Name und Typ im Replay-Startbestand entfernt. Alle Public Keys
+bleiben zur konservativen Kollisionsprüfung erhalten. Für diese Nodes liefern gültig
+signierte, früher empfangene ADVERTs aus der begrenzten Suche einen Startbestand,
+sofern sie in den vorhergehenden 28 Tagen empfangen wurden. Diese ADVERTs durchlaufen
+`MeshLiveModel.learn()` und damit dieselben Positionsregeln wie Live, ohne Animation.
+ADVERTs innerhalb des Replay-Fensters werden erst zu ihrem eigenen Empfangszeitpunkt
+angewendet. Ein alter Geräte-Zeitstempel allein belegt keinen früheren Empfang.
+Fehlende Positionen werden nicht aus späteren Meldungen rückwärts ergänzt. Ein
+belegter ADVERT-Stand ist weiterhin kein Nachweis tatsächlicher geografischer Bewegung.
+
+**Getrennte Uhren:** `received` plus Archiv-ID bestimmen Reihenfolge und Gleichstände.
+Die Deduplizierung nutzt zehn **historische** Sekunden. Die visuelle Replay-Uhr läuft
+in realen Wiedergabemillisekunden und steht während Pause still. Nur Ereignisabstände
+werden durch zehn geteilt; Sternschnuppen behalten 300 ms Bewegung und 700 ms Verblassen.
+Zeitabstände zeigen die Ankunft bei OnAir, nicht Hop-Laufzeiten. Die Timeline endet
+nach 60 Sekunden; letzte Spuren dürfen bis zu einer Sekunde nachglühen. Anschließend
+kehrt die Ansicht automatisch zu Live zurück.
+
+`MeshLiveReplay` verwendet eine eigene `MeshLiveModel`-Instanz, dieselbe
+Streckenrekonstruktion, denselben Deduplizierungsschlüssel und denselben Canvas-Renderer.
+Das Replay beginnt mit leerem Deduplizierungszustand. Es ist keine pixelgenaue
+Rekonstruktion der damaligen Liveanzeige: deren Zustand vor Fensterbeginn und mögliche
+Transportverluste sind nicht gespeichert. Normale Live-Zeitachsen bleiben unverändert.
+
+Bei Tabwechsel oder verborgenem Browserdokument pausiert Replay automatisch; beim
+Zurückkehren muss es ausdrücklich fortgesetzt werden. Auch laufende Spuren behalten
+ihren Animationsstand. Während Replay werden eingehende Live-Pakete und Snapshots
+niemals in dessen Modell übernommen; nur der Live-Empfangsfortschritt wird aktualisiert.
+Beim Beenden wird der Replay-Zustand verworfen und der normale Live-Knotenbestand neu
+abgeglichen. Aufgelaufene Live-Pakete werden nicht nachgespielt. Ein bereits vor Replay
+pausierter Livebetrieb bleibt pausiert.
+
+Ein gemeinsamer `requestAnimationFrame`-Loop bewegt auch die Replay-Uhr in Verkehrspausen.
+`MESH_REPLAY.MAX_PER_FRAME` begrenzt die Verarbeitung auf 200 Empfänge pro Frame;
+`FRAME_BUDGET_MS` begrenzt sie zusätzlich auf acht Millisekunden. Die vorhandenen
+Grenzen von 64 aktiven Spuren und 5.000 Deduplizierungseinträgen bleiben bestehen.
+Nach einem Browserstillstand bereits abgelaufene Spuren werden nicht verspätet
+abgespielt; die ausgelassenen Empfänge werden angezeigt. Es gibt keine Timer pro Paket.
+
+Zusätzliche lokale Tests:
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_replay.py -v
+deno run --allow-read=static/meshlive.js tests/test_replay_ui.js
+# Python-Umgebung mit Playwright und lokalem Chromium, ausschließlich simulierte Daten:
+python tests/browser_replay.py
+python tests/browser_meshlive.py --compare-ref HEAD
+```
+
+Der Replay-Browsertest verwendet eine kontrollierte Browseruhr. Er prüft die komplette
+60-Sekunden-Timeline samt Nachglühen, eingefrorene Spuren, Live-/Snapshot-Isolation,
+Tabwechsel und Sichtbarkeit, HTTP-Limits, leere Fenster, verspätete Antworten nach
+Abbruch sowie Desktop-/Mobilbedienung. Screenshots liegen unter
+`/tmp/meshlive-replay-desktop.png` und `/tmp/meshlive-replay-mobile.png`.

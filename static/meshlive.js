@@ -4,6 +4,8 @@ const MESH_LIVE = Object.freeze({
   DEDUP_WINDOW_MS: 10000, MAX_DEDUP_ENTRIES: 5000,
   MAX_DPR: 2, ACTIVE_DAYS: 28, COLOR: '#087f92',
 });
+const MESH_REPLAY = Object.freeze({SPEED: 10, WINDOW_MS: 600000, MAX_EVENTS: 5000,
+  MAX_PER_FRAME: 200, FRAME_BUDGET_MS: 8});
 
 class MeshLiveModel {
   constructor() {
@@ -66,6 +68,7 @@ class MeshLiveModel {
     // Merge instead of replacing: ADVERTs can arrive while the HTTP request runs.
     for (const node of data.nodes || []) this.mergeNode(node);
     for (const token of data.tokens || []) this.identity(token);
+    for (const packet of data.seed_packets || []) this.learn(packet);
   }
 
   learn(packet) {
@@ -121,17 +124,22 @@ class MeshLiveModel {
     if (this.reconstructed && event.reconstructed) return 'reconstructed';
   }
 
-  expire(now) {
+  expireAnimations(now) {
     this.active = this.active.filter(event => now - event.started < MESH_LIVE.TOTAL_MS && this.style(event));
+  }
+
+  expire(now, eventTime = now) {
+    this.expireAnimations(now);
     // Map insertion order is the fixed window's start order (duplicates never extend it).
     for (const [key, entry] of this.seen) {
-      if (now - entry.started < MESH_LIVE.DEDUP_WINDOW_MS) break;
+      if (eventTime - entry.seenAt < MESH_LIVE.DEDUP_WINDOW_MS) break;
       this.seen.delete(key);
     }
   }
 
-  ingest(packet, now, wallTime, animate = true) {
-    this.expire(now);
+  ingest(packet, now, wallTime, animate = true, timing = {}) {
+    const {eventTime = now, started = now} = timing;
+    this.expire(now, eventTime);
     const d = packet.decoded || {};
     if (typeof d.payload_hex !== 'string') return;
     const identity = JSON.stringify([packet.observer_hash?.toUpperCase() || null,
@@ -151,13 +159,66 @@ class MeshLiveModel {
         previous.reconstructed ||= Boolean(edge.reconstructed);
         continue;
       }
-      const event = {...edge, from, to, started: now};
+      const event = {...edge, from, to, started, seenAt: eventTime};
       this.seen.set(key, event);
       while (this.seen.size > MESH_LIVE.MAX_DEDUP_ENTRIES) this.seen.delete(this.seen.keys().next().value);
       if (!animate || !this.style(event)) continue;
       if (this.active.length >= MESH_LIVE.MAX_ACTIVE) { this.limited++; continue; }
       this.active.push(event);
     }
+  }
+}
+
+class MeshLiveReplay {
+  constructor(data, now) {
+    if (!Number.isFinite(data.window_start) || !Number.isFinite(data.window_end) ||
+        Math.abs((data.window_end - data.window_start) * 1000 - MESH_REPLAY.WINDOW_MS) > 1 ||
+        data.speed !== MESH_REPLAY.SPEED || !Array.isArray(data.events) ||
+        data.events.length > MESH_REPLAY.MAX_EVENTS || !data.bootstrap) throw Error('Ungültige Replay-Daten.');
+    let previous = -Infinity, previousId = -1;
+    for (const event of data.events) {
+      if (!Number.isFinite(event.received) || event.received < data.window_start || event.received >= data.window_end ||
+          event.received < previous || !Number.isSafeInteger(event.id) || event.id < 1 ||
+          (event.received === previous && event.id <= previousId) || !event.packet?.decoded) throw Error('Ungültige Replay-Reihenfolge.');
+      previous = event.received; previousId = event.id;
+    }
+    this.data = data;
+    this.model = new MeshLiveModel();
+    this.model.bootstrap(data.bootstrap);
+    this.anchor = now;
+    this.elapsed = 0;
+    this.paused = false;
+    this.index = 0;
+    this.late = 0;
+    this.duration = MESH_REPLAY.WINDOW_MS / MESH_REPLAY.SPEED;
+  }
+
+  time(now) { return this.elapsed + (this.paused ? 0 : Math.max(0, now - this.anchor)); }
+  sourceTime(now) { return this.data.window_start * 1000 + Math.min(this.duration, this.time(now)) * MESH_REPLAY.SPEED; }
+  pause(now) { this.elapsed = this.time(now); this.paused = true; }
+  resume(now) { if (this.paused) { this.anchor = now; this.paused = false; } }
+
+  advance(now) {
+    const changed = new Set(), visualTime = this.time(now), deadline = performance.now() + MESH_REPLAY.FRAME_BUDGET_MS;
+    let processed = 0;
+    if (!this.paused) while (this.index < this.data.events.length && processed < MESH_REPLAY.MAX_PER_FRAME) {
+      const event = this.data.events[this.index];
+      const due = (event.received - this.data.window_start) * 1000 / MESH_REPLAY.SPEED;
+      if (due > visualTime || performance.now() >= deadline) break;
+      const key = this.model.learn(event.packet);
+      if (key) changed.add(key);
+      const animate = visualTime - due < MESH_LIVE.TOTAL_MS;
+      if (!animate) this.late++;
+      this.model.ingest(event.packet, visualTime, event.received * 1000, animate,
+        {eventTime: event.received * 1000, started: due});
+      this.index++; processed++;
+    }
+    this.model.expireAnimations(visualTime);
+    return changed;
+  }
+
+  finished(now) {
+    return this.index === this.data.events.length && this.time(now) >= this.duration && !this.model.active.length;
   }
 }
 
@@ -173,21 +234,107 @@ window.MeshLive = (() => {
   let model, map, canvas, context, frame, resizeObserver, controller;
   let opened = false, ready = false, paused = false, highWater = 0, needsRefresh = true;
   let dropped = 0, resyncs = 0, error = '', packetTime = null;
+  let mode = 'live', replay = null, pauseOnLoad = false;
   const markers = new Map();
   const element = id => document.getElementById(`meshlive-${id}`);
   const visible = () => opened && !document.hidden;
-  const running = () => visible() && ready && !paused;
+  const running = () => visible() && ready && (mode === 'replay' ? !replay.paused : mode === 'live' && !paused);
+  const animationTime = () => replay ? replay.time(performance.now()) : performance.now();
 
   function status() {
     if (!model) return;
-    element('status').textContent = error || `${markers.size} Nodes · ${!ready ? 'Knoten werden geladen …' : paused ? 'Animation pausiert' : 'Live'} · ${model.unmapped} Strecken nicht zuordenbar · ${model.limited} Spuren am Limit ausgelassen · ${dropped} RX vom Server verworfen · ${resyncs} Stream-Abgleiche ohne Nachspielen`;
+    const replayMode = mode !== 'live';
+    element('replay-badge').hidden = !replayMode;
+    element('replay-controls').hidden = !replayMode;
+    element('replay-start').disabled = replayMode || !ready;
+    element('refresh').disabled = replayMode;
+    element('pause').hidden = replayMode;
+    element('replay-pause').disabled = !replay;
+    element('replay-pause').textContent = replay?.paused ? 'Replay fortsetzen' : 'Replay pausieren';
+    element('replay-pause').setAttribute('aria-pressed', String(Boolean(replay?.paused)));
+    const activity = mode === 'loading' ? 'Replay wird geladen …' : replay ?
+      replay.paused ? 'Replay pausiert' : 'REPLAY · 10×' : !ready ? 'Knoten werden geladen …' : paused ? 'Animation pausiert' : 'Live';
+    element('status').textContent = error || `${markers.size} Nodes · ${activity} · ${model.unmapped} Strecken nicht zuordenbar · ${model.limited} Spuren am Limit ausgelassen` +
+      (replay ? ` · ${replay.late} verspätete Empfänge ohne Animation` : ` · ${dropped} RX vom Server verworfen · ${resyncs} Stream-Abgleiche ohne Nachspielen`);
+    replayProgress();
+  }
+
+  function stopDrawing() {
+    if (frame != null) cancelAnimationFrame(frame);
+    frame = null;
+    if (context) context.clearRect(0, 0, canvas.width, canvas.height);
   }
 
   function clear() {
-    if (frame != null) cancelAnimationFrame(frame);
-    frame = null;
+    stopDrawing();
     if (model) model.active = [];
-    if (context) context.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function resetMarkers() {
+    for (const marker of markers.values()) marker.remove();
+    markers.clear();
+  }
+
+  function replayProgress() {
+    if (!replay) {
+      element('replay-progress').value = 0;
+      element('replay-position').textContent = mode === 'loading' ? 'Archiv wird gelesen …' : '';
+      return;
+    }
+    const now = performance.now(), elapsed = Math.min(replay.duration, replay.time(now));
+    element('replay-progress').value = elapsed / replay.duration;
+    const range = `${new Date(replay.data.window_start * 1000).toLocaleTimeString('de-DE')}–${new Date(replay.data.window_end * 1000).toLocaleTimeString('de-DE')}`;
+    const label = `${range} · ${new Date(replay.sourceTime(now)).toLocaleTimeString('de-DE')} · ${Math.floor(elapsed / 1000)} / 60 s · ${replay.index}/${replay.data.events.length} Empfänge${elapsed === replay.duration ? ' · Spuren klingen aus' : ''}`;
+    // Do not rebuild or announce identical progress text on every frame.
+    if (element('replay-position').textContent !== label) element('replay-position').textContent = label;
+  }
+
+  function pauseReplay() {
+    pauseOnLoad = true;
+    if (replay) replay.pause(performance.now());
+    stopDrawing(); status(); schedule(true);
+  }
+
+  function endReplay(message = '') {
+    controller?.abort(); controller = null;
+    clear(); replay = null; mode = 'live'; pauseOnLoad = false;
+    model = new MeshLiveModel();
+    for (const kind of ['observed', 'reconstructed']) model[kind] = element(kind).checked;
+    resetMarkers(); ready = false; needsRefresh = true; error = ''; packetTime = null;
+    element('replay-message').textContent = message;
+    status();
+    if (visible()) refresh();
+  }
+
+  async function startReplay() {
+    if (!visible() || !ready || mode !== 'live') return;
+    controller?.abort();
+    const request = controller = new AbortController();
+    clear(); mode = 'loading'; ready = false; error = ''; pauseOnLoad = false;
+    element('replay-message').textContent = ''; status();
+    try {
+      const response = await fetch('/api/meshlive/replay', {signal: request.signal, cache: 'no-store'});
+      const data = await response.json();
+      if (controller !== request || mode !== 'loading') return;
+      if (!response.ok) throw Error(data.detail || `HTTP ${response.status}`);
+      const next = new MeshLiveReplay(data, performance.now());
+      if (!data.events.length) { endReplay('Keine archivierten Empfänge in den letzten zehn Minuten.'); return; }
+      replay = next; model = replay.model; mode = 'replay'; ready = true;
+      packetTime = null;
+      for (const kind of ['observed', 'reconstructed']) model[kind] = element(kind).checked;
+      replay.paused = true;
+      resetMarkers();
+      if (visible()) renderNodes();
+      if (!pauseOnLoad && visible()) replay.resume(performance.now());
+      const latest = data.archive_latest_received == null ? 'unbekannt' : new Date(data.archive_latest_received * 1000).toLocaleString('de-DE');
+      element('replay-message').textContent = `Archivstand: ${latest}. Die letzten Sekunden können noch ungespeichert sein. Nur damals belegbare Positionen.${data.seed_scan_limited ? ' Positionssuche begrenzt; fehlende Positionen bleiben unsichtbar.' : ''}`;
+      status(); schedule(true);
+    } catch (cause) {
+      if (controller !== request || cause.name === 'AbortError') return;
+      endReplay(`Replay konnte nicht gestartet werden: ${cause.message}`);
+    } finally {
+      if (controller === request) controller = null;
+    }
   }
 
   function resize() {
@@ -199,18 +346,32 @@ window.MeshLive = (() => {
     canvas.style.width = `${size.x}px`;
     canvas.style.height = `${size.y}px`;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    schedule();
+    schedule(true);
   }
 
-  function schedule() {
-    if (frame == null && running() && model.active.length) frame = requestAnimationFrame(draw);
+  function schedule(redraw = false) {
+    if (frame == null && visible() && ready &&
+        ((running() && (replay || model.active.length)) || (redraw && replay))) frame = requestAnimationFrame(draw);
   }
 
   function draw(now) {
     frame = null;
     context.clearRect(0, 0, canvas.width, canvas.height);
-    if (!running()) return;
-    model.expire(now);
+    if (!visible() || !ready || (mode === 'live' && !running())) return;
+    if (replay) {
+      const changed = replay.advance(now);
+      if (changed.size) renderNodes(changed);
+      replayProgress();
+      if (replay.finished(now)) { endReplay('Replay beendet. Zurück zu Live, ohne Nachspielen.'); return; }
+      now = replay.time(now);
+      if (changed.size || packetTime == null || now - packetTime >= 1000) {
+        // Historical inactivity is evaluated against the replay cursor, never today's clock.
+        for (const [key, marker] of markers) if (!model.position(key, replay.sourceTime(performance.now()))) {
+          marker.remove(); markers.delete(key);
+        }
+        status(); packetTime = now;
+      }
+    } else model.expire(now);
     const size = map.getSize();
     for (const event of model.active) {
       const phase = meshLivePhase(now - event.started);
@@ -239,7 +400,7 @@ window.MeshLive = (() => {
   }
 
   function renderNodes(keys = model.nodes.keys()) {
-    const now = Date.now();
+    const now = replay ? replay.sourceTime(performance.now()) : Date.now();
     for (const key of keys) {
       const node = model.nodes.get(key), position = model.position(key, now);
       if (!position) {
@@ -262,7 +423,7 @@ window.MeshLive = (() => {
   }
 
   async function refresh() {
-    if (!visible() || !map) return;
+    if (!visible() || !map || mode !== 'live') return;
     controller?.abort();
     const request = controller = new AbortController();
     ready = false; error = ''; clear(); status();
@@ -270,7 +431,7 @@ window.MeshLive = (() => {
       const response = await fetch('/api/map-nodes?mesh_live=true', {signal: request.signal, cache: 'no-store'});
       if (!response.ok) throw Error(`HTTP ${response.status}`);
       const data = await response.json();
-      if (controller !== request || !visible()) return;
+      if (controller !== request || !visible() || mode !== 'live') return;
       model.bootstrap(data);
       renderNodes();
       ready = true; needsRefresh = false;
@@ -299,15 +460,16 @@ window.MeshLive = (() => {
     context = canvas.getContext('2d');
     if (!context) throw Error('Canvas wird von diesem Browser nicht unterstützt.');
     map.getContainer().append(canvas);
-    map.on('move zoom resize', schedule);
+    map.on('move zoom resize', () => schedule(true));
     resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(map.getContainer());
     for (const kind of ['observed', 'reconstructed']) {
       element(kind).addEventListener('change', () => {
         model[kind] = element(kind).checked;
-        model.expire(performance.now());
+        if (replay) model.expireAnimations(animationTime());
+        else model.expire(performance.now());
         context.clearRect(0, 0, canvas.width, canvas.height);
-        schedule();
+        schedule(true);
       });
     }
     element('pause').addEventListener('click', () => {
@@ -319,7 +481,19 @@ window.MeshLive = (() => {
       if (markers.size) map.fitBounds(L.latLngBounds([...markers.values()].map(marker => marker.getLatLng())), {padding: [30, 30], maxZoom: 14});
     });
     element('refresh').addEventListener('click', refresh);
+    element('replay-start').addEventListener('click', startReplay);
+    element('replay-end').addEventListener('click', () => endReplay());
+    element('replay-pause').addEventListener('click', () => {
+      if (!replay) return;
+      if (replay.paused) { replay.resume(performance.now()); status(); schedule(); }
+      else pauseReplay();
+    });
     document.addEventListener('visibilitychange', () => {
+      if (mode !== 'live') {
+        if (!visible()) pauseReplay();
+        else { resize(); if (replay) renderNodes(); }
+        return;
+      }
       if (!visible()) { clear(); controller?.abort(); needsRefresh = true; }
       else { resize(); refresh(); }
     });
@@ -327,6 +501,11 @@ window.MeshLive = (() => {
 
   function select(active) {
     opened = active;
+    if (mode !== 'live') {
+      if (!active) pauseReplay();
+      else { resize(); if (replay) renderNodes(); status(); }
+      return;
+    }
     if (!active) { clear(); controller?.abort(); needsRefresh = true; return; }
     try {
       if (!map) initialize();
@@ -346,6 +525,9 @@ window.MeshLive = (() => {
     if (snapshot) highWater = 0;
     for (const packet of packets) highWater = Math.max(highWater, packet.number);
     dropped = data.status?.dropped ?? dropped;
+    // Keep the live watermark even across reconnects, but never learn, deduplicate,
+    // refresh or draw live packets in the isolated replay model.
+    if (mode !== 'live') { needsRefresh = true; return; }
     if (!model || !visible()) { needsRefresh = true; return; }
     try {
       if (snapshot) {

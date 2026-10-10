@@ -268,6 +268,10 @@ class Archive:
                 UNION SELECT source FROM repeater_pairs UNION SELECT target FROM repeater_pairs''')]
         return {'nodes': nodes, 'tokens': tokens}
 
+    def mesh_live_replay(self):
+        from onair_replay import replay_response
+        return replay_response(self.connect)
+
     def map_nodes(self):
         with self.connect() as db:
             db.row_factory = sqlite3.Row

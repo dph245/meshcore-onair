@@ -96,7 +96,7 @@
 </aside>
 </section>
 <section id="panel-meshlive" class="archive" role="tabpanel" aria-labelledby="tab-meshlive" tabindex="0" hidden>
-<div id="meshlive-map" aria-label="MeshLive: aktuelle Empfänge und rekonstruierte Flood-Pfade"></div>
+<div id="meshlive-map" aria-label="MeshLive: aktuelle Empfänge und rekonstruierte Flood-Pfade"><span id="meshlive-replay-badge" hidden>REPLAY · 10×</span></div>
 <aside class="map-sidebar" aria-label="MeshLive-Legende und Bedienung">
 <h2>MeshLive</h2>
 <div class="map-toolbar">
@@ -105,7 +105,16 @@
 <button id="meshlive-pause" type="button" aria-pressed="false">Animation pausieren</button>
 <button id="meshlive-fit" type="button">Alle Nodes anzeigen</button>
 <button id="meshlive-refresh" type="button">Knoten aktualisieren</button>
+<button id="meshlive-replay-start" type="button">Letzte 10 Minuten wiedergeben</button>
 </div>
+<div id="meshlive-replay-controls" hidden>
+<strong>REPLAY · 10×</strong>
+<progress id="meshlive-replay-progress" max="1" value="0" aria-label="Replay-Fortschritt"></progress>
+<p id="meshlive-replay-position"></p>
+<button id="meshlive-replay-pause" type="button" aria-pressed="false">Replay pausieren</button>
+<button id="meshlive-replay-end" type="button">Replay beenden</button>
+</div>
+<p id="meshlive-replay-message" role="status"></p>
 <p id="meshlive-status" role="status">Wird beim Öffnen geladen.</p>
 <p id="meshlive-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden.</p>
 <details class="map-help"><summary>Was zeigen die Spuren?</summary>
@@ -114,6 +123,8 @@
 <p>Letzte bekannte Positionen aus gültig signierten ADVERTs, keine gemessenen Funkwege. Kurze Kennungen sind nur innerhalb des bekannten Bestands eindeutig; unbekannte Kollisionen bleiben möglich.</p>
 <p>Mehrfachmeldungen werden je gerichteter Strecke innerhalb von 10 Sekunden zusammengefasst. Echte erneute Aussendungen können dabei ebenfalls zusammenfallen. Zwei Observer-Empfänge können von derselben Aussendung stammen.</p>
 <p>Maximal 64 gleichzeitige Spuren. Überlast, Pause und Verbindungsunterbrechungen können Ereignisse auslassen. Kein Nachspielen. MeshLive pausiert unabhängig von der textbasierten Liveansicht.</p>
+<p>Replay: zehn Minuten archivierte Empfänge in 60 Sekunden, danach bis zu einer Sekunde Nachglühen. Ereignisabstände werden beschleunigt; jede Spur behält 300 ms Bewegung und 700 ms Verblassen. Zeitabstände zeigen die Ankunft bei OnAir, keine Funklaufzeiten.</p>
+<p>Historische Positionen werden nur ab einem belegbaren ADVERT-Empfang verwendet. Fehlende Positionen bleiben unsichtbar. Die Deduplizierung beginnt für jedes Replay neu und verwendet zehn historische Sekunden. Beim Tabwechsel pausiert Replay automatisch; nach dem Beenden startet Live ohne Nachspielen.</p>
 </details>
 </aside>
 </section>

@@ -1,5 +1,6 @@
 """Local, subscribe-only dashboard. Run one Uvicorn worker."""
 import asyncio
+import sqlite3
 from collections import OrderedDict, deque
 from threading import Lock
 from contextlib import asynccontextmanager, suppress
@@ -12,6 +13,7 @@ from fastapi import Request, FastAPI, WebSocket, WebSocketDisconnect, Query, HTT
 import onair_mqtt
 import onair_channels
 from onair_archive import Archive
+from onair_replay import ReplayLimitError
 from onair_routes import route_nodes, plan_routes
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -236,6 +238,17 @@ def map_nodes(mesh_live: bool = False):
     if mesh_live:
         return app.state.archive.mesh_live_nodes()
     return app.state.archive.map_nodes()
+
+
+@app.get('/api/meshlive/replay')
+def mesh_live_replay():
+    try:
+        return Response(content=app.state.archive.mesh_live_replay(), media_type='application/json',
+                        headers={'Cache-Control': 'no-store'})
+    except ReplayLimitError as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    except (sqlite3.Error, ValueError, KeyError, TypeError) as error:
+        raise HTTPException(status_code=503, detail='Replay-Archiv momentan nicht lesbar. Bitte erneut versuchen.') from error
 
 
 @app.get("/api/repeater-neighbors")
