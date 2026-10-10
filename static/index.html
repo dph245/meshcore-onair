@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/trace.js" defer></script><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/trace.js" defer></script><script src="/static/meshlive.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <header><h1>MeshCore <span>OnAir</span></h1><span id="connection" role="status">WebSocket verbindet …</span><span id="noise-floor">Noise Floor: —</span><span class="radio">869.618 MHz · BW 62.5 · SF8 · CR4/8</span><button id="theme-toggle" type="button" aria-pressed="false">Lightmode</button></header>
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
@@ -18,6 +18,7 @@
 <button id="tab-discovery" type="button" role="tab" aria-controls="panel-discovery" aria-selected="false" tabindex="-1">Discovery</button>
 <button id="tab-trace" type="button" role="tab" aria-controls="panel-trace" aria-selected="false" tabindex="-1">TRACE</button>
 <button id="tab-noise" type="button" role="tab" aria-controls="panel-noise" aria-selected="false" tabindex="-1">Noise Floor</button>
+<button id="tab-meshlive" type="button" role="tab" aria-controls="panel-meshlive" aria-selected="false" tabindex="-1">MeshLive</button>
 </div>
 <main>
 <section id="panel-trace" class="archive" role="tabpanel" aria-labelledby="tab-trace" tabindex="0" hidden>
@@ -91,6 +92,28 @@
 <details class="map-help"><summary>Hinweise zur Karte · Blau: beide Richtungen · Orange: eine Richtung beobachtet</summary>
 <p class="muted">Letzte bekannte Positionen aus gültig signierten ADVERTs · Details mit Maus, Klick oder Touch · Aktualisierung alle 5 Sekunden. Nodes an identischer Position werden auseinandergezogen; Linien markieren den tatsächlichen Standort.</p>
 <p class="muted">Pfeile zeigen die beobachtete Weiterleitungsrichtung. Blau: beide Richtungen, Orange: nur eine Richtung beobachtet. Dickere Linien bedeuten mehr Beobachtungen; keine Aussage über aktuelle Erreichbarkeit oder Funkqualität. Nur eindeutig zugeordnete Repeater mit sichtbarer Position werden verbunden. Alle Verbindungen mit Suche und Häufigkeiten im Tab „Nachbarn“.</p>
+</details>
+</aside>
+</section>
+<section id="panel-meshlive" class="archive" role="tabpanel" aria-labelledby="tab-meshlive" tabindex="0" hidden>
+<div id="meshlive-map" aria-label="MeshLive: aktuelle Empfänge und rekonstruierte Flood-Pfade"></div>
+<aside class="map-sidebar" aria-label="MeshLive-Legende und Bedienung">
+<h2>MeshLive</h2>
+<div class="map-toolbar">
+<label><input id="meshlive-observed" type="checkbox" checked><span><span class="meshlive-key"></span> Beobachtete Empfänge</span></label>
+<label><input id="meshlive-reconstructed" type="checkbox" checked><span><span class="meshlive-key reconstructed"></span> Rekonstruierte Flood-Pfade</span></label>
+<button id="meshlive-pause" type="button" aria-pressed="false">Animation pausieren</button>
+<button id="meshlive-fit" type="button">Alle Nodes anzeigen</button>
+<button id="meshlive-refresh" type="button">Knoten aktualisieren</button>
+</div>
+<p id="meshlive-status" role="status">Wird beim Öffnen geladen.</p>
+<p id="meshlive-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden.</p>
+<details class="map-help"><summary>Was zeigen die Spuren?</summary>
+<p>Durchgezogen: letzter eindeutig zugeordneter Sender → empfangender Observer. Gestrichelt: benachbarte Hops aus einem empfangenen Flood-Pfad, keine separat gemessenen Empfänge dieser Strecken.</p>
+<p>Alle Teilstrecken eines Ereignisses starten gleichzeitig. 300 ms Bewegung und 700 ms Verblassen sind Darstellungszeiten, keine gemessenen Funklaufzeiten. Unbekannte Hops werden nicht überbrückt.</p>
+<p>Letzte bekannte Positionen aus gültig signierten ADVERTs, keine gemessenen Funkwege. Kurze Kennungen sind nur innerhalb des bekannten Bestands eindeutig; unbekannte Kollisionen bleiben möglich.</p>
+<p>Mehrfachmeldungen werden je gerichteter Strecke innerhalb von 10 Sekunden zusammengefasst. Echte erneute Aussendungen können dabei ebenfalls zusammenfallen. Zwei Observer-Empfänge können von derselben Aussendung stammen.</p>
+<p>Maximal 64 gleichzeitige Spuren. Überlast, Pause und Verbindungsunterbrechungen können Ereignisse auslassen. Kein Nachspielen. MeshLive pausiert unabhängig von der textbasierten Liveansicht.</p>
 </details>
 </aside>
 </section>

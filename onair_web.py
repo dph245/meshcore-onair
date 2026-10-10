@@ -232,7 +232,9 @@ def search_nodes(q: str = Query('', max_length=200),
 
 
 @app.get("/api/map-nodes")
-def map_nodes():
+def map_nodes(mesh_live: bool = False):
+    if mesh_live:
+        return app.state.archive.mesh_live_nodes()
     return app.state.archive.map_nodes()
 
 

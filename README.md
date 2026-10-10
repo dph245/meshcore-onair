@@ -659,3 +659,103 @@ liest vorhandene Archivpakete ohne Migration, höchstens die neuesten 5000
 CONTROL-Empfänge im Zeitraum, und zeigt maximal 100 Gruppen. Begrenzungen werden
 angezeigt. Fehlende Antworten sind kein Offline-Nachweis. API: `/api/discovery`
 mit `hours=1..168` und `limit=1..100`.
+
+### MeshLive · animierte Karte
+
+**MeshLive** ergänzt einen eigenen Tab. Die textbasierte **Live**-Ansicht mit ihren
+Filtern, Empfangsdetails und ihrem Pause-Schalter bleibt unverändert. Beide verwenden
+denselben `/ws`-Datenstrom; MeshLive öffnet weder einen weiteren WebSocket noch eine
+MQTT-Verbindung. Leaflet und Canvas werden erst beim Öffnen des Tabs initialisiert.
+
+Zwei unabhängig schaltbare Darstellungen sind standardmäßig aktiv:
+
+- **Beobachtete Empfänge**, durchgezogen: letzter eindeutig aufgelöster Hop eines
+  RX-FLOOD/TC_FLOOD → Observer. Ein gültig signierter ADVERT ohne Hop identifiziert
+  seinen unmittelbaren Sender ebenfalls. Die Observer-ID muss exakt einem bekannten
+  vollständigen Public Key entsprechen; Namen und kurze Observer-Präfixe reichen nicht.
+- **Rekonstruierte Flood-Pfade**, dezent gestrichelt: benachbarte Originaleinträge des
+  empfangenen Flood-Pfades. Diese Strecken sind aus dem Paket abgeleitet, keine separat
+  am Observer gemessenen Empfänge. Unbekannte Zwischenhops werden niemals überbrückt.
+
+DIRECT/TC_DIRECT-Zielrouten, TRACE-SNR-Pfade und TX bleiben ausgeschlossen. Alle
+Teilstrecken eines Ereignisses starten gleichzeitig; die Animation behauptet keine
+Hop-Zeitmessungen. Alle Spuren haben dieselbe Farbe. Ein Lichtpunkt bewegt sich
+300 ms vom Sender zum Empfänger; die zurückbleibende Spur verblasst anschließend
+700 ms. Nach insgesamt 1.000 ms wird die Animation entfernt. Keine dauerhaften
+Funkverbindungslinien, kein historisches Replay.
+
+Die Konstanten stehen am Anfang von `static/meshlive.js`:
+
+| Konstante | Standard | Bedeutung |
+| --- | ---: | --- |
+| `TRAVEL_MS` | 300 | Bewegung des Lichtpunkts |
+| `TOTAL_MS` | 1000 | Gesamtdauer einschließlich Verblassen |
+| `MAX_ACTIVE` | 64 | Maximale Zahl gleichzeitig aktiver Spuren |
+| `DEDUP_WINDOW_MS` | 10000 | Festes Fenster für Mehrfachbeobachtungen |
+| `MAX_DEDUP_ENTRIES` | 5000 | Maximale Zahl gemerkter Streckenereignisse |
+| `MAX_DPR` | 2 | Obergrenze der Canvas-Pixeldichte |
+| `ACTIVE_DAYS` | 28 | Gleiche Knotensichtbarkeit wie auf der bisherigen Karte |
+
+`TRAVEL_MS` muss positiv und kleiner als `TOTAL_MS` sein. Änderungen am
+Deduplizierungsfenster oder Spurenlimit auch in der Kartenhilfe berücksichtigen.
+
+Empfangsnummern verhindern das erneute Verarbeiten derselben WebSocket-Empfänge.
+Die anschließende Strecken-Deduplizierung verwendet normalisierten Paket-Hash,
+Payload-Typ/-Version/-Inhalt, Transport-Code und das **gerichtete** vollständige
+Sender-/Empfängerpaar. Unterschiedliche Pfade oder Observer erzeugen für denselben
+Hop keine neue Spur; unterschiedliche Hops desselben Pakets bleiben sichtbar.
+Fehlt der Hash, dient der gleiche Inhaltsvergleich als heuristischer Ersatz.
+Eine später direkt beobachtete, bereits rekonstruierte Strecke erhält während ihrer
+laufenden Animation durchgezogene Darstellung, ohne die Dauer neu zu starten.
+
+Wiederholungen verlängern das feste Zehn-Sekunden-Fenster nicht. Ohne eindeutige
+Aussendungskennung sind echte erneute Aussendungen und verspätete Mehrfachmeldungen
+nicht perfekt trennbar: Wiederholungen können zusammenfallen, sehr späte Duplikate
+erneut erscheinen. Bei ausgeschöpftem Deduplizierungsspeicher werden die ältesten
+Einträge verdrängt. Zwei verschiedene Observer-Empfänge derselben Aussendung bleiben
+zwei Empfangsbeziehungen; die Ansicht zählt keine physikalischen Aussendungen.
+
+`GET /api/map-nodes?mesh_live=true` liefert nur beim Öffnen, Wiederverbinden oder
+manuellen Aktualisieren einen Knotenbestand einschließlich unsichtbarer Identitäten
+und bekannter Hop-Kennungen. Damit erzeugen fehlende Positionen oder ausgeblendete
+Knoten keine falsche Eindeutigkeit kurzer Präfixe. Neue gültige ADVERTs und
+Hop-Kennungen aktualisieren diesen Bestand aus dem Stream; ein verspäteter HTTP-Abruf
+überschreibt keine neuere ADVERT-Position. Der bisherige Aufruf ohne Parameter bleibt
+unverändert. Keine periodischen Vollabfragen, keine Abfrage der Paketarchivtabelle,
+keine Schemaänderung und keine Änderung der Nachbarberechnung.
+
+Positionen stammen aus zuletzt gültig signierten ADVERTs. Fehlende, ungültige,
+inaktive oder 0/0-Positionen werden nicht verbunden. Identische Standorte bleiben an
+ihren tatsächlichen Koordinaten; Nullstrecken werden übersprungen. Eine im bekannten
+Bestand eindeutige Kurzkennung ist kein globaler Identitätsbeweis. Die Signatur eines
+ADVERTs bestätigt nicht seine komplette Weiterleitungskette und die Spur zeigt
+keinen geografisch gemessenen Funkweg.
+
+**Animation pausieren** wirkt ausschließlich auf MeshLive. Pausieren, Verlassen des
+Tabs oder Verbergen des Browserdokuments entfernt laufende Animationen. Währenddessen
+eintreffende Ereignisse werden nicht nachgespielt. Initiale und spätere WebSocket-
+Snapshots synchronisieren den Stand ohne Animation. Die bestehende Streambegrenzung
+(500 Gruppen, 50 Empfänge je Gruppe, begrenzte Queues) kann bei Spitzenlast Ereignisse
+auslassen. Zusätzliche Spuren oberhalb des Limits werden ohne Warteschlange verworfen.
+Der Status zeigt nicht zuordenbare Streckenkandidaten, verworfene Animationen, den
+vorhandenen Server-Verlustzähler und Stream-Abgleiche; diese Werte sind keine
+vollständige Funkverluststatistik.
+
+Lokale Tests:
+
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+deno run --allow-read=static/meshlive.js tests/test_meshlive_ui.js
+# Python-Umgebung mit Playwright und lokalem /usr/bin/chromium:
+python tests/browser_meshlive.py
+# Optional: textbasierte Liveansicht zusätzlich gegen einen Git-Stand vergleichen:
+python tests/browser_meshlive.py --compare-ref HEAD
+```
+
+Der Browsertest verwendet ausschließlich abgefangene HTTP-Anfragen, simulierte
+WebSocket-Ereignisse und lokale Kachelersatzbilder. Er startet weder das Backend
+noch MQTT und schreibt nicht in das Archiv. Desktop-/Mobilaufnahmen landen unter
+`/tmp/meshlive-desktop.png` und `/tmp/meshlive-mobile.png`. Er prüft insbesondere
+Live-Filter, Details, Pause/Fortsetzen, bestehende Tabreihenfolge, getrennte Schalter,
+Snapshots, Tabwechsel, Kartenbedienung und Animationsbereinigung. Kein Deployment
+ist Teil dieser Tests.

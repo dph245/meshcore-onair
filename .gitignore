@@ -29,3 +29,6 @@ tests/*
 !tests/test_trace.py
 !tests/test_trace_ui.js
 !tests/test_live_path_ui.js
+!tests/test_meshlive.py
+!tests/test_meshlive_ui.js
+!tests/browser_meshlive.py

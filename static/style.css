@@ -82,3 +82,25 @@ body:has(:is(#panel-raw,#panel-live,#panel-map):not([hidden]))>main{flex:1;min-h
 .trace-chart{display:block;width:100%;min-width:700px;max-height:360px}.trace-chart text{fill:var(--secondary);font-size:11px}.trace-chart circle{cursor:crosshair}.trace-chart circle:focus{outline:2px solid var(--strong)}.trace-legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:8px 0}.trace-legend span{border-left:4px solid;padding-left:6px;font-size:11px}#trace-route{font:inherit;max-width:100%;background:var(--surface);color:var(--fg)}
 
 .live-path{min-width:240px;max-width:440px;white-space:normal;line-height:1.5}.packet-path{margin-top:4px}.packet-path-chain{display:flex;align-items:center;flex-wrap:wrap;gap:4px;overflow-wrap:anywhere}.packet-path-hop{padding:1px 5px;border:1px solid var(--border);border-radius:4px;background:var(--surface)}.packet-path-next{border-color:var(--accent)}.packet-path-hop small{color:var(--accent);font-size:inherit}
+
+/* MeshLive is independent of the text view and the existing neighbor map. */
+body:has(#panel-meshlive:not([hidden])){height:100vh;height:100dvh;display:flex;flex-direction:column}
+body:has(#panel-meshlive:not([hidden]))>header,body:has(#panel-meshlive:not([hidden]))>.toolbar,body:has(#panel-meshlive:not([hidden]))>.tabs,body:has(#panel-meshlive:not([hidden]))>footer{flex-shrink:0}
+body:has(#panel-meshlive:not([hidden]))>main{flex:1;min-height:0}
+#panel-meshlive:not([hidden]){display:grid;grid-template-columns:minmax(0,1fr) 260px;grid-template-rows:minmax(240px,1fr);gap:14px;height:100%;min-height:0;overflow:auto}
+#meshlive-map{height:100%;min-height:240px;min-width:0;isolation:isolate;background:var(--track);color-scheme:light;border:1px solid var(--control-border);border-radius:4px}
+#panel-meshlive .map-toolbar{flex-direction:column;align-items:stretch;gap:10px}
+#panel-meshlive .map-toolbar>label{flex-direction:row;align-items:center;gap:6px}
+#panel-meshlive .map-help{line-height:1.5}
+#meshlive-map .map-node-symbol{width:24px;height:24px;border-radius:5px}
+#meshlive-map .map-node-symbol svg{width:18px;height:18px}
+#meshlive-map .map-marker-content{width:24px;height:24px}
+.meshlive-canvas{position:absolute;inset:0;z-index:450;pointer-events:none}
+.meshlive-key{display:inline-block;width:24px;border-top:2px solid #087f92;vertical-align:middle;margin-right:4px}
+.meshlive-key.reconstructed{border-top-style:dashed;opacity:.7}
+#meshlive-tiles-status{color:var(--warning)}
+@media(max-width:700px){
+  #panel-meshlive:not([hidden]){display:flex;flex-direction:column}
+  #meshlive-map{flex:1 0 55vh;flex-basis:55dvh;min-height:280px}
+  #panel-meshlive .map-toolbar{flex-direction:row;align-items:center;flex-wrap:wrap}
+}

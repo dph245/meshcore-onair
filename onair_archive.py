@@ -258,6 +258,16 @@ class Archive:
             WHERE excluded.received >= node_advert_paths.received''',
             (advert['public_key'], received, json.dumps(reception, ensure_ascii=False)))
 
+    def mesh_live_nodes(self):
+        """On-demand bootstrap only; include invisible identities for collision checks."""
+        with self.connect() as db:
+            db.row_factory = sqlite3.Row
+            nodes = [dict(row) for row in db.execute('''SELECT public_key,name,node_type,
+                advert_time,latitude,longitude,position_time,first_seen,last_seen FROM nodes''')]
+            tokens = [row[0] for row in db.execute('''SELECT token FROM repeater_receptions
+                UNION SELECT source FROM repeater_pairs UNION SELECT target FROM repeater_pairs''')]
+        return {'nodes': nodes, 'tokens': tokens}
+
     def map_nodes(self):
         with self.connect() as db:
             db.row_factory = sqlite3.Row

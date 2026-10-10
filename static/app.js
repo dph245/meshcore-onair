@@ -15,6 +15,7 @@ function selectTab(selected) {
   if (selected.id === 'tab-map') showNodeMap();
   if (selected.id === 'tab-neighbors') loadNeighbors();
   if (selected.id === 'tab-routes') loadRouteNodes();
+  window.MeshLive?.select(selected.id === 'tab-meshlive');
 }
 for (const [index, tab] of tabs.entries()) {
   tab.addEventListener('click', () => selectTab(tab));
@@ -354,6 +355,7 @@ function connect() {
     for (const id of expanded) if (!groups.has(id)) expanded.delete(id);
     status = data.status || status;
     connection(); render();
+    window.MeshLive?.receive(data);
   };
   socket.onclose = () => { connection(); setTimeout(connect, 2000); };
   socket.onerror = () => socket.close();
