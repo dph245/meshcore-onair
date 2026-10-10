@@ -48,6 +48,21 @@ class DecoderTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 mqtt.decode_raw_packet(raw)
 
+    def test_direct_path_is_not_last_sender(self):
+        for route in (2, 3):
+            for width in (1, 2, 3):
+                for count in (0, 2):
+                    with self.subTest(route=route, width=width, count=count):
+                        hashes = [bytes.fromhex(h)[:width] for h in ('6f33a9', 'b317ac')][:count]
+                        raw = bytes([0x14 | route])
+                        if route == 3:
+                            raw += bytes.fromhex('11223344')
+                        raw += bytes([((width - 1) << 6) | count]) + b''.join(hashes) + b'\xaa\xbb'
+                        p = packet(raw.hex())
+                        self.assertEqual(p.last_hop, 'Unbekannt')
+                        self.assertEqual(p.decoded['hops'], [h.hex() for h in hashes])
+                        self.assertEqual(p.path, mqtt.format_path(p.decoded['hops']))
+
     def test_names_from_database(self):
         for short in ('8d', '6f', 'b3', 'dd'):
             self.assertEqual(mqtt.node_label(short), short)

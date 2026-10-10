@@ -28,3 +28,4 @@ tests/*
 !tests/test_discovery_ui.js
 !tests/test_trace.py
 !tests/test_trace_ui.js
+!tests/test_live_path_ui.js

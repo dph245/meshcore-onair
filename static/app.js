@@ -141,6 +141,38 @@ function receptionsBySnr(receptions) {
     return aSnr === bSnr ? b.number - a.number : bSnr - aSnr;
   });
 }
+function receptionLastHop(packet) {
+  const d = packet.decoded;
+  // Also correct older archived/buffered packets with a misleading last_hop.
+  return d.payload_type === 9 || [2, 3].includes(d.route_type) ? 'Unbekannt' : packet.last_hop;
+}
+function receptionPath(packet) {
+  const d = packet.decoded, direct = [2, 3].includes(d.route_type);
+  const container = text('div', '', 'packet-path');
+  if (d.payload_type === 9) {
+    container.append(text('div', 'TRACE · Route und SNR siehe Inhalt', 'muted'));
+    return container;
+  }
+  const hops = d.hops || [];
+  container.append(text('div', direct ? `Restpfad · ${hops.length} Hops ausstehend` : `Empfangspfad · ${hops.length} Hops`, 'muted'));
+  const chain = text('div', '', 'packet-path-chain');
+  hops.forEach((hash, index) => {
+    if (index) chain.append(text('span', '→', 'muted'));
+    const hop = text('span', d.hop_labels?.[index] || hash, 'packet-path-hop');
+    hop.title = `Hop ${index + 1} · Hash ${hash}`;
+    if (direct && index === 0) {
+      hop.className += ' packet-path-next';
+      hop.append(text('small', ' · nächster Hop'));
+    }
+    chain.append(hop);
+  });
+  if (!hops.length) chain.append(text('span', direct ? 'Keine weiteren Repeater im Paketpfad' : 'Ohne Repeater-Hop', 'muted'));
+  container.append(chain);
+  container.title = direct
+    ? 'Verbleibender Weiterleitungspfad dieses Empfangs. Bereits durchlaufene Hops und letzter Sender sind daraus nicht bestimmbar. Ein leerer Restpfad bestätigt keinen Empfang am Ziel.'
+    : 'Im Paket aufgezeichnete Repeater in Empfangsreihenfolge.';
+  return container;
+}
 function render(force = false) {
   if (paused && !force) return;
   if (!paused) {
@@ -197,14 +229,18 @@ function render(force = false) {
       if (d.payload_status) content.append(text('div', d.payload_status, 'muted'));
     }
     row.append(content);
-    row.append(text('td', p.last_hop));
+    const pathCell = text('td', '', 'live-path');
+    pathCell.append(text('div', `Last Hop: ${receptionLastHop(p)}`), receptionPath(p));
+    row.append(pathCell);
     const rssiCell = text('td', '');
     rssiCell.append(text('div', measurement(p.rssi, 'dBm'), 'live-reception-line'));
     const snrCell = text('td', '');
     const latestSnr = text('div', '', 'live-reception-line');
     latestSnr.append(snrMeasurement(p.snr));
     snrCell.append(latestSnr);
-    row.append(rssiCell, snrCell, text('td', d.hop_count));
+    const hopCount = text('td', d.hop_count);
+    hopCount.title = d.payload_type === 9 ? 'Anzahl SNR-Messwerte' : [2, 3].includes(d.route_type) ? 'Noch ausstehende Repeater-Hops' : 'Aufgezeichnete Repeater-Hops';
+    row.append(rssiCell, snrCell, hopCount);
     const repeats = text('td', '');
     const hashLabel = text('div', `${p.observer_hash?.slice(0, 6) || 'ohne Hash'} · ${group.count} ${group.count === 1 ? 'Empfang' : 'Empfänge'}`, 'live-reception-line');
     hashLabel.title = `${p.observer_hash || 'ohne Hash'} · Empfangsbeobachtungen über alle Observer, keine Anzahl von Weiterleitungen`;
@@ -222,7 +258,7 @@ function render(force = false) {
       const hopList = text('div', '', 'muted');
       hopList.title = 'Empfänge nach SNR absteigend (maximal 50); Messwerte in den RSSI- und SNR-Spalten';
       for (const reception of receptions) {
-        const hop = text('div', `${reception.last_hop} via Observer ${observerLabel(reception, true)}`, 'live-reception-line');
+        const hop = text('div', `${receptionLastHop(reception)} via Observer ${observerLabel(reception, true)}`, 'live-reception-line');
         rssiCell.append(text('div', measurement(reception.rssi, 'dBm'), 'live-reception-line'));
         const snr = text('div', '', 'live-reception-line');
         snr.append(snrMeasurement(reception.snr));
@@ -245,7 +281,9 @@ function render(force = false) {
         const observer = text('div', `Observer: ${observerLabel(reception, true)}`);
         observer.title = observerLabel(reception);
         block.append(observer);
-        block.append(text('div', `Pfad: ${reception.path}`));
+        const path = receptionPath(reception);
+        block.append(path);
+        if ([2, 3].includes(decoded.route_type) && decoded.payload_type !== 9) block.append(text('div', path.title, 'muted'));
         block.append(text('div', `Scope: ${scopeLabel(decoded)}`));
         appendPayloadDetails(block, decoded);
         if (decoded.advert) {
@@ -441,7 +479,7 @@ async function searchArchive(more = false) {
       const content = d.payload_name === 'GRP_TXT'
         ? (d.group_text ?? d.group_text_status ?? 'Nicht entschlüsselbar')
         : ((a && a.name) || d.advert_status || d.payload_summary || '');
-      entry.append(text('summary', `${new Date(p.received_at).toLocaleString()} · ${d.payload_name} · ${d.group_channel || ''} · Scope: ${scopeLabel(d)} · ${content} · ${p.last_hop}`));
+      entry.append(text('summary', `${new Date(p.received_at).toLocaleString()} · ${d.payload_name} · ${d.group_channel || ''} · Scope: ${scopeLabel(d)} · ${content} · ${receptionLastHop(p)}`));
       entry.append(text('div', `Pfad: ${p.path} · RSSI: ${measurement(p.rssi, 'dBm')} · SNR: ${measurement(p.snr, 'dB')} · Hash: ${p.observer_hash || '—'}`));
       entry.append(text('div', `Observer: ${observerLabel(p)}`));
       appendPayloadDetails(entry, d);
@@ -546,7 +584,7 @@ function appendChannelReception(item) {
   reception.append(text('div', new Date(p.received_at).toLocaleString(), 'muted'));
   reception.append(text('div', `Observer: ${observerLabel(p)}`));
   reception.append(text('div', `Scope: ${scopeLabel(p.decoded)}`));
-  reception.append(text('div', `Last Hop: ${p.last_hop} · Pfad: ${p.path} · RSSI: ${measurement(p.rssi, 'dBm')} · SNR: ${measurement(p.snr, 'dB')} · Hash: ${p.observer_hash || '—'}`));
+  reception.append(text('div', `Last Hop: ${receptionLastHop(p)} · Pfad: ${p.path} · RSSI: ${measurement(p.rssi, 'dBm')} · SNR: ${measurement(p.snr, 'dB')} · Hash: ${p.observer_hash || '—'}`));
   group.details.append(reception);
 }
 async function loadChannelMessages(more = false) {

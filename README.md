@@ -111,7 +111,16 @@ der Empfangsgruppe bleibt erhalten, die Zahl passender Empfänge wird zusätzlic
 WebSocket-Reconnect erhalten und funktioniert auch in der pausierten Ansicht.
 Empfang und Archivierung laufen unabhängig vom Filter weiter.
 
-Zeit | Typ | Route | Scope | Inhalt | Last Hop | RSSI | SNR | Hops | Hash / Empfänge
+Zeit | Typ | Route | Scope | Inhalt | Last Hop / Pfad | RSSI | SNR | Hops | Hash / Empfänge
+
+**Last Hop / Pfad** zeigt die Hop-Kette mit verfügbaren Namen und Hashes.
+Bei DIRECT/TC_DIRECT ist dies der verbleibende Weiterleitungspfad; der erste
+Eintrag ist als nächster Hop markiert. Bereits durchlaufene Hops und der letzte
+Sender sind daraus nicht bestimmbar, daher steht Last Hop auf `Unbekannt`.
+Ein leerer Restpfad bestätigt weder einen ursprünglichen Zero-Hop-Versand noch
+den Empfang am Ziel. FLOOD zeigt den aufgezeichneten Empfangspfad.
+Die aufgeklappten Details zeigen den jeweiligen Pfad jedes einzelnen Empfangs.
+TRACE bleibt separat, da sein Pfadfeld SNR-Messwerte enthält.
 
 Bei mehreren Empfängen zeigt **Hash / Empfänge** für jeden gespeicherten Empfang
 Last Hop und Observer. Die zugehörigen Messwerte stehen auf gleicher Höhe in den

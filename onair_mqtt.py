@@ -398,7 +398,7 @@ def build_packet(data):
         rssi=parse_int(data.get("RSSI")), snr=parse_float(data.get("SNR")),
         length=parse_int(data.get("len")), raw_hex=raw_hex,
         decoded=decoded, path='TRACE (SNR-Pfad)' if decoded['payload_type'] == 9 else format_path(decoded["hops"]),
-        last_hop=('Unbekannt' if decoded['payload_type'] == 9 else
+        last_hop=('Unbekannt' if decoded['payload_type'] == 9 or decoded['route_type'] in (2, 3) else
                   node_label(decoded["hops"][-1]) if decoded["hops"] else "direct"),
     )
 
