@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/trace.js" defer></script><script src="/static/meshlive-effects.js" defer></script><script src="/static/meshlive.js" defer></script><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/trace.js" defer></script><script src="/static/meshlive-effects.js" defer></script><script src="/static/meshlive.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <header><h1>MeshCore <span>OnAir</span></h1><span id="connection" role="status">WebSocket verbindet …</span><span id="noise-floor">Noise Floor: —</span><span class="radio">869.618 MHz · BW 62.5 · SF8 · CR4/8</span><button id="theme-toggle" type="button" aria-pressed="false">Lightmode</button></header>
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
@@ -191,7 +191,8 @@
 <button id="archive-more" type="button" hidden>Weitere Empfänge laden</button>
 </section>
 <section id="panel-live" role="tabpanel" aria-labelledby="tab-live" tabindex="0">
-<div class="live-filter">
+<button id="live-filter-toggle" type="button" aria-expanded="false" aria-controls="live-filter-controls">Paketfilter</button>
+<div id="live-filter-controls" class="live-filter">
 <label for="live-repeater">Repeater filtern</label>
 <input id="live-repeater" type="search" placeholder="Hash oder Name (auch Teile)" maxlength="200" aria-describedby="live-filter-help" autocomplete="off">
 <label for="live-observer">Observer</label>
@@ -200,7 +201,7 @@
 <p id="live-filter-help" class="muted">Letzter Hop bei Flood-Paketen oder direkte Repeater-ADVERTs · Groß-/Kleinschreibung egal.</p>
 <p id="live-filter-status" role="status"></p>
 </div>
-<table><thead><tr><th>Zeit</th><th>Typ</th><th>Route</th><th title="Scope des Empfangs; bei unbekannter Region wird Transport-Code 1 angezeigt">Scope</th><th>Inhalt</th><th>Last Hop / Pfad</th><th>RSSI</th><th>SNR</th><th>Hops</th><th>Hash / Empfänge</th></tr></thead><tbody id="packets"></tbody></table><p id="empty">Noch keine RX-Pakete empfangen. Die Ansicht aktualisiert sich automatisch.</p></section>
+<div class="live-table-scroll" tabindex="0" role="region" aria-label="Live-Pakete, horizontal scrollbar"><table><thead><tr><th>Zeit</th><th>Typ</th><th>Route</th><th title="Scope des Empfangs; bei unbekannter Region wird Transport-Code 1 angezeigt">Scope</th><th>Inhalt</th><th>Last Hop / Pfad</th><th>RSSI</th><th>SNR</th><th>Hops</th><th>Hash / Empfänge</th></tr></thead><tbody id="packets"></tbody></table></div><p id="empty">Noch keine RX-Pakete empfangen. Die Ansicht aktualisiert sich automatisch.</p></section>
 </main>
 <footer>Lokaler MQTT-Monitor · maximal 500 Paketgruppen / 50 letzte Empfänge je Gruppe · Liveansicht im Arbeitsspeicher, Archiv in SQLite · Zeit in der Liste vom Observer</footer>
 </body></html>

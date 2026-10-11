@@ -3,7 +3,7 @@ from playwright.sync_api import sync_playwright, expect
 from browser_meshlive import route_page, emit, packet
 from browser_replay import fixture
 
-SIZES=[(320,568),(375,667),(390,844),(430,932),(844,390),(1440,900)]
+SIZES=[(320,568),(375,667),(390,844),(430,932),(667,375),(844,390),(932,430),(768,1024),(1440,900)]
 
 
 def inside(page, selector):

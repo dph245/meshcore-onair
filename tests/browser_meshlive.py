@@ -9,12 +9,15 @@ import json
 import mimetypes
 from pathlib import Path
 import subprocess
+import sys
 import time
 from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from onair_assets import render_index
 NOW = time.time()
 KEYS = [s.ljust(64, '0') for s in ['aabbcc', 'bbccdd', 'ccddee', 'ddeeff']]
 NODES = [dict(public_key=k, name=f'Node {i}', node_type=2, latitude=52.14 + i*.02,
@@ -91,30 +94,33 @@ def route_page(page, requests, baseline=None):
             target = (ROOT / path).resolve()
             if not target.is_relative_to(ROOT / 'static') or not target.is_file():
                 req.fulfill(status=404); return
-            body = target.read_bytes()
+            body = render_index(ROOT / 'static').encode() if path == 'static/index.html' else target.read_bytes()
         req.fulfill(body=body, content_type=mimetypes.guess_type(path)[0] or 'application/octet-stream')
     page.route('**/*', route)
     page.add_init_script(INIT)
 
 
 def text_regression(page):
+    toggle = page.locator('#live-filter-toggle')
+    if toggle.is_visible() and toggle.get_attribute('aria-expanded') == 'false':
+        toggle.click()
     emit(page, [packet(1), packet(2, observer=3, hash_value='HASH1')], 'snapshot')
     assert page.locator('#packets tr.packet').count() == 1
-    states = [page.locator('#panel-live').inner_html()]
+    states = [page.locator('#packets').inner_html()]
     page.locator('#live-repeater').fill('bbcc')
     page.locator('#live-observer').select_option(KEYS[2])
     assert page.locator('#packets tr.packet').count() == 1
     page.locator('#packets button.expand').click()
     assert page.locator('#packets .reception').count() == 1
-    states.append(page.locator('#panel-live').inner_html())
+    states.append(page.locator('#packets').inner_html())
     page.locator('#pause').click()
     emit(page, [packet(3, ['bbcc', 'ccdd'])])
     assert 'Test 3' not in page.locator('#packets').inner_text()
-    states.append(page.locator('#panel-live').inner_html())
+    states.append(page.locator('#packets').inner_html())
     page.locator('#live-filter-reset').click()
     page.locator('#pause').click()
     assert 'Test 3' in page.locator('#packets').inner_text()
-    states.append(page.locator('#panel-live').inner_html())
+    states.append(page.locator('#packets').inner_html())
     return states
 
 
@@ -134,13 +140,15 @@ def main():
         assert page.locator('#tab-live').inner_text() == 'Live'
         assert page.locator('#meshlive-map canvas').count() == 0
         assert not any('mesh_live=true' in r for r in requests)
+        asset_requests = [r for r in requests if r.startswith('/static/') and r.split('?')[0].endswith(('.css', '.js'))]
+        assert len(asset_requests) == 14 and all('?v=' in r for r in asset_requests), asset_requests
         current_text = text_regression(page)
         if args.compare_ref:
             baseline = browser.new_page(viewport={'width':1280, 'height':900})
             route_page(baseline, [], args.compare_ref)
             baseline.goto('http://baseline.test/')
             baseline.wait_for_function('window.__sockets.length === 1')
-            assert text_regression(baseline) == current_text, 'Text LiveView DOM changed from baseline'
+            assert text_regression(baseline) == current_text, 'Live packet rendering changed from baseline'
             original_tabs = baseline.locator('[role=tab]').evaluate_all('(tabs) => tabs.filter(t=>t.id!=="tab-meshlive").map(t => [t.id,t.textContent])')
             current_tabs = page.locator('[role=tab]').evaluate_all('(tabs) => tabs.filter(t=>t.id!=="tab-meshlive").map(t => [t.id,t.textContent])')
             assert current_tabs == original_tabs, 'Existing tab order or labels changed'
@@ -308,7 +316,7 @@ def main():
         browser.close()
     print('MeshLive Chromium: lazy map, solid/dashed trails, cleanup, pause, stream snapshots, tab lifecycle, mobile and text LiveView regressions passed')
     if args.compare_ref:
-        print(f'Text LiveView DOM and original tab order match {args.compare_ref} exactly across filters, details, pause and resume')
+        print(f'Live packet rendering and original tab order match {args.compare_ref} exactly across filters, details, pause and resume')
 
 
 if __name__ == '__main__':

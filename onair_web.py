@@ -15,8 +15,8 @@ import onair_channels
 from onair_archive import Archive
 from onair_replay import ReplayLimitError
 from onair_routes import route_nodes, plan_routes
-from fastapi.responses import FileResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response
+from onair_assets import VersionedStaticFiles, index_response
 
 from onair_mqtt import BROKER_HOST, BROKER_PORT, create_client, noise_sample
 
@@ -178,12 +178,12 @@ async def lifespan(app):
 
 
 app = FastAPI(title="MeshCore OnAir", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+app.mount("/static", VersionedStaticFiles(directory=STATIC), name="static")
 
 
 @app.get("/")
-async def index():
-    return FileResponse(STATIC / "index.html")
+def index():
+    return index_response(STATIC)
 
 
 @app.get("/api/archive")

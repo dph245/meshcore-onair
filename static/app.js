@@ -6,6 +6,7 @@ function selectTab(selected) {
     tab.tabIndex = active ? 0 : -1;
     document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
   }
+  keepActiveTabVisible();
   if (selected.id === 'tab-raw') renderRaw();
   if (selected.id === 'tab-channels' && !channelsReady) loadChannelMessages();
   if (selected.id === 'tab-observers') loadObservers();
@@ -16,6 +17,32 @@ function selectTab(selected) {
   if (selected.id === 'tab-neighbors') loadNeighbors();
   if (selected.id === 'tab-routes') loadRouteNodes();
   window.MeshLive?.select(selected.id === 'tab-meshlive');
+}
+// Move only the navigation strip, never the document or the active panel.
+function keepActiveTabVisible() {
+  const selected = tabs.find(tab => tab.getAttribute('aria-selected') === 'true');
+  const strip = selected?.parentElement;
+  if (!strip || strip.scrollWidth <= strip.clientWidth) return;
+  const item = selected.getBoundingClientRect(), bounds = strip.getBoundingClientRect();
+  if (item.left < bounds.left) strip.scrollLeft += item.left - bounds.left - 8;
+  else if (item.right > bounds.right) strip.scrollLeft += item.right - bounds.right + 8;
+}
+window.addEventListener('resize', keepActiveTabVisible);
+// Safe-area and neighboring controls can resize the strip without a window resize.
+new ResizeObserver(keepActiveTabVisible).observe(document.querySelector('.tabs'));
+const liveFilterToggle = document.getElementById('live-filter-toggle');
+liveFilterToggle.addEventListener('click', () => {
+  const expanded = liveFilterToggle.getAttribute('aria-expanded') !== 'true';
+  liveFilterToggle.setAttribute('aria-expanded', String(expanded));
+  document.getElementById('panel-live').classList.toggle('filters-expanded', expanded);
+});
+// Leaflet restores window scroll after focusing a map, but not nested panel
+// scroll. Focus first without scrolling so a touch-generated click keeps its target.
+for (const id of ['node-map', 'meshlive-map']) {
+  const container = document.getElementById(id);
+  container.addEventListener('mousedown', event => {
+    if (!event.target.closest('a,button,input,select,summary')) container.focus({preventScroll: true});
+  }, {capture: true});
 }
 for (const [index, tab] of tabs.entries()) {
   tab.addEventListener('click', () => selectTab(tab));

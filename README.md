@@ -1023,3 +1023,31 @@ Gemessene Live-Kartenhöhen im lokalen Test: 351, 450, 627, 715, 271 beziehungsw
 682 px. Ergänzend laufen die bestehenden MeshLive-, Replay- und Harfen-Regressionen.
 Es wurden Chromium-Viewports und Touch-Ereignisse emuliert; echte Mobilhardware,
 iOS/Safari und physische Notches beziehungsweise Browserleisten wurden nicht geprüft.
+
+
+### Responsive Bedienung der gesamten Anwendung
+
+Alle 14 Tabs sind für Smartphone, Tablet und Desktop geprüft. Bis 950 px scrollt
+die Navigation horizontal und hält den aktiven Tab nach Wechsel oder Rotation
+sichtbar. Im Live-Tab lassen sich die Paketfilter einklappen; breite Tabellen und
+Messdiagramme scrollen lokal. Kartenbedienung, Popups und Formulare berücksichtigen
+kleine Hoch-/Querformate und Safe Areas.
+
+Bestandsaufnahme, Änderungen je Tab, Testmatrix und verbleibende Grenzen:
+[Responsive Design](docs/responsive-design.md). Der zusätzliche Offline-Browsertest
+ist `tests/browser_responsive.py`.
+
+### Automatische Asset-Versionen
+
+Lokal eingebundene CSS-/JavaScript-Dateien erhalten bei der HTML-Auslieferung einen
+SHA-256-Präfix ihres Inhalts als `?v=…`. Unveränderte Versionen dürfen langfristig
+gecacht werden; HTML sowie unversionierte oder veraltete Asset-URLs werden erneut
+geprüft. Auch `/static/index.html` liefert die aktuellen Versionslinks.
+
+[Implementierung, Abhängigkeiten, nginx-Hinweise und Tests](docs/cache-busting.md).
+Es sind weder ein Buildschritt noch manuell gepflegte Versionsnummern nötig.
+
+Bei Smartphone-Querformaten bis 950 px Breite und 500 px Höhe teilen sich Tabs,
+Status und zentrale Bedienelemente eine kompakte Zeile. Karte und Bedienung stehen
+auch bei 667 px nebeneinander; der Inhalt nutzt die übrige dynamische Viewporthöhe.
+Rotation, Scrollen und Karten-Resize prüft zusätzlich `tests/browser_landscape.py`.
