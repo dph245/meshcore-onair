@@ -61,5 +61,5 @@ class MeshLiveTests(unittest.TestCase):
                 self.assertEqual(json.loads(old[1]['body']), {'items': [], 'inactive': 0, 'without_position': 0})
                 mesh = asyncio.run(get(b'mesh_live=true'))
                 self.assertEqual(mesh[0]['status'], 200)
-                self.assertEqual(json.loads(mesh[1]['body']), {'nodes': [], 'tokens': []})
+            self.assertEqual(json.loads(mesh[1]['body']), {'nodes': [], 'tokens': [], 'manual_nodes': []})
                 self.assertEqual(asyncio.run(get(b'mesh_live=invalid'))[0]['status'], 422)

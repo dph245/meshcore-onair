@@ -134,6 +134,17 @@ class Archive:
                         PRIMARY KEY(source,target)) WITHOUT ROWID''')
                     rebuild_path_pairs(db)
                     db.execute('PRAGMA user_version=11')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 12:
+                    db.execute('''CREATE TABLE IF NOT EXISTS manual_nodes (
+                        public_key TEXT PRIMARY KEY CHECK(length(public_key)=64
+                            AND public_key NOT GLOB '*[^0-9a-f]*'),
+                        name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 128),
+                        latitude REAL NOT NULL CHECK(latitude BETWEEN -90 AND 90),
+                        longitude REAL NOT NULL CHECK(longitude BETWEEN -180 AND 180),
+                        source TEXT NOT NULL CHECK(length(trim(source)) BETWEEN 1 AND 512),
+                        created_at REAL NOT NULL, updated_at REAL NOT NULL,
+                        CHECK(latitude != 0 OR longitude != 0))''')
+                    db.execute('PRAGMA user_version=12')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -262,11 +273,13 @@ class Archive:
         """On-demand bootstrap only; include invisible identities for collision checks."""
         with self.connect() as db:
             db.row_factory = sqlite3.Row
+            db.execute('BEGIN')
             nodes = [dict(row) for row in db.execute('''SELECT public_key,name,node_type,
                 advert_time,latitude,longitude,position_time,first_seen,last_seen FROM nodes''')]
             tokens = [row[0] for row in db.execute('''SELECT token FROM repeater_receptions
                 UNION SELECT source FROM repeater_pairs UNION SELECT target FROM repeater_pairs''')]
-        return {'nodes': nodes, 'tokens': tokens}
+            manual = [dict(row) for row in db.execute('SELECT * FROM manual_nodes ORDER BY public_key')]
+        return {'nodes': nodes, 'tokens': tokens, 'manual_nodes': manual}
 
     def mesh_live_replay(self):
         from onair_replay import replay_response

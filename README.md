@@ -855,3 +855,73 @@ Der Replay-Browsertest verwendet eine kontrollierte Browseruhr. Er prüft die ko
 Tabwechsel und Sichtbarkeit, HTTP-Limits, leere Fenster, verspätete Antworten nach
 Abbruch sowie Desktop-/Mobilbedienung. Screenshots liegen unter
 `/tmp/meshlive-replay-desktop.png` und `/tmp/meshlive-replay-mobile.png`.
+
+## Manuelle Repeater per lokaler CLI (Phase 1)
+
+Extern bekannte Repeater können mit vollständigem Public Key, Name, Position und
+Quellenangabe in `manual_nodes` gepflegt werden. Die reguläre Anwendungsmigration
+legt diese zusätzliche Tabelle ab Schema-Version 12 an. Die CLI migriert nicht,
+startet keinen Archiv-Thread und erzeugt niemals eine fehlende Datenbank.
+Migration und Nutzung auf einem produktiven System erfordern eine gesonderte Freigabe.
+
+Beispiele (Platzhalter durch belegte Angaben ersetzen):
+
+```sh
+python -m onair_manual --db /pfad/onair.sqlite3 add <64-Hexzeichen-Public-Key> \
+  --name 'Neuer Repeater' --latitude <Breitengrad> --longitude <Längengrad> \
+  --source 'Vom Betreiber bestätigt'
+python -m onair_manual --db /pfad/onair.sqlite3 list
+python -m onair_manual --db /pfad/onair.sqlite3 show <64-Hexzeichen-Public-Key>
+python -m onair_manual --db /pfad/onair.sqlite3 update <64-Hexzeichen-Public-Key> \
+  --name 'Neuer Name' --source 'Aktualisierte Betreiberangabe'
+python -m onair_manual --db /pfad/onair.sqlite3 delete <64-Hexzeichen-Public-Key>
+```
+
+Alternativ liefert `ONAIR_DB_PATH` den Pfad. Im vorhandenen Container kann das
+Werkzeug lokal mit `docker compose exec onair python -m onair_manual ...` aufgerufen
+werden; dort ist der Datenbankpfad bereits gesetzt. Keine zusätzliche Infrastruktur,
+kein HTTP-/WebSocket-Schreibzugriff. Die bestehenden Dateiberechtigungen gelten.
+
+Die Ausgabe ist JSON, Fehler gehen an stderr (Exitcode 1, Aufruffehler 2).
+Schlüssel werden auf Kleinschreibung normalisiert; genau 64 Hexzeichen sind nötig.
+Ein vorhandener manueller Schlüssel kann nur mit `update` geändert werden.
+Name (maximal 128 Zeichen) und Quelle (512 Zeichen) sind Pflicht und dürfen keine
+Steuerzeichen enthalten. Koordinaten müssen endlich und innerhalb ±90/±180 liegen;
+0/0 als Platzhalter wird abgelehnt. Eine Formatprüfung verifiziert weder die
+Eigentümerschaft des Schlüssels noch die Richtigkeit der Quelle.
+
+`created_at` und `updated_at` sind Verwaltungszeiten, keine Empfangs- oder
+ADVERT-Zeiten. Das Werkzeug verändert ausschließlich `manual_nodes`. Es erzeugt
+keine Pakete, ADVERTs, Beobachter oder Nachbarschaften. `show`/`list` zeigen den
+externen Datensatz, die effektiven Werte und deren Herkunft. Ohne echten Empfang
+steht dort `Last ADVERT: None (manual)`; vorhandene ADVERT-Empfangszeiten werden als
+Unix-Sekunden ausgegeben. Löschen betrifft nur die manuelle Ergänzung.
+
+In MeshLive nach Änderungen **Knoten aktualisieren** wählen. Manuelle Einträge
+erscheinen als normale Punkte; ihre Details kennzeichnen die externe Quelle und
+Position ausdrücklich als Referenz ohne Aktivitätsnachweis. Ein echter ADVERT-Name
+hat Vorrang, eine gültige echte Position ebenfalls. Fehlt eine brauchbare echte
+Position, dient die manuelle Position als gekennzeichneter Fallback. Manuelle
+Referenzen bekommen keine erfundene 28-Tage-Aktivität. Eine vorhandene echte,
+aber inaktive Position wird nicht durch den Fallback wieder aktiviert.
+
+Bei demselben vollständigen Schlüssel entsteht nur ein effektiver Knoten. Andere
+Schlüssel und bekannte Hop-Tokens bleiben bei Prefix-Kollisionen berücksichtigt.
+Das Aktualisieren selbst animiert nichts. Erst neue tatsächliche Pakete können
+zuvor unauflösbare Teilstrecken erzeugen; unbekannte Hops werden nicht überbrückt.
+Ein bereits archivierter Pfad kann mit externen Identitäten zwar erklärbarer werden,
+wird in Phase 1 aber **nicht nachträglich animiert**.
+
+Text-LiveView, normale Map-/Nodes-Ansichten, Nachbarberechnung und Observer-Verwaltung
+verwenden weiterhin ausschließlich ihren bisherigen Datenbestand. Insbesondere
+bleibt Replay historisch streng: Es übernimmt weder manuelle Positionen noch
+manuelle Identitäten. Noch kein Replay-Schalter für externe Referenzen.
+
+Gezielte Tests (ausschließlich temporäre Datenbanken und simulierte Browserdaten):
+
+```sh
+.venv/bin/python -m unittest discover -s tests -p test_manual.py -v
+deno run --allow-read=static tests/test_manual_ui.js
+python tests/browser_meshlive.py
+python tests/browser_replay.py
+```

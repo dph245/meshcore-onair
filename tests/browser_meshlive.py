@@ -273,6 +273,29 @@ def main():
         assert page.evaluate('window.__testedMap.getZoom()') == 12
         center = page.evaluate('window.__testedMap.getCenter()')
         assert abs(center['lat']-53.25) < .001 and abs(center['lng']-11.75) < .001
+        # Authoritative manual snapshots add, update and remove visible nodes.
+        manual = {'public_key':'36477e'+'a'*58, 'name':'Manual Test', 'latitude':53.25,
+                  'longitude':11.75, 'source':'Browser fixture', 'created_at':NOW, 'updated_at':NOW}
+        manual_rows = [manual]
+        page.route('**/api/map-nodes?mesh_live=true', lambda route: route.fulfill(
+            json={'nodes':NODES, 'tokens':['36477e'], 'manual_nodes':manual_rows}))
+        page.locator('#meshlive-refresh').click()
+        page.wait_for_function('document.querySelector("#meshlive-status").textContent.includes("5 Nodes · Live")')
+        assert page.locator('#meshlive-map .leaflet-marker-icon').count() == 5
+        page.locator('#meshlive-map .leaflet-marker-icon[title="Manual Test [36477e]"]').click()
+        assert 'Last ADVERT: None (manual)' in page.locator('.leaflet-popup-content').inner_text()
+        assert 'Browser fixture' in page.locator('.leaflet-popup-content').inner_text()
+        manual.update(name='Updated Manual', latitude=53.251)
+        page.locator('#meshlive-refresh').click()
+        page.wait_for_selector('#meshlive-map .leaflet-marker-icon[title="Updated Manual [36477e]"]')
+        page.evaluate('window.__meshStrokes=[]')
+        emit(page, [packet(999, hops=['3647','aabb'], hash_value='MANUAL')])
+        page.wait_for_function('window.__meshStrokes.length > 0')
+        manual_rows.clear()
+        page.locator('#meshlive-refresh').click()
+        page.wait_for_function('document.querySelector("#meshlive-status").textContent.includes("4 Nodes · Live")')
+        assert page.locator('#meshlive-map .leaflet-marker-icon').count() == 4
+        assert page.locator('#meshlive-map .leaflet-marker-icon[title*="36477e"]').count() == 0
         assert not errors, errors
         browser.close()
     print('MeshLive Chromium: lazy map, solid/dashed trails, cleanup, pause, stream snapshots, tab lifecycle, mobile and text LiveView regressions passed')

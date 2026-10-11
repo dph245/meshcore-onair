@@ -35,3 +35,5 @@ tests/*
 !tests/test_replay.py
 !tests/test_replay_ui.js
 !tests/browser_replay.py
+!tests/test_manual.py
+!tests/test_manual_ui.js

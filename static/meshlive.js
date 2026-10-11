@@ -10,6 +10,8 @@ const MESH_REPLAY = Object.freeze({SPEED: 10, WINDOW_MS: 600000, MAX_EVENTS: 500
 class MeshLiveModel {
   constructor() {
     this.nodes = new Map();
+    this.manualNodes = new Map();
+    this.hopTokens = new Set();
     this.prefixes = new Map();
     this.terminals = new Set();
     this.seen = new Map();
@@ -67,15 +69,42 @@ class MeshLiveModel {
   bootstrap(data) {
     // Merge instead of replacing: ADVERTs can arrive while the HTTP request runs.
     for (const node of data.nodes || []) this.mergeNode(node);
-    for (const token of data.tokens || []) this.identity(token);
+    for (const token of data.tokens || []) this.hopTokens.add(token);
+    // Manual data is an authoritative snapshot, not observations to merge forever.
+    this.manualNodes = new Map((data.manual_nodes || []).map(n => [n.public_key.toLowerCase(), n]));
+    this.prefixes.clear(); this.terminals.clear();
+    for (const key of this.nodeKeys()) this.identity(key);
+    for (const token of this.hopTokens) this.identity(token);
     for (const packet of data.seed_packets || []) this.learn(packet);
+  }
+
+  nodeKeys() { return new Set([...this.nodes.keys(), ...this.manualNodes.keys()]); }
+
+  validPosition(node) {
+    return node && Number.isFinite(node.latitude) && Number.isFinite(node.longitude) &&
+      Math.abs(node.latitude) <= 90 && Math.abs(node.longitude) <= 180 &&
+      (node.latitude !== 0 || node.longitude !== 0);
+  }
+
+  node(key) {
+    const observed = this.nodes.get(key), manual = this.manualNodes.get(key);
+    if (!manual) return observed;
+    const realPosition = this.validPosition(observed);
+    return {...(observed || {public_key: key, node_type: 2, advert_time: null,
+      position_time: null, first_seen: null, last_seen: null}),
+      name: observed?.name || manual.name,
+      name_source: observed?.name ? 'advert' : 'manual',
+      latitude: realPosition ? observed.latitude : manual.latitude,
+      longitude: realPosition ? observed.longitude : manual.longitude,
+      position_source: realPosition ? 'advert' : 'manual',
+      manual_source: manual.source, manual_updated_at: manual.updated_at};
   }
 
   learn(packet) {
     const d = packet.decoded || {};
     if (packet.direction !== 'rx') return;
     if ([0, 1].includes(d.route_type) && d.payload_type !== 9) {
-      for (const token of d.hops || []) this.identity(token);
+      for (const token of d.hops || []) { this.hopTokens.add(token); this.identity(token); }
     }
     const advert = d.advert, received = Date.parse(packet.received_at) / 1000;
     if (!advert || d.advert_status || advert.signature_status !== 'Gültig' || !Number.isFinite(received)) return;
@@ -85,22 +114,23 @@ class MeshLiveModel {
   }
 
   position(key, wallTime) {
-    const node = this.nodes.get(key);
+    const node = this.node(key);
     if (!node || !Number.isFinite(node.latitude) || !Number.isFinite(node.longitude) ||
         Math.abs(node.latitude) > 90 || Math.abs(node.longitude) > 180 ||
         (node.latitude === 0 && node.longitude === 0) ||
-        !(node.last_seen > wallTime / 1000 - MESH_LIVE.ACTIVE_DAYS * 86400)) return;
+        (node.position_source !== 'manual' &&
+          !(node.last_seen > wallTime / 1000 - MESH_LIVE.ACTIVE_DAYS * 86400))) return;
     return [node.latitude, node.longitude];
   }
 
   resolve(token) {
     if (typeof token !== 'string') return;
     token = token.toLowerCase();
-    if (token.length === 64) return this.nodes.has(token) ? token : undefined;
+    if (token.length === 64) return this.nodes.has(token) || this.manualNodes.has(token) ? token : undefined;
     const candidates = this.prefixes.get(token);
     if (candidates?.size !== 1) return;
     const key = candidates.values().next().value;
-    return this.nodes.has(key) ? key : undefined;
+    return this.nodes.has(key) || this.manualNodes.has(key) ? key : undefined;
   }
 
   edges(packet) {
@@ -115,7 +145,7 @@ class MeshLiveModel {
     const sender = d.hops.length ? this.resolve(d.hops[d.hops.length - 1]) :
       advert?.signature_status === 'Gültig' && !d.advert_status ? this.resolve(advert.public_key) : undefined;
     const observer = typeof packet.origin_id === 'string' ? packet.origin_id.toLowerCase() : '';
-    edges.push({source: sender, target: this.nodes.has(observer) ? observer : undefined, observed: true});
+    edges.push({source: sender, target: this.nodes.has(observer) || this.manualNodes.has(observer) ? observer : undefined, observed: true});
     return edges;
   }
 
@@ -184,7 +214,8 @@ class MeshLiveReplay {
     }
     this.data = data;
     this.model = new MeshLiveModel();
-    this.model.bootstrap(data.bootstrap);
+    // Phase 1 replay uses only historical ADVERT positions and identities.
+    this.model.bootstrap({...data.bootstrap, manual_nodes: []});
     this.anchor = now;
     this.elapsed = 0;
     this.paused = false;
@@ -399,10 +430,10 @@ window.MeshLive = (() => {
     schedule();
   }
 
-  function renderNodes(keys = model.nodes.keys()) {
+  function renderNodes(keys = model.nodeKeys()) {
     const now = replay ? replay.sourceTime(performance.now()) : Date.now();
     for (const key of keys) {
-      const node = model.nodes.get(key), position = model.position(key, now);
+      const node = model.node(key), position = model.position(key, now);
       if (!position) {
         markers.get(key)?.remove(); markers.delete(key); continue;
       }
@@ -419,6 +450,14 @@ window.MeshLive = (() => {
       } else marker.setLatLng(position).setIcon(icon);
       const info = document.createElement('div'); info.className = 'map-node-info';
       info.textContent = `${label} · ${key} · Position vom ${new Date(node.position_time * 1000).toLocaleString('de-DE')}`;
+      if (node.manual_source) {
+        info.textContent = `${label} · ${key} · Name: ${node.name_source === 'manual' ? 'manuell' : 'ADVERT'} · ` +
+          (node.position_source === 'manual' ? 'Position: externe Referenz, kein Aktivitätsnachweis' :
+            `Position: ADVERT vom ${new Date(node.position_time * 1000).toLocaleString('de-DE')}`) +
+          ` · Quelle: ${node.manual_source} · Manuell aktualisiert: ${new Date(node.manual_updated_at * 1000).toLocaleString('de-DE')} · ` +
+          (node.last_seen == null ? 'Last ADVERT: None (manual)' :
+            `Last ADVERT: ${new Date(node.last_seen * 1000).toLocaleString('de-DE')}`);
+      }
       marker.unbindTooltip().bindTooltip(document.createTextNode(label));
       marker.unbindPopup().bindPopup(info);
     }
@@ -435,6 +474,7 @@ window.MeshLive = (() => {
       const data = await response.json();
       if (controller !== request || !visible() || mode !== 'live') return;
       model.bootstrap(data);
+      resetMarkers();
       renderNodes();
       ready = true; needsRefresh = false;
     } catch (cause) {
