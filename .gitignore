@@ -39,3 +39,4 @@ tests/*
 !tests/test_manual_ui.js
 !tests/test_harp_ui.js
 !tests/browser_harp.py
+!tests/browser_meshlive_mobile.py

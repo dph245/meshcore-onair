@@ -279,6 +279,7 @@ window.MeshLive = (() => {
 
   function status() {
     if (!model) return;
+    element('status').dataset.error = String(Boolean(error));
     const replayMode = mode !== 'live';
     element('replay-badge').hidden = !replayMode;
     element('replay-controls').hidden = !replayMode;
@@ -563,6 +564,13 @@ window.MeshLive = (() => {
     });
     resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(map.getContainer());
+    window.visualViewport?.addEventListener('resize', resize);
+    element('more').addEventListener('click', () => {
+      const expanded = element('more').getAttribute('aria-expanded') !== 'true';
+      element('more').setAttribute('aria-expanded', String(expanded));
+      element('more').setAttribute('aria-label', `Weitere MeshLive-Einstellungen ${expanded ? 'ausblenden' : 'anzeigen'}`);
+      element('more').closest('aside').classList.toggle('meshlive-expanded', expanded);
+    });
     for (const kind of ['observed', 'reconstructed']) {
       element(kind).addEventListener('change', () => {
         model[kind] = element(kind).checked;
@@ -601,6 +609,9 @@ window.MeshLive = (() => {
 
   function select(active) {
     opened = active;
+    if (active && window.matchMedia('(max-width: 700px), (max-width: 950px) and (max-height: 500px)').matches) {
+      document.getElementById('tab-meshlive').scrollIntoView({block: 'nearest', inline: 'nearest'});
+    }
     if (mode !== 'live') {
       if (!active) pauseReplay();
       else { resize(); if (replay) renderNodes(); status(); }
@@ -614,6 +625,7 @@ window.MeshLive = (() => {
       if (harp.enabled) harp.unlock();
     } catch (cause) {
       element('status').textContent = cause.message;
+      element('status').dataset.error = 'true';
     }
   }
 

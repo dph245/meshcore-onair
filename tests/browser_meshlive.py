@@ -206,12 +206,20 @@ def main():
         page.locator('#tab-meshlive').click()
         page.wait_for_function('document.querySelector("#meshlive-status").textContent.includes("4 Nodes · Live")')
         assert page.locator('#meshlive-map').bounding_box()['width'] <= 390
+        if page.locator('#meshlive-more').is_visible() and page.locator('#meshlive-more').get_attribute('aria-expanded') == 'false':
+            page.locator('#meshlive-more').click()
         page.locator('#meshlive-fit').click()
+        if page.locator('#meshlive-more').is_visible():
+            page.locator('#meshlive-more').click()
         emit(page, [packet(4)])
         page.wait_for_timeout(80)
         page.screenshot(path='/tmp/meshlive-mobile.png', full_page=True)
         page.set_viewport_size({'width':1280, 'height':900})
+        if page.locator('#meshlive-more').is_visible() and page.locator('#meshlive-more').get_attribute('aria-expanded') == 'false':
+            page.locator('#meshlive-more').click()
         page.locator('#meshlive-fit').click()
+        if page.locator('#meshlive-more').is_visible():
+            page.locator('#meshlive-more').click()
         emit(page, [packet(5)])
         page.wait_for_timeout(80)
         page.screenshot(path='/tmp/meshlive-desktop.png', full_page=True)

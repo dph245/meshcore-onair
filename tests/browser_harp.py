@@ -27,7 +27,11 @@ def main():
         page.goto('http://harp.test/')
         page.locator('#tab-meshlive').click()
         expect(page.locator('#meshlive-status')).to_contain_text('4 Nodes · Live')
+        if page.locator('#meshlive-more').is_visible() and page.locator('#meshlive-more').get_attribute('aria-expanded') == 'false':
+            page.locator('#meshlive-more').click()
         page.locator('#meshlive-fit').click()
+        if page.locator('#meshlive-more').is_visible():
+            page.locator('#meshlive-more').click()
         assert not page.locator('#meshlive-tones').is_checked()
         assert page.evaluate('window.__audio.length')==0
         page.locator('#meshlive-tones').check()
@@ -64,7 +68,11 @@ def main():
         page.locator('#meshlive-tones').uncheck()
         page.wait_for_function('window.__audio[0].state === "suspended"')
         page.set_viewport_size({'width':390,'height':844})
+        if page.locator('#meshlive-more').is_visible() and page.locator('#meshlive-more').get_attribute('aria-expanded') == 'false':
+            page.locator('#meshlive-more').click()
         page.locator('#meshlive-fit').click()
+        if page.locator('#meshlive-more').is_visible():
+            page.locator('#meshlive-more').click()
         page.locator('#meshlive-tones').check()
         page.wait_for_function('window.__audio[0].state === "running"')
         page.evaluate('window.__drawTimes=[];window.__notes=[]')

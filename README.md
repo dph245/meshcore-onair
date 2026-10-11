@@ -985,3 +985,41 @@ Die Browserprüfungen verwenden simulierte Pakete und lokale Kartenkacheln. Sie
 prüfen echte Web-Audio-Knoten, Pulse, Speicherung, Pause/Tabwechsel, Replay,
 fehlende Web-Audio-Unterstützung und begrenzte Last mit Desktop-/Mobil-Viewport.
 Keine Änderungen an Backend, Datenbank, API oder textbasierter LiveView.
+
+## MeshLive auf Smartphones
+
+Die mobile Darstellung verwendet dieselbe Leaflet-Karte, denselben Canvas und
+bestehende Bedienelemente. Bis 700 px Breite sowie im schmalen Querformat bis
+950 × 500 px gilt ein kompaktes Layout, ausschließlich während MeshLive geöffnet
+ist. Kopfzeile und Tab-Leiste bleiben erreichbar; die Tabs lassen sich innerhalb
+ihrer Leiste horizontal wischen. Die Seite selbst scrollt nicht horizontal.
+
+Im Hochformat füllt die Karte den verfügbaren Platz oberhalb der Steuerung.
+**Töne**, Live-Pause und Replay-Start bleiben direkt erreichbar. **Optionen** öffnet
+Filter, „Alle Nodes anzeigen“, Aktualisierung, Status und Erklärungen in einem
+begrenzten, scrollbareren Bereich unterhalb der Karte. Im Querformat steht die
+Steuerung neben der Karte, ohne Overlay auf der Touch-Fläche. Touch-Ziele sind
+mindestens 44 px hoch; Checkboxen sind über ihre ganze Beschriftungsfläche bedienbar.
+
+Replay zeigt Fortschritt, Zeitraum, Pause/Fortsetzen und Beenden direkt an.
+Die bestehende feste Auswahl „Letzte 10 Minuten“ bleibt erhalten; es gibt keine neue
+Zeitraum-API. Meldungen bleiben bei Bedarf innerhalb ihres Bereichs scrollbar.
+Die vorhandene Audio-Präferenz, Benutzeraktivierung und Stopplogik gelten unverändert.
+
+`100dvh` und Safe-Area-Padding berücksichtigen dynamische Browserleisten und
+verfügbare Geräteeinzüge. Der vorhandene ResizeObserver passt Leaflet und Canvas an
+Layoutwechsel an; zusätzlich wird auf Größenänderungen des Visual Viewport reagiert.
+Kartenausschnitt und Zoom bleiben in der bestehenden Speicherung. Animation,
+Identitätsauflösung, Deduplizierung, 64-Spuren-Grenze und Audio-Limits sind unverändert.
+Desktop behält die bisherige Seitenleiste; andere Tabs erhalten keine neuen Layoutregeln.
+
+Prüfung mit `python tests/browser_meshlive_mobile.py`: 320 × 568, 375 × 667,
+390 × 844, 430 × 932, 844 × 390 und Desktop 1440 × 900. Getestet werden sichtbare
+Steuerungen, Navigation, CDP-Touch-Panning und Zweifinger-Pinch-Zoom, Canvas-Ausgabe,
+Audio-Schalter, Replay-Zustände, Rotation und verringerte Viewport-Höhe. Screenshots
+liegen unter `/tmp/meshlive-mobile-<Breite>x<Höhe>.png`.
+
+Gemessene Live-Kartenhöhen im lokalen Test: 351, 450, 627, 715, 271 beziehungsweise
+682 px. Ergänzend laufen die bestehenden MeshLive-, Replay- und Harfen-Regressionen.
+Es wurden Chromium-Viewports und Touch-Ereignisse emuliert; echte Mobilhardware,
+iOS/Safari und physische Notches beziehungsweise Browserleisten wurden nicht geprüft.
