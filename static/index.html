@@ -119,11 +119,11 @@
 <p id="meshlive-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden.</p>
 <details class="map-help"><summary>Was zeigen die Spuren?</summary>
 <p>Durchgezogen: letzter eindeutig zugeordneter Sender → empfangender Observer. Gestrichelt: benachbarte Hops aus einem empfangenen Flood-Pfad, keine separat gemessenen Empfänge dieser Strecken.</p>
-<p>Alle Teilstrecken eines Ereignisses starten gleichzeitig. 300 ms Bewegung und 700 ms Verblassen sind Darstellungszeiten, keine gemessenen Funklaufzeiten. Unbekannte Hops werden nicht überbrückt.</p>
+<p>Alle Teilstrecken eines Ereignisses starten gleichzeitig. 500 ms Bewegung und 1.000 ms Verblassen sind Darstellungszeiten, keine gemessenen Funklaufzeiten. Unbekannte Hops werden nicht überbrückt.</p>
 <p>Letzte bekannte Positionen aus gültig signierten ADVERTs, keine gemessenen Funkwege. Kurze Kennungen sind nur innerhalb des bekannten Bestands eindeutig; unbekannte Kollisionen bleiben möglich.</p>
 <p>Mehrfachmeldungen werden je gerichteter Strecke innerhalb von 10 Sekunden zusammengefasst. Echte erneute Aussendungen können dabei ebenfalls zusammenfallen. Zwei Observer-Empfänge können von derselben Aussendung stammen.</p>
 <p>Maximal 64 gleichzeitige Spuren. Überlast, Pause und Verbindungsunterbrechungen können Ereignisse auslassen. Kein Nachspielen. MeshLive pausiert unabhängig von der textbasierten Liveansicht.</p>
-<p>Replay: zehn Minuten archivierte Empfänge in 60 Sekunden, danach bis zu einer Sekunde Nachglühen. Ereignisabstände werden beschleunigt; jede Spur behält 300 ms Bewegung und 700 ms Verblassen. Zeitabstände zeigen die Ankunft bei OnAir, keine Funklaufzeiten.</p>
+<p>Replay: zehn Minuten archivierte Empfänge in 60 Sekunden, danach bis zu 1,5 Sekunden ausklingende Spuren. Ereignisabstände werden beschleunigt; jede Spur behält 500 ms Bewegung und 1.000 ms Verblassen. Zeitabstände zeigen die Ankunft bei OnAir, keine Funklaufzeiten.</p>
 <p>Historische Positionen werden nur ab einem belegbaren ADVERT-Empfang verwendet. Fehlende Positionen bleiben unsichtbar. Die Deduplizierung beginnt für jedes Replay neu und verwendet zehn historische Sekunden. Beim Tabwechsel pausiert Replay automatisch; nach dem Beenden startet Live ohne Nachspielen.</p>
 </details>
 </aside>

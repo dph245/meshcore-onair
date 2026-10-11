@@ -1,6 +1,6 @@
 /* MeshLive consumes the existing server-only stream; it never changes packet groups. */
 const MESH_LIVE = Object.freeze({
-  TRAVEL_MS: 300, TOTAL_MS: 1000, MAX_ACTIVE: 64,
+  TRAVEL_MS: 500, TOTAL_MS: 1500, MAX_ACTIVE: 64,
   DEDUP_WINDOW_MS: 10000, MAX_DEDUP_ENTRIES: 5000,
   MAX_DPR: 2, ACTIVE_DAYS: 28, COLOR: '#087f92',
 });
@@ -408,7 +408,9 @@ window.MeshLive = (() => {
       }
       const label = `${node.name || 'Ohne Namen'} [${key.slice(0, 6)}]`;
       const content = document.createElement('div'); content.className = 'map-marker-content';
-      content.append(mapNodeSymbol(mapTypes[node.node_type]?.[1] || 'other'));
+      const dot = document.createElement('span');
+      dot.className = `meshlive-node-dot ${mapTypes[node.node_type]?.[1] || 'other'}`;
+      content.append(dot);
       const icon = L.divIcon({html: content, className: 'map-marker', iconSize: [24, 24], iconAnchor: [12, 12]});
       let marker = markers.get(key);
       if (!marker) {
@@ -443,11 +445,38 @@ window.MeshLive = (() => {
     }
   }
 
+  function savedView() {
+    try {
+      const view = JSON.parse(localStorage.getItem('onair-meshlive-view'));
+      if (Array.isArray(view?.center) && view.center.length === 2 &&
+          view.center.every(Number.isFinite) && Math.abs(view.center[0]) <= 90 &&
+          Number.isInteger(view.zoom) && view.zoom >= 0 && view.zoom <= 19) return view;
+    } catch { /* Browser storage is optional. */ }
+    return savedMapView();
+  }
+
+  function saveView() {
+    if (!visible()) return;
+    const center = map.getCenter();
+    try {
+      localStorage.setItem('onair-meshlive-view', JSON.stringify({
+        center: [center.lat, center.lng], zoom: map.getZoom()
+      }));
+    } catch { /* Keep the map usable when storage is unavailable. */ }
+  }
+
+  function resizeNodeDots() {
+    const size = Math.max(6, Math.min(14, 8 + (map.getZoom() - 10) * 0.75));
+    map.getContainer().style.setProperty('--meshlive-node-size', `${size}px`);
+  }
+
   function initialize() {
     if (!window.L) throw Error('Kartenbibliothek konnte nicht geladen werden. Bitte Seite neu laden.');
     model = new MeshLiveModel();
-    const view = savedMapView();
+    const view = savedView();
     map = L.map('meshlive-map', {zoomAnimation: false, fadeAnimation: false}).setView(view.center, view.zoom);
+    resizeNodeDots();
+    map.on('zoomend', resizeNodeDots);
     const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
@@ -461,6 +490,7 @@ window.MeshLive = (() => {
     if (!context) throw Error('Canvas wird von diesem Browser nicht unterstützt.');
     map.getContainer().append(canvas);
     map.on('move zoom resize', () => schedule(true));
+    map.on('moveend', saveView);
     resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(map.getContainer());
     for (const kind of ['observed', 'reconstructed']) {

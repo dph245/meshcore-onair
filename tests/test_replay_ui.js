@@ -20,9 +20,9 @@ function advance(r, t) { for(let i=0;i<30;i++) { const before=r.index; r.advance
   r.advance(600); assert(r.index===1 && r.model.active.length===2, 'Both evidence types share renderer/model');
   assert(r.model.active.every(e=>Math.abs(e.started-100)<.001), 'Start time is visual, not epoch');
   r.advance(800); assert(r.index===2 && r.model.active.length===2, 'Observer duplicates deduped in source time');
-  r.advance(1700); assert(r.index===3 && r.model.active.length===2, '11 historical seconds expire dedup after 1.1 real seconds');
-  assert(r.model.active.every(e=>e.started===1200), 'New event after historical window gets full animation');
-  assert(meshLivePhase(300).alpha===1 && meshLivePhase(650).alpha===.5, 'Animation still 300+700ms');
+  r.advance(1700); assert(r.index===3 && r.model.active.length===4, '11 historical seconds expire dedup after 1.1 real seconds');
+  assert(r.model.active.filter(e=>e.started===1200).length===2, 'New event after historical window gets full animation');
+  assert(meshLivePhase(500).alpha===1 && meshLivePhase(1000).alpha===.5, 'Animation remains 500+1000ms');
 }
 {
   const r = new MeshLiveReplay(data([event(1,1),event(2,20,'next')]), 0);
@@ -64,7 +64,7 @@ function advance(r, t) { for(let i=0;i<30;i++) { const before=r.index; r.advance
   const r=new MeshLiveReplay(data([event(1,599.9)]),0);
   r.advance(59991); assert(r.model.active.length===2,'Late-window event begins');
   r.advance(60000); assert(!r.finished(60000),'Timeline ends at 60s, trailing animation remains');
-  r.advance(60991); assert(r.finished(60991),'Last trail expires without shortening its duration');
+  r.advance(61491); assert(r.finished(61491),'Last trail expires without shortening its duration');
   const live=new MeshLiveModel(); live.bootstrap({nodes});
   live.ingest(event(1,1).packet,100, (start+1)*1000);
   const independent=new MeshLiveReplay(data([event(1,1)]),0); independent.advance(100);

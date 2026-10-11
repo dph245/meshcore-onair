@@ -101,13 +101,16 @@ def main():
         emit(page, [packet(2)])
         page.clock.run_for(100)
         assert page.evaluate('window.__meshStrokes.length') > 0
-        # Complete 60-second timeline plus full one-second final trail, no timeouts per packet.
+        # Complete 60-second timeline plus full 1.5-second final trail, no timeouts per packet.
         click('#meshlive-replay-start')
         expect(page.locator('#meshlive-status')).to_contain_text('REPLAY · 10×')
         page.clock.run_for(60000)
         expect(page.locator('#meshlive-replay-badge')).to_be_visible()
+        # Progress is painted on animation frames, not an exact 60-second timer.
+        assert page.locator('#meshlive-replay-progress').evaluate('(el)=>el.value') >= 59980/60000
+        page.clock.run_for(20)
         assert page.locator('#meshlive-replay-progress').evaluate('(el)=>el.value') == 1
-        page.clock.run_for(1100)
+        page.clock.run_for(1600)
         expect(page.locator('#meshlive-status')).to_contain_text('4 Nodes · Live')
         expect(page.locator('#meshlive-replay-message')).to_contain_text('Replay beendet')
         assert len(calls) == 2
@@ -136,7 +139,22 @@ def main():
         page.evaluate('window.__finishReplay(); window.fetch=window.__fetch')
         page.clock.run_for(100)
         expect(page.locator('#meshlive-replay-badge')).to_be_hidden()
-        # Mobile controls remain visible/readable; tab switch also pauses during loading.
+        # A tab switch during loading must leave the eventual replay paused.
+        page.evaluate('''data => {
+          window.fetch = (url, options) => url === '/api/meshlive/replay'
+            ? new Promise(resolve => window.__finishReplay = () => resolve(new Response(JSON.stringify(data))))
+            : window.__fetch(url, options);
+        }''', fixture())
+        click('#meshlive-replay-start')
+        click('#tab-live')
+        page.evaluate('window.__finishReplay(); window.fetch=window.__fetch')
+        expect(page.locator('#meshlive-replay-pause')).to_have_text('Replay fortsetzen')
+        page.clock.run_for(1000)
+        click('#tab-meshlive')
+        assert page.locator('#meshlive-replay-progress').evaluate('(el)=>el.value') == 0
+        click('#meshlive-replay-end')
+        expect(page.locator('#meshlive-status')).to_contain_text('4 Nodes · Live')
+        # Mobile controls remain visible/readable.
         page.set_viewport_size({'width':390,'height':844})
         click('#meshlive-replay-start')
         expect(page.locator('#meshlive-status')).to_contain_text('REPLAY · 10×')
@@ -150,6 +168,9 @@ def main():
         # Text LiveView still accepts filters, details and its own pause after replay.
         click('#tab-live')
         page.clock.resume()
+        # The first regression intentionally left HASH1 expanded; snapshots preserve it.
+        for toggle in page.locator('#packets button.expand[aria-expanded="true"]').all():
+            toggle.click()
         text_regression(page)
         assert not errors, errors
         browser.close()

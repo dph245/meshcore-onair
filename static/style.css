@@ -92,9 +92,8 @@ body:has(#panel-meshlive:not([hidden]))>main{flex:1;min-height:0}
 #panel-meshlive .map-toolbar{flex-direction:column;align-items:stretch;gap:10px}
 #panel-meshlive .map-toolbar>label{flex-direction:row;align-items:center;gap:6px}
 #panel-meshlive .map-help{line-height:1.5}
-#meshlive-map .map-node-symbol{width:24px;height:24px;border-radius:5px}
-#meshlive-map .map-node-symbol svg{width:18px;height:18px}
-#meshlive-map .map-marker-content{width:24px;height:24px}
+#meshlive-map .map-marker-content{width:24px;height:24px;display:flex;align-items:center;justify-content:center}
+.meshlive-node-dot{width:var(--meshlive-node-size,8px);height:var(--meshlive-node-size,8px);box-sizing:border-box;border:1px solid #fff;border-radius:50%;background:currentColor;box-shadow:0 1px 3px #0005}
 .meshlive-canvas{position:absolute;inset:0;z-index:450;pointer-events:none}
 .meshlive-key{display:inline-block;width:24px;border-top:2px solid #087f92;vertical-align:middle;margin-right:4px}
 .meshlive-key.reconstructed{border-top-style:dashed;opacity:.7}

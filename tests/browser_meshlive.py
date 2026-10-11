@@ -160,7 +160,7 @@ def main():
         box = page.locator('#meshlive-map').bounding_box()
         page.mouse.move(box['x']+box['width']/2, box['y']+box['height']/2)
         page.mouse.down(); page.mouse.move(box['x']+box['width']/2+35, box['y']+box['height']/2+20); page.mouse.up()
-        page.wait_for_timeout(1150)
+        page.wait_for_timeout(1650)
         assert page.locator('#meshlive-map canvas').evaluate('(c)=>!c.getContext("2d").getImageData(0,0,c.width,c.height).data.some(v=>v)')
         frames = page.evaluate('window.__meshFrames')
         emit(page, [packet(4)])
@@ -244,7 +244,7 @@ def main():
             return Math.max(...frames.values()) <= 64;
         }''')
         assert '136 Spuren am Limit ausgelassen' in page.locator('#meshlive-status').inner_text()
-        page.wait_for_timeout(1100)
+        page.wait_for_timeout(1600)
         frames = page.evaluate('window.__meshFrames')
         page.wait_for_timeout(70)
         assert page.evaluate('window.__meshFrames') == frames, 'Idle canvas loop stops after burst'
@@ -252,6 +252,27 @@ def main():
         count = sum('mesh_live=true' in r for r in requests)
         page.wait_for_timeout(5100)
         assert sum('mesh_live=true' in r for r in requests) == count
+        # MeshLive keeps its own viewport across reloads, independently of Map.
+        page.reload()
+        page.evaluate('''() => {
+            const createMap = L.map;
+            L.map = (...args) => window.__testedMap = createMap(...args);
+            localStorage.setItem('onair-map-view', JSON.stringify({center:[50,8],zoom:7}));
+        }''')
+        page.locator('#tab-meshlive').click()
+        page.evaluate('window.__testedMap.setView([53.25, 11.75], 12, {animate:false})')
+        saved = page.evaluate("JSON.parse(localStorage.getItem('onair-meshlive-view'))")
+        assert saved == {'center':[53.25,11.75], 'zoom':12}
+        assert page.evaluate("JSON.parse(localStorage.getItem('onair-map-view'))") == {'center':[50,8], 'zoom':7}
+        page.reload()
+        page.evaluate('''() => {
+            const createMap = L.map;
+            L.map = (...args) => window.__testedMap = createMap(...args);
+        }''')
+        page.locator('#tab-meshlive').click()
+        assert page.evaluate('window.__testedMap.getZoom()') == 12
+        center = page.evaluate('window.__testedMap.getCenter()')
+        assert abs(center['lat']-53.25) < .001 and abs(center['lng']-11.75) < .001
         assert not errors, errors
         browser.close()
     print('MeshLive Chromium: lazy map, solid/dashed trails, cleanup, pause, stream snapshots, tab lifecycle, mobile and text LiveView regressions passed')

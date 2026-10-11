@@ -680,8 +680,8 @@ Zwei unabhängig schaltbare Darstellungen sind standardmäßig aktiv:
 DIRECT/TC_DIRECT-Zielrouten, TRACE-SNR-Pfade und TX bleiben ausgeschlossen. Alle
 Teilstrecken eines Ereignisses starten gleichzeitig; die Animation behauptet keine
 Hop-Zeitmessungen. Alle Spuren haben dieselbe Farbe. Ein Lichtpunkt bewegt sich
-300 ms vom Sender zum Empfänger; die zurückbleibende Spur verblasst anschließend
-700 ms. Nach insgesamt 1.000 ms wird die Animation entfernt. Keine dauerhaften
+500 ms vom Sender zum Empfänger; die zurückbleibende Spur verblasst anschließend
+1.000 ms. Nach insgesamt 1.500 ms wird die Animation entfernt. Keine dauerhaften
 Funkverbindungslinien. Der Livebetrieb spielt keine historischen Ereignisse nach;
 der zusätzliche Replay-Modus wird ausdrücklich gestartet (siehe unten).
 
@@ -689,8 +689,8 @@ Die Konstanten stehen am Anfang von `static/meshlive.js`:
 
 | Konstante | Standard | Bedeutung |
 | --- | ---: | --- |
-| `TRAVEL_MS` | 300 | Bewegung des Lichtpunkts |
-| `TOTAL_MS` | 1000 | Gesamtdauer einschließlich Verblassen |
+| `TRAVEL_MS` | 500 | Bewegung des Lichtpunkts |
+| `TOTAL_MS` | 1500 | Gesamtdauer einschließlich Verblassen |
 | `MAX_ACTIVE` | 64 | Maximale Zahl gleichzeitig aktiver Spuren |
 | `DEDUP_WINDOW_MS` | 10000 | Festes Fenster für Mehrfachbeobachtungen |
 | `MAX_DEDUP_ENTRIES` | 5000 | Maximale Zahl gemerkter Streckenereignisse |
@@ -814,9 +814,9 @@ belegter ADVERT-Stand ist weiterhin kein Nachweis tatsächlicher geografischer B
 **Getrennte Uhren:** `received` plus Archiv-ID bestimmen Reihenfolge und Gleichstände.
 Die Deduplizierung nutzt zehn **historische** Sekunden. Die visuelle Replay-Uhr läuft
 in realen Wiedergabemillisekunden und steht während Pause still. Nur Ereignisabstände
-werden durch zehn geteilt; Sternschnuppen behalten 300 ms Bewegung und 700 ms Verblassen.
+werden durch zehn geteilt; Sternschnuppen behalten 500 ms Bewegung und 1.000 ms Verblassen.
 Zeitabstände zeigen die Ankunft bei OnAir, nicht Hop-Laufzeiten. Die Timeline endet
-nach 60 Sekunden; letzte Spuren dürfen bis zu einer Sekunde nachglühen. Anschließend
+nach 60 Sekunden; letzte Spuren dürfen bis zu 1,5 Sekunden ausklingen. Anschließend
 kehrt die Ansicht automatisch zu Live zurück.
 
 `MeshLiveReplay` verwendet eine eigene `MeshLiveModel`-Instanz, dieselbe
