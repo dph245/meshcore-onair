@@ -101,7 +101,7 @@ def main():
         emit(page, [packet(2)])
         page.clock.run_for(100)
         assert page.evaluate('window.__meshStrokes.length') > 0
-        # Complete 60-second timeline plus full 1.5-second final trail, no timeouts per packet.
+        # Complete 60-second timeline plus full 3-second final trail, no timeouts per packet.
         click('#meshlive-replay-start')
         expect(page.locator('#meshlive-status')).to_contain_text('REPLAY · 10×')
         page.clock.run_for(60000)
@@ -110,7 +110,7 @@ def main():
         assert page.locator('#meshlive-replay-progress').evaluate('(el)=>el.value') >= 59980/60000
         page.clock.run_for(20)
         assert page.locator('#meshlive-replay-progress').evaluate('(el)=>el.value') == 1
-        page.clock.run_for(1600)
+        page.clock.run_for(3100)
         expect(page.locator('#meshlive-status')).to_contain_text('4 Nodes · Live')
         expect(page.locator('#meshlive-replay-message')).to_contain_text('Replay beendet')
         assert len(calls) == 2

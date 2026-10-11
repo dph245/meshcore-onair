@@ -680,8 +680,8 @@ Zwei unabhängig schaltbare Darstellungen sind standardmäßig aktiv:
 DIRECT/TC_DIRECT-Zielrouten, TRACE-SNR-Pfade und TX bleiben ausgeschlossen. Alle
 Teilstrecken eines Ereignisses starten gleichzeitig; die Animation behauptet keine
 Hop-Zeitmessungen. Alle Spuren haben dieselbe Farbe. Ein Lichtpunkt bewegt sich
-500 ms vom Sender zum Empfänger; die zurückbleibende Spur verblasst anschließend
-1.000 ms. Nach insgesamt 1.500 ms wird die Animation entfernt. Keine dauerhaften
+700 ms vom Sender zum Empfänger; die zurückbleibende Spur verblasst anschließend
+2.300 ms. Nach insgesamt 3.000 ms wird die Animation entfernt. Keine dauerhaften
 Funkverbindungslinien. Der Livebetrieb spielt keine historischen Ereignisse nach;
 der zusätzliche Replay-Modus wird ausdrücklich gestartet (siehe unten).
 
@@ -689,8 +689,8 @@ Die Konstanten stehen am Anfang von `static/meshlive.js`:
 
 | Konstante | Standard | Bedeutung |
 | --- | ---: | --- |
-| `TRAVEL_MS` | 500 | Bewegung des Lichtpunkts |
-| `TOTAL_MS` | 1500 | Gesamtdauer einschließlich Verblassen |
+| `TRAVEL_MS` | 700 | Bewegung des Lichtpunkts |
+| `TOTAL_MS` | 3000 | Gesamtdauer einschließlich Verblassen |
 | `MAX_ACTIVE` | 64 | Maximale Zahl gleichzeitig aktiver Spuren |
 | `DEDUP_WINDOW_MS` | 10000 | Festes Fenster für Mehrfachbeobachtungen |
 | `MAX_DEDUP_ENTRIES` | 5000 | Maximale Zahl gemerkter Streckenereignisse |
@@ -814,9 +814,9 @@ belegter ADVERT-Stand ist weiterhin kein Nachweis tatsächlicher geografischer B
 **Getrennte Uhren:** `received` plus Archiv-ID bestimmen Reihenfolge und Gleichstände.
 Die Deduplizierung nutzt zehn **historische** Sekunden. Die visuelle Replay-Uhr läuft
 in realen Wiedergabemillisekunden und steht während Pause still. Nur Ereignisabstände
-werden durch zehn geteilt; Sternschnuppen behalten 500 ms Bewegung und 1.000 ms Verblassen.
+werden durch zehn geteilt; Sternschnuppen behalten 700 ms Bewegung und 2.300 ms Verblassen.
 Zeitabstände zeigen die Ankunft bei OnAir, nicht Hop-Laufzeiten. Die Timeline endet
-nach 60 Sekunden; letzte Spuren dürfen bis zu 1,5 Sekunden ausklingen. Anschließend
+nach 60 Sekunden; letzte Spuren dürfen bis zu 3 Sekunden ausklingen. Anschließend
 kehrt die Ansicht automatisch zu Live zurück.
 
 `MeshLiveReplay` verwendet eine eigene `MeshLiveModel`-Instanz, dieselbe
@@ -925,3 +925,63 @@ deno run --allow-read=static tests/test_manual_ui.js
 python tests/browser_meshlive.py
 python tests/browser_replay.py
 ```
+
+## MeshLive: Knotenpulse und Mesh-Harfe
+
+Live und Replay verwenden 700 ms Bewegung und 2.300 ms kontinuierliches Verblassen
+(3.000 ms insgesamt). Am Start einer dargestellten Strecke pulsiert der Sender,
+bei Ankunft nach 700 ms der Empfänger: 350 ms weich von 100 auf 150 Prozent und
+zurück. Pro Marker wird nur ein Skalierungswert geführt; überlappende Pulse werden
+zusammengefasst. Leaflets Positionstransformation bleibt unberührt. Alle Teilstrecken
+rekonstruierter Pfade starten weiterhin gleichzeitig, ohne erfundene Hop-Laufzeiten.
+
+Der Schalter **Töne** ist standardmäßig aus. `onair-meshlive-tones` speichert die
+Präferenz lokal; ein gespeichertes Ein ist keine Autoplay-Freigabe. Erst eine
+Benutzerinteraktion in MeshLive aktiviert den Audio-Kontext. Falls ein Browser die
+Aktivierung weiter blockiert, erneut im MeshLive-Tab klicken. Ohne Web Audio oder
+Browser-Speicher funktioniert die Karte weiterhin.
+
+`static/meshlive-effects.js` enthält den deterministischen FNV-1a-Hash des auf
+Kleinschreibung normalisierten vollständigen Public Keys. Sein Modulo 10 wählt
+C4, D4, E4, G4, A4, C5, D5, E5, G5 oder A5. Nur eindeutig identifizierte Repeater
+bekommen Töne; gleiche Tonhöhen verschiedener Schlüssel sind erlaubt. Drei
+Sinus-Obertöne mit 12 ms Anschlag und unterschiedlich langen exponentiellen
+Abklingphasen bilden eine synthetische Harfennote, ohne Audiodateien oder Netzwerkzugriff.
+
+Es erklingen nur Endpunkte tatsächlich gezeichneter, zugelassener Spuren. Innerhalb
+des bestehenden festen Paketfensters von zehn Quellzeit-Sekunden klingt jeder
+Repeater höchstens einmal pro Paketidentität, auch als Zwischenknoten oder bei
+mehreren Observer-Empfängen. Die visuelle Uhr bestimmt Start und Ankunft; bei Replay
+werden die 700 ms nicht durch zehn geteilt. Endpunktereignisse, die mehr als 120 ms
+verspätet verarbeitet werden, erklingen nicht nachträglich.
+
+Grenzen: acht Stimmen, acht neue Noten pro gleitender Sekunde, drei Oszillatoren je
+Stimme und maximal 5.000 Audio-Deduplizierungseinträge. Ratenbegrenzte oder bei
+abgeschaltetem Ton konsumierte Ereignisse werden nicht nachgeholt. Eine einzige
+wiederverwendete AudioContext-Instanz wird bei Ausschalten, Pause, Tabwechsel und
+verborgenem Dokument nach einer kurzen 40-ms-Ausblendung suspendiert. Beendete
+Oszillatoren und Gain-Knoten werden getrennt. Replay und Live behalten getrennte
+Ereigniszustände; Ende/Start löscht den Effektzustand.
+
+Die Spurgrenze bleibt bei **64**, auch nach Verlängerung der Lebensdauer. Ein
+synthetischer Zehn-Sekunden-Test mit 20 Paketen/s und zwei Strecken je Paket ergab:
+bei 1.500 ms maximal 60 Spuren ohne Auslassungen, bei 3.000 ms maximal 64 Spuren und
+168 gezählt ausgelassene Strecken. Ohne Grenze wären bis zu 120 gleichzeitig nötig.
+Eine Erhöhung würde zudem die Lesbarkeit verschlechtern. Beim lokalen Chromium-Test
+mit 200 Paketen im Burst, Pulsen und echtem Web Audio betrug die Zeichenzeit im
+95. Perzentil 0,4 ms (Desktop) beziehungsweise 0,6 ms (mobiler Viewport). Das ist
+keine Leistungszusage für echte Mobilgeräte. Grenzen gelten auch im 10×-Replay.
+
+Tests:
+
+```sh
+deno run --allow-read=static tests/test_harp_ui.js
+python tests/browser_harp.py
+python tests/browser_meshlive.py --compare-ref HEAD
+python tests/browser_replay.py
+```
+
+Die Browserprüfungen verwenden simulierte Pakete und lokale Kartenkacheln. Sie
+prüfen echte Web-Audio-Knoten, Pulse, Speicherung, Pause/Tabwechsel, Replay,
+fehlende Web-Audio-Unterstützung und begrenzte Last mit Desktop-/Mobil-Viewport.
+Keine Änderungen an Backend, Datenbank, API oder textbasierter LiveView.

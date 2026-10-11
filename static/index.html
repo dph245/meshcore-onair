@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/trace.js" defer></script><script src="/static/meshlive.js" defer></script><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/trace.js" defer></script><script src="/static/meshlive-effects.js" defer></script><script src="/static/meshlive.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <header><h1>MeshCore <span>OnAir</span></h1><span id="connection" role="status">WebSocket verbindet …</span><span id="noise-floor">Noise Floor: —</span><span class="radio">869.618 MHz · BW 62.5 · SF8 · CR4/8</span><button id="theme-toggle" type="button" aria-pressed="false">Lightmode</button></header>
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
@@ -103,6 +103,7 @@
 <label><input id="meshlive-observed" type="checkbox" checked><span><span class="meshlive-key"></span> Beobachtete Empfänge</span></label>
 <label><input id="meshlive-reconstructed" type="checkbox" checked><span><span class="meshlive-key reconstructed"></span> Rekonstruierte Flood-Pfade</span></label>
 <button id="meshlive-pause" type="button" aria-pressed="false">Animation pausieren</button>
+<label><input id="meshlive-tones" type="checkbox"> Töne</label>
 <button id="meshlive-fit" type="button">Alle Nodes anzeigen</button>
 <button id="meshlive-refresh" type="button">Knoten aktualisieren</button>
 <button id="meshlive-replay-start" type="button">Letzte 10 Minuten wiedergeben</button>
@@ -119,11 +120,12 @@
 <p id="meshlive-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden.</p>
 <details class="map-help"><summary>Was zeigen die Spuren?</summary>
 <p>Durchgezogen: letzter eindeutig zugeordneter Sender → empfangender Observer. Gestrichelt: benachbarte Hops aus einem empfangenen Flood-Pfad, keine separat gemessenen Empfänge dieser Strecken.</p>
-<p>Alle Teilstrecken eines Ereignisses starten gleichzeitig. 500 ms Bewegung und 1.000 ms Verblassen sind Darstellungszeiten, keine gemessenen Funklaufzeiten. Unbekannte Hops werden nicht überbrückt.</p>
+<p>Alle Teilstrecken eines Ereignisses starten gleichzeitig. 700 ms Bewegung und 2.300 ms Verblassen sind Darstellungszeiten, keine gemessenen Funklaufzeiten. Unbekannte Hops werden nicht überbrückt.</p>
+<p>Knoten pulsieren beim Start und nach 700 ms bei Ankunft einer dargestellten Teilstrecke. Töne sind standardmäßig aus und benötigen eine Benutzerinteraktion. Maximal acht Harfenstimmen und acht neue Töne pro Sekunde; ausgelassene Töne werden nicht nachgespielt. Die Tonhöhe wird aus dem vollständigen Repeater-Schlüssel abgeleitet.</p>
 <p>Letzte bekannte Positionen aus gültig signierten ADVERTs, keine gemessenen Funkwege. Kurze Kennungen sind nur innerhalb des bekannten Bestands eindeutig; unbekannte Kollisionen bleiben möglich.</p>
 <p>Mehrfachmeldungen werden je gerichteter Strecke innerhalb von 10 Sekunden zusammengefasst. Echte erneute Aussendungen können dabei ebenfalls zusammenfallen. Zwei Observer-Empfänge können von derselben Aussendung stammen.</p>
 <p>Maximal 64 gleichzeitige Spuren. Überlast, Pause und Verbindungsunterbrechungen können Ereignisse auslassen. Kein Nachspielen. MeshLive pausiert unabhängig von der textbasierten Liveansicht.</p>
-<p>Replay: zehn Minuten archivierte Empfänge in 60 Sekunden, danach bis zu 1,5 Sekunden ausklingende Spuren. Ereignisabstände werden beschleunigt; jede Spur behält 500 ms Bewegung und 1.000 ms Verblassen. Zeitabstände zeigen die Ankunft bei OnAir, keine Funklaufzeiten.</p>
+<p>Replay: zehn Minuten archivierte Empfänge in 60 Sekunden, danach bis zu 3 Sekunden ausklingende Spuren. Ereignisabstände werden beschleunigt; jede Spur behält 700 ms Bewegung und 2.300 ms Verblassen. Zeitabstände zeigen die Ankunft bei OnAir, keine Funklaufzeiten.</p>
 <p>Historische Positionen werden nur ab einem belegbaren ADVERT-Empfang verwendet. Fehlende Positionen bleiben unsichtbar. Die Deduplizierung beginnt für jedes Replay neu und verwendet zehn historische Sekunden. Beim Tabwechsel pausiert Replay automatisch; nach dem Beenden startet Live ohne Nachspielen.</p>
 </details>
 </aside>

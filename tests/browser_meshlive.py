@@ -160,7 +160,7 @@ def main():
         box = page.locator('#meshlive-map').bounding_box()
         page.mouse.move(box['x']+box['width']/2, box['y']+box['height']/2)
         page.mouse.down(); page.mouse.move(box['x']+box['width']/2+35, box['y']+box['height']/2+20); page.mouse.up()
-        page.wait_for_timeout(1650)
+        page.wait_for_timeout(3150)
         assert page.locator('#meshlive-map canvas').evaluate('(c)=>!c.getContext("2d").getImageData(0,0,c.width,c.height).data.some(v=>v)')
         frames = page.evaluate('window.__meshFrames')
         emit(page, [packet(4)])
@@ -244,7 +244,7 @@ def main():
             return Math.max(...frames.values()) <= 64;
         }''')
         assert '136 Spuren am Limit ausgelassen' in page.locator('#meshlive-status').inner_text()
-        page.wait_for_timeout(1600)
+        page.wait_for_timeout(3100)
         frames = page.evaluate('window.__meshFrames')
         page.wait_for_timeout(70)
         assert page.evaluate('window.__meshFrames') == frames, 'Idle canvas loop stops after burst'

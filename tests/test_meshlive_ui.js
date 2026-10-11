@@ -118,16 +118,16 @@ function ingest(m, p, at = 0, animate = true) { m.learn(p); m.ingest(p, at, now,
   for (let i = 0; i < 5100; i++) ingest(m, packet(['aabb'], {origin_id:B, observer_hash:String(i)}));
   assert(m.active.length === MESH_LIVE.MAX_ACTIVE && m.limited === 5100 - MESH_LIVE.MAX_ACTIVE, 'Parallel events bounded; excess dropped without queue');
   assert(m.seen.size === MESH_LIVE.MAX_DEDUP_ENTRIES, 'Dedup memory bounded');
-  m.expire(1500); assert(m.active.length === 0, 'All animations removed at exactly 1500ms');
+  m.expire(3000); assert(m.active.length === 0, 'All animations removed at exactly 3000ms');
   m.expire(10000); assert(m.seen.size === 0, 'Old dedup entries removed');
   ingest(m, packet(), 11000, false);
   assert(m.active.length === 0, 'Pause/loading consumes events without animation');
   ingest(m, packet(), 11001, true);
   assert(m.active.length === 0, 'No replay on resume');
-  assert(meshLivePhase(0).progress === 0 && meshLivePhase(250).progress === .5, 'Travel 0–500ms');
-  assert(meshLivePhase(500).progress === 1 && !meshLivePhase(500).moving, 'Point stops at 500ms');
-  assert(meshLivePhase(1000).alpha === .5 && meshLivePhase(1499).alpha > 0, 'Continuous 1000ms fade');
-  assert(meshLivePhase(1500) === null, 'No permanent trail');
+  assert(meshLivePhase(0).progress === 0 && meshLivePhase(350).progress === .5, 'Travel 0–700ms');
+  assert(meshLivePhase(700).progress === 1 && !meshLivePhase(700).moving, 'Point stops at 700ms');
+  assert(meshLivePhase(1850).alpha === .5 && meshLivePhase(2999).alpha > 0, 'Continuous 2300ms fade');
+  assert(meshLivePhase(3000) === null, 'No permanent trail');
 }
 {
   const m = model();

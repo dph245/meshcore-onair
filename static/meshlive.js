@@ -1,6 +1,6 @@
 /* MeshLive consumes the existing server-only stream; it never changes packet groups. */
 const MESH_LIVE = Object.freeze({
-  TRAVEL_MS: 500, TOTAL_MS: 1500, MAX_ACTIVE: 64,
+  TRAVEL_MS: 700, TOTAL_MS: 3000, MAX_ACTIVE: 64,
   DEDUP_WINDOW_MS: 10000, MAX_DEDUP_ENTRIES: 5000,
   MAX_DPR: 2, ACTIVE_DAYS: 28, COLOR: '#087f92',
 });
@@ -189,7 +189,7 @@ class MeshLiveModel {
         previous.reconstructed ||= Boolean(edge.reconstructed);
         continue;
       }
-      const event = {...edge, from, to, started, seenAt: eventTime};
+      const event = {...edge, from, to, started, seenAt: eventTime, packetIdentity: identity};
       this.seen.set(key, event);
       while (this.seen.size > MESH_LIVE.MAX_DEDUP_ENTRIES) this.seen.delete(this.seen.keys().next().value);
       if (!animate || !this.style(event)) continue;
@@ -267,6 +267,11 @@ window.MeshLive = (() => {
   let dropped = 0, resyncs = 0, error = '', packetTime = null;
   let mode = 'live', replay = null, pauseOnLoad = false;
   const markers = new Map();
+  const effects = new MeshLiveEffects();
+  let storage;
+  try { storage = localStorage; } catch { /* Storage may be blocked. */ }
+  const harp = new MeshHarp(storage, window.AudioContext || window.webkitAudioContext);
+  let pulsing = new Set();
   const element = id => document.getElementById(`meshlive-${id}`);
   const visible = () => opened && !document.hidden;
   const running = () => visible() && ready && (mode === 'replay' ? !replay.paused : mode === 'live' && !paused);
@@ -291,6 +296,9 @@ window.MeshLive = (() => {
   }
 
   function stopDrawing() {
+    harp.stop();
+    for (const key of pulsing) markers.get(key)?.getElement()?.querySelector('.meshlive-node-dot')?.style.removeProperty('transform');
+    pulsing.clear();
     if (frame != null) cancelAnimationFrame(frame);
     frame = null;
     if (context) context.clearRect(0, 0, canvas.width, canvas.height);
@@ -298,6 +306,7 @@ window.MeshLive = (() => {
 
   function clear() {
     stopDrawing();
+    effects.reset();
     if (model) model.active = [];
   }
 
@@ -360,6 +369,7 @@ window.MeshLive = (() => {
       const latest = data.archive_latest_received == null ? 'unbekannt' : new Date(data.archive_latest_received * 1000).toLocaleString('de-DE');
       element('replay-message').textContent = `Archivstand: ${latest}. Die letzten Sekunden können noch ungespeichert sein. Nur damals belegbare Positionen.${data.seed_scan_limited ? ' Positionssuche begrenzt; fehlende Positionen bleiben unsichtbar.' : ''}`;
       status(); schedule(true);
+      if (running() && harp.context) harp.unlock();
     } catch (cause) {
       if (controller !== request || cause.name === 'AbortError') return;
       endReplay(`Replay konnte nicht gestartet werden: ${cause.message}`);
@@ -404,12 +414,14 @@ window.MeshLive = (() => {
       }
     } else model.expire(now);
     const size = map.getSize();
+    const displayed = [];
     for (const event of model.active) {
       const phase = meshLivePhase(now - event.started);
       if (!phase) continue;
       const a = map.latLngToContainerPoint(event.from), b = map.latLngToContainerPoint(event.to);
       if (Math.max(a.x, b.x) < 0 || Math.min(a.x, b.x) > size.x ||
           Math.max(a.y, b.y) < 0 || Math.min(a.y, b.y) > size.y) continue;
+      displayed.push(event);
       const x = a.x + (b.x - a.x) * phase.progress, y = a.y + (b.y - a.y) * phase.progress;
       const inferred = model.style(event) === 'reconstructed';
       context.strokeStyle = MESH_LIVE.COLOR;
@@ -427,6 +439,13 @@ window.MeshLive = (() => {
       }
     }
     context.globalAlpha = 1;
+    const pulses = effects.step(displayed, now, MESH_LIVE.TRAVEL_MS, key => model.node(key),
+      key => { if (running()) harp.play(key); });
+    for (const key of new Set([...pulsing, ...pulses.keys()])) {
+      const dot = markers.get(key)?.getElement()?.querySelector('.meshlive-node-dot');
+      if (dot) dot.style.transform = `scale(${pulses.get(key) || 1})`;
+    }
+    pulsing = new Set(pulses.keys());
     schedule();
   }
 
@@ -477,6 +496,7 @@ window.MeshLive = (() => {
       resetMarkers();
       renderNodes();
       ready = true; needsRefresh = false;
+      if (running() && harp.context) harp.unlock();
     } catch (cause) {
       if (controller !== request || cause.name === 'AbortError') return;
       error = `Knoten konnten nicht geladen werden: ${cause.message}. Bitte „Knoten aktualisieren“ wählen.`;
@@ -531,6 +551,16 @@ window.MeshLive = (() => {
     map.getContainer().append(canvas);
     map.on('move zoom resize', () => schedule(true));
     map.on('moveend', saveView);
+    element('tones').checked = harp.enabled;
+    element('tones').disabled = !harp.Context;
+    element('tones').title = harp.Context ? 'Harfenklänge für dargestellte Repeater; Aktivierung durch Klick' : 'Web Audio ist in diesem Browser nicht verfügbar';
+    element('tones').addEventListener('change', () => {
+      harp.setEnabled(element('tones').checked);
+      if (running()) harp.unlock();
+    });
+    document.getElementById('panel-meshlive').addEventListener('click', () => {
+      if (running()) harp.unlock();
+    });
     resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(map.getContainer());
     for (const kind of ['observed', 'reconstructed']) {
@@ -581,6 +611,7 @@ window.MeshLive = (() => {
       if (!map) initialize();
       resize();
       if (needsRefresh) refresh();
+      if (harp.enabled) harp.unlock();
     } catch (cause) {
       element('status').textContent = cause.message;
     }
