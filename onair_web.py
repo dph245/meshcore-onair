@@ -14,6 +14,7 @@ import onair_mqtt
 import onair_channels
 from onair_archive import Archive
 from onair_replay import ReplayLimitError
+from onair_distance import AnalysisLimitError
 from onair_routes import route_nodes, plan_routes
 from fastapi.responses import Response
 from onair_assets import VersionedStaticFiles, index_response
@@ -268,6 +269,24 @@ def conditional_neighbors(request, mode, **options):
 @app.get('/api/repeater-neighbors/map')
 def repeater_neighbors_map(request: Request):
     return conditional_neighbors(request, 'map')
+
+
+@app.get('/api/repeater-neighbors/analysis')
+def repeater_distance_analysis(
+        start: float = Query(..., ge=0, le=4102444800),
+        end: float = Query(..., ge=0, le=4102444800),
+        minimum: float = Query(200, ge=100, le=20000),
+        source: str = Query('', pattern=r'^(?:[0-9a-f]{64})?$'),
+        target: str = Query('', pattern=r'^(?:[0-9a-f]{64})?$'),
+        offset: int = Query(0, ge=0, le=25000)):
+    if bool(source) != bool(target) or (source and source == target):
+        raise HTTPException(422, 'Zwei unterschiedliche vollständige Repeater-IDs angeben.')
+    try:
+        return app.state.archive.distance_analysis(start, end, minimum, source, target, offset)
+    except AnalysisLimitError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @app.get('/api/repeater-neighbors/table')

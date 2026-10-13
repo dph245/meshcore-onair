@@ -18,6 +18,7 @@ from onair_trace import trace_sessions, WINDOW_SECONDS as TRACE_WINDOW_SECONDS
 from onair_observers import record_observer, observer_comparison
 from onair_neighbors import (record_path, record_path_pairs, rebuild_path_pairs,
                              neighbor_summary, neighbor_page, neighbor_map)
+from onair_distance import INDEX_SQL, analyze as analyze_distance, response as distance_response
 
 
 def database_path():
@@ -40,6 +41,8 @@ class Archive:
         self._neighbors_items = None
         self._neighbors_responses = OrderedDict()
         self._neighbors_expires = 0
+        self._distance_lock = Lock()
+        self._distance_cache = OrderedDict()
         with self.connect() as db:
             db.execute('PRAGMA journal_mode=WAL')
             db.executescript('''
@@ -145,6 +148,10 @@ class Archive:
                         created_at REAL NOT NULL, updated_at REAL NOT NULL,
                         CHECK(latitude != 0 OR longitude != 0))''')
                     db.execute('PRAGMA user_version=12')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 13:
+                    # One historical index build; no duplicated event archive.
+                    db.execute(INDEX_SQL)
+                    db.execute('PRAGMA user_version=13')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -323,6 +330,22 @@ class Archive:
         with self.connect() as db, db:
             db.execute('BEGIN')
             return neighbor_summary(db)
+
+    def distance_analysis(self, start, end, minimum=200, source='', target='', offset=0):
+        key = (start, end, minimum)
+        # Keep expensive requests out of the existing neighbor snapshot lock.
+        with self._distance_lock:
+            cached = self._distance_cache.get(key)
+            if cached is None or time.monotonic() >= cached[0]:
+                with self.connect() as db, db:
+                    db.execute('BEGIN')
+                    result = analyze_distance(db, start, end, minimum)
+                cached = (time.monotonic() + 120, result)
+                self._distance_cache[key] = cached
+                while len(self._distance_cache) > 2:
+                    self._distance_cache.popitem(last=False)
+            self._distance_cache.move_to_end(key)
+            return distance_response(cached[1], source, target, offset)
 
     def _refresh_neighbors(self):
         # Caller owns the lock; all clients and representations share one snapshot.

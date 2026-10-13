@@ -97,13 +97,8 @@ def record_path_pairs(db, batch):
     write_path_pairs(db, pairs)
 
 
-def neighbor_summary(db):
-    nodes = {row[0]: {'id': row[0], 'name': row[1] or row[0], 'node_type': row[2],
-                      'latitude': row[3], 'longitude': row[4]}
-             for row in db.execute('SELECT public_key,name,node_type,latitude,longitude FROM nodes')}
-    pairs = db.execute('''SELECT source,target,count,forward_count,reverse_count,first_seen,last_seen
-                          FROM repeater_pairs''').fetchall()
-    tokens = {token for row in pairs for token in row[:2]}
+def resolve_path_tokens(db, nodes, tokens):
+    """Shared conservative resolution for neighbors and historical evidence."""
     # Include all known node types: a Companion sharing a prefix is a collision too.
     candidates = tokens | set(nodes) | {row[0] for row in db.execute('SELECT token FROM repeater_receptions')}
     # Each terminal identity contributes its prefixes once. Avoid scanning all
@@ -124,6 +119,16 @@ def neighbor_summary(db):
                                resolved=bool(node and node['node_type'] == 2),
                                ambiguous=match is None,
                                excluded=bool(node and node['node_type'] != 2))
+    return resolved
+
+
+def neighbor_summary(db):
+    nodes = {row[0]: {'id': row[0], 'name': row[1] or row[0], 'node_type': row[2],
+                      'latitude': row[3], 'longitude': row[4]}
+             for row in db.execute('SELECT public_key,name,node_type,latitude,longitude FROM nodes')}
+    pairs = db.execute('''SELECT source,target,count,forward_count,reverse_count,first_seen,last_seen
+                          FROM repeater_pairs''').fetchall()
+    resolved = resolve_path_tokens(db, nodes, {token for row in pairs for token in row[:2]})
     links = {}
     for left, right, count, forward, reverse, first, last in pairs:
         a, b = resolved[left], resolved[right]

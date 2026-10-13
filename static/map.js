@@ -248,12 +248,23 @@ function renderNeighborTable(result) {
     cell.append(button);
     head.append(cell);
   }
+  const analysisHead = text('th', 'Zeitverlauf');
+  analysisHead.scope = 'col';
+  head.append(analysisHead);
   table.append(head);
   for (const link of result.items) {
     const row = text('tr', '');
     for (const value of [neighborLabel(link.source), neighborLabel(link.target), link.forward_count,
       link.reverse_count, neighborDirection(link), link.count,
       new Date(link.last_seen * 1000).toLocaleString('de-DE'), neighborDistance(link)]) row.append(text('td', value));
+    const analysisCell = text('td', '');
+    if (link.source.resolved && link.target.resolved && !link.source.ambiguous && !link.target.ambiguous) {
+      const button = text('button', 'Analysieren');
+      button.type = 'button';
+      button.addEventListener('click', () => window.openDistanceAnalysis?.(link));
+      analysisCell.append(button);
+    }
+    row.append(analysisCell);
     table.append(row);
   }
   const focusedSort = document.activeElement?.id;

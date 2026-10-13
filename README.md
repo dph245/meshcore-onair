@@ -1051,3 +1051,71 @@ Bei Smartphone-Querformaten bis 950 px Breite und 500 px Höhe teilen sich Tabs,
 Status und zentrale Bedienelemente eine kompakte Zeile. Karte und Bedienung stehen
 auch bei 667 px nebeneinander; der Inhalt nutzt die übrige dynamische Viewporthöhe.
 Rotation, Scrollen und Karten-Resize prüft zusätzlich `tests/browser_landscape.py`.
+
+### Historische Fernverbindungen in „Nachbarn“
+
+„Fernverbindungen zeitlich untersuchen“ ergänzt die vorhandene Nachbartabelle.
+Die Analyse startet ausschließlich per Knopfdruck; die bisherige Aktualisierung,
+Sortierung, Suche und Karte behalten ihren eigenen Cache. Über „Analysieren“ an
+einer Tabellenzeile lässt sich deren Zeitverlauf öffnen. Die separate Auswahl
+unterhalb der Tabelle zeigt alle Fernverbindungen innerhalb desselben Zeitfensters.
+
+- Mindestentfernung standardmäßig 200 km, wählbar 100/150/200/250/300 km.
+- Zeitfenster maximal 31 Tage, Beginn inklusive und Ende exklusiv. Eingaben gelten
+  in der angezeigten Browser-Zeitzone; Tages-/Stundendiagramme und Empfangszeiten
+  werden immer in `Europe/Berlin` dargestellt.
+- Nur unmittelbar benachbarte, eindeutig aufgelöste Repeater in empfangenen
+  FLOOD-/TC_FLOOD-Außenpfaden. DIRECT, TX, TRACE-SNR und mehrdeutige Hashes werden
+  ausgeschlossen. Der Payload-Typ PATH ist bei Flood ausdrücklich zulässig.
+- Anzeige je Verbindung: unterschiedliche Paketinhalte, Empfänge, vollständige
+  Pfadvarianten, beide Richtungen sowie erste/letzte Beobachtung je Richtung.
+  Tages- und Stundenbalken zählen jeden Inhalt je Verbindung/Richtung einmal,
+  beim ersten Empfang **innerhalb des gewählten Zeitfensters**. Alle Empfänge
+  einschließlich Wiederholungen stehen daneben. Stunden werden über alle
+  gewählten Tage zusammengefasst; die doppelte Herbststunde zählt zur selben
+  Tagesstunde. Null bedeutet keine passenden gespeicherten Belege, nicht
+  nachgewiesene Funkstille.
+- Die Inhaltsidentität ist SHA-256 über Payload-Typ, Version, Payload und
+  Transport-Code. Observer, Empfangszeit, Pfad und Observer-Hash sind nicht Teil
+  dieses Vergleichs. Damit werden auch Mehrfachempfänge mit fehlendem Hash
+  zusammengefasst; unabhängig neu gesendete identische Inhalte lassen sich so
+  nicht von Wiederholungen unterscheiden. Ein Paket kann mehrere Links belegen;
+  die Zahl der Links ist keine Zahl unabhängiger Ausbreitungsereignisse.
+- Entfernungen verwenden die zum Empfang bereits vorliegenden gültig signierten
+  Positions-Adverts. Die Auswahl folgt wie `nodes` dem höchsten Advert-Zeitstempel,
+  bei Gleichstand dem späteren Empfang. Spätere Positionen werden nicht rückwirkend
+  benutzt; fehlende historische Positionen nicht durch aktuelle ersetzt. Es gibt
+  keine Interpolation. Bei mobilen Nodes kann selbst die damalige letzte Meldung
+  veraltet sein. Ein Entfernungsbereich zeigt Positionsänderungen im Zeitraum.
+- Einzelbelege enthalten `packets.id`, Empfang, Observer, Pakettyp, Route,
+  Observer-Hash, Inhalts-ID und den vollständigen äußeren Rohpfad. Jeweils 100
+  Belege werden nachgeladen, ohne die Zeitverteilung abzuschneiden.
+
+Alle Zeitpunkte sind **Observer-Empfangszeiten**, keine Zeitmessung am entfernten
+Hop. Eine Häufung ist rein deskriptiv und beweist weder eine Wetterlage noch
+Troposphärenausbreitung oder dauerhafte Erreichbarkeit.
+
+`GET /api/repeater-neighbors/analysis?start=<Unixzeit>&end=<Unixzeit>&minimum=200`
+liefert die Verbindungen im Zeitraum. `source=<64-stelliger Public Key>` und
+`target=<64-stelliger Public Key>` liefern Diagramme und Einzelbelege für ein Paar;
+`offset=100` blättert die Belege weiter. A/B sind nach Public Key kanonisch sortiert.
+Die bestehende Namenssuche der Nachbartabelle kann zur Auswahl genutzt werden.
+
+Schema 13 ergänzt ausschließlich den partiellen Ausdrucksindex
+`packets_flood_path_received` über `(decoded.hops, received, id)` für RX-Flood-Pfade.
+Der erste Start baut diesen Index einmalig aus den Rohpaketen auf; die bestehenden
+Aggregate bleiben unverändert. Es entstehen keine neuen Tabellen oder Dienste.
+Kandidaten stammen aus `repeater_paths`, Identitätsauflösung und Kollisionsprüfung
+werden mit der bisherigen Nachbarschaftsauswertung geteilt. Die eigentlichen
+Rohpakete werden über Pfad und Zeitspanne im Index gesucht. Gültige Positions-Adverts
+werden separat aus dem ADVERT-Bestand gelesen; fehlende Rohzeitpunkte werden nie
+anhand aggregierter first_seen/last_seen rekonstruiert.
+
+Ein eigener, auf zwei Zeitfenster begrenzter Cache hält Resultate 120 Sekunden.
+Analyseanfragen blockieren nicht den Lock der bisherigen Nachbaransicht. Mehr als
+25.000 passende Rohempfänge führen zu HTTP 422 mit Aufforderung, den Zeitraum zu
+verkürzen oder die Mindestentfernung zu erhöhen; es gibt keine stillschweigende
+Teilauswertung. Der Index und die letzten Positionsmeldungen ersetzen keinen
+Beweis des tatsächlichen Standorts eines mobilen Repeaters.
+
+Validierung und Messungen: [Fernverbindungsanalyse](docs/fernverbindungsanalyse.md).

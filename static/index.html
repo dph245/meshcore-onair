@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/trace.js" defer></script><script src="/static/meshlive-effects.js" defer></script><script src="/static/meshlive.js" defer></script><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map.js" defer></script><script src="/static/distance.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/trace.js" defer></script><script src="/static/meshlive-effects.js" defer></script><script src="/static/meshlive.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <header><h1>MeshCore <span>OnAir</span></h1><span id="connection" role="status">WebSocket verbindet …</span><span id="noise-floor">Noise Floor: —</span><span class="radio">869.618 MHz · BW 62.5 · SF8 · CR4/8</span><button id="theme-toggle" type="button" aria-pressed="false">Lightmode</button></header>
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
@@ -140,6 +140,24 @@
 <label>Repeater suchen <input id="map-neighbors-search" type="search" placeholder="Name oder Hash"></label>
 <p><button id="map-neighbors-prev" type="button">Zurück</button> <span id="map-neighbors-page"></span> <button id="map-neighbors-next" type="button">Weiter</button></p>
 <div id="map-neighbors-list" class="noise-scroll"></div>
+<details id="distance-analysis" class="distance-analysis">
+<summary>Fernverbindungen zeitlich untersuchen</summary>
+<p>Aufeinanderfolgende Repeater in empfangenen Flood-Pfaden. Alle Zeiten sind Empfangszeiten unserer Observer, keine Sendezeiten des entfernten Hops. Gleichzeitige Beobachtungen belegen keine bestimmte Wetterlage oder troposphärische Ursache.</p>
+<form id="distance-form" class="distance-filters">
+<label>Mindestentfernung <select id="distance-minimum"><option>100</option><option>150</option><option selected>200</option><option>250</option><option>300</option></select> km</label>
+<label>Von (einschließlich) <input id="distance-start" type="datetime-local" required></label>
+<label>Bis (ausschließlich) <input id="distance-end" type="datetime-local" required></label>
+<button type="submit">Analysieren</button>
+<button id="distance-example" type="button">28.–30.09.2026</button>
+</form>
+<p id="distance-zone" class="muted"></p>
+<p class="muted">Maximal 31 Tage. Historische Entfernungen beruhen auf bereits empfangenen Positions-Adverts, nicht auf Standortmessungen zum Hopzeitpunkt; mobile Repeater können veraltete Positionen melden. Mehrdeutige Kennungen und fehlende damalige Positionen werden ausgeschlossen. Fehlende Archivdaten werden nicht ergänzt.</p>
+<p id="distance-status" role="status">Zeitraum wählen und Analyse starten.</p>
+<div id="distance-links"></div>
+<button id="distance-more-links" type="button" hidden>Weitere Verbindungen anzeigen</button>
+<div id="distance-detail"></div>
+<button id="distance-more" type="button" hidden>Weitere 100 Empfangsbelege</button>
+</details>
 </section>
 <section id="panel-repeaters" class="archive" role="tabpanel" aria-labelledby="tab-repeaters" tabindex="0" hidden>
 <h2>Direkt empfangene Repeater</h2>

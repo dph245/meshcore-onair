@@ -46,3 +46,5 @@ tests/*
 !tests/test_assets.py
 
 !tests/browser_landscape.py
+!tests/test_distance.py
+!tests/browser_distance.py
