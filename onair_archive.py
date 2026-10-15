@@ -197,6 +197,30 @@ class Archive:
                     ignored=ignored, truncated=len(rows) > 5000,
                     more_sessions=len(sessions) > limit, more_routes=len(histories) > 100)
 
+    def trace_map(self, start, end, before, first, last, hops):
+        from onair_trace_map import browse
+        with self.connect() as db:
+            return browse(db, start, end, before, first, last, hops)
+
+    def trace_map_detail(self, identity):
+        from onair_trace_map import detail
+        from onair_distance import Positions
+        # Shared lock bounds concurrent historical work; cache independent of map motion.
+        with self._distance_lock, self.connect() as db:
+            if db.execute("SELECT 1 FROM packets WHERE id=? AND kind='TRACE'", (identity,)).fetchone() is None:
+                return None
+            now = time.monotonic()
+            cache = getattr(self, '_trace_positions', None)
+            if cache is None or now - cache[0] > 60:
+                deadline = now + 10
+                db.set_progress_handler(lambda: time.monotonic() > deadline, 10000)
+                try:
+                    positions = Positions(db, 0, time.time() + 1)
+                finally:
+                    db.set_progress_handler(None, 0)
+                self._trace_positions = (time.monotonic(), positions)
+            return detail(db, identity, self._trace_positions[1])
+
     def accept(self, packet):
         self._enqueue(packet.to_dict())
 

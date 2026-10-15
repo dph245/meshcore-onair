@@ -88,7 +88,7 @@ function neighborDistance(link) {
     : '—';
 }
 
-function drawNeighborArrow(from, to, fraction, color) {
+function drawNeighborArrow(from, to, fraction, color, layer = neighborLayer) {
   const a = nodeMap.project(from), b = nodeMap.project(to);
   const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
   if (length < 24) return;
@@ -96,7 +96,7 @@ function drawNeighborArrow(from, to, fraction, color) {
   const x = a.x + dx * fraction, y = a.y + dy * fraction;
   const points = [[x - ux * 9 - uy * 5, y - uy * 9 + ux * 5], [x, y],
     [x - ux * 9 + uy * 5, y - uy * 9 - ux * 5]].map(point => nodeMap.unproject(point));
-  L.polyline(points, {color, weight: 3, opacity: 1, interactive: false}).addTo(neighborLayer);
+  L.polyline(points, {color, weight: 3, opacity: 1, interactive: false}).addTo(layer);
 }
 
 function selectMapRepeater(identity) {
@@ -107,7 +107,8 @@ function selectMapRepeater(identity) {
 function drawMapNeighbors() {
   if (!nodeMap) return;
   if (selectedMapRepeater && !mapMarkers.has(selectedMapRepeater)) selectedMapRepeater = null;
-  const showLinks = document.getElementById('map-neighbors-toggle').checked;
+  const traceMode = globalThis.traceMapActive?.() || false;
+  const showLinks = !traceMode && document.getElementById('map-neighbors-toggle').checked;
   const focused = showLinks && selectedMapRepeater !== null;
   const visibleNodes = new Set(focused ? [selectedMapRepeater] : []);
   nodeMap.getContainer().classList.toggle('map-neighbor-focus', focused);
@@ -143,7 +144,7 @@ function drawMapNeighbors() {
     if (link.reverse_count) drawNeighborArrow(end, start, 0.65, color);
   }
   for (const [key, view] of mapMarkers) {
-    const visible = !focused || visibleNodes.has(key);
+    const visible = !traceMode && (!focused || visibleNodes.has(key));
     // Removing the layer also removes its label, tooltip and popup.
     for (const layer of [view.marker, view.line]) {
       if (!layer) continue;

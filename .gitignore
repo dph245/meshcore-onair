@@ -48,3 +48,7 @@ tests/*
 !tests/browser_landscape.py
 !tests/test_distance.py
 !tests/browser_distance.py
+
+!tests/test_trace_map.py
+!tests/browser_trace_map.py
+!tests/test_trace_map_ui.js

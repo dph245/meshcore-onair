@@ -273,3 +273,26 @@ main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
   .distance-filters label {width:100%}
   .distance-bin {grid-template-columns:5.5rem minmax(0,1fr) minmax(0,1fr); gap:.2rem}
 }
+
+#map-trace-form label { display: flex; flex-direction: column; min-width: 0; }
+#map-trace-form input, #map-trace-form select { max-width: 100%; min-width: 0; box-sizing: border-box; }
+.trace-map-choice { display: flex; gap: .5rem; align-items: start; margin: .6rem 0; overflow-wrap: anywhere; }
+.trace-map-card { border-left: 3px solid #3388ff; padding-left: .6rem; overflow-wrap: anywhere; }
+.trace-map-card + .trace-map-card { border-color: #d97706; }
+#map-modes button[aria-pressed="true"] { outline: 2px solid currentColor; }
+#panel-map #map-trace-form > label { flex-direction: column; align-items: stretch; }
+#panel-map #map-node-tools[hidden] { display: none; }
+
+/* Permanent TRACE measurements, isolated from all other map modes. */
+.trace-snr-icon { pointer-events: none; }
+.trace-snr-label {
+  transform: translate(-50%, -50%); width: max-content; max-width: 180px;
+  box-sizing: border-box; padding: 3px 6px; border: 2px solid;
+  border-radius: 5px; background: rgba(255, 255, 255, .96); color: #17212b;
+  box-shadow: 0 1px 4px #0003; font: 12px/1.35 system-ui, sans-serif;
+  text-align: center; overflow-wrap: anywhere;
+}
+.trace-snr-label span { display: block; }
+.trace-snr-heading { font-size: 10px; }
+.trace-snr-value { font-weight: 650; white-space: nowrap; }
+[data-theme="dark"] .trace-snr-label { background: rgba(24, 32, 42, .96); color: #f4f7fa; }

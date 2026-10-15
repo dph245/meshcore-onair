@@ -216,6 +216,31 @@ def traces(hours: int = Query(24, ge=1, le=168),
     return app.state.archive.traces(hours, limit)
 
 
+@app.get('/api/map-traces')
+def map_traces(start: float = Query(..., ge=0, le=4102444800),
+               end: float = Query(..., ge=0, le=4102444800),
+               before: int = Query(9223372036854775807, ge=1, le=9223372036854775807),
+               first: str = Query('', pattern=r'^(?:[0-9a-f]{2}|[0-9a-f]{4}|[0-9a-f]{8}|[0-9a-f]{16})?$'),
+               last: str = Query('', pattern=r'^(?:[0-9a-f]{2}|[0-9a-f]{4}|[0-9a-f]{8}|[0-9a-f]{16})?$'),
+               hops: int | None = Query(None, ge=0, le=255)):
+    if end <= start or end - start > 31 * 86400:
+        raise HTTPException(422, 'Zeitraum muss positiv sein und darf höchstens 31 Tage umfassen.')
+    return app.state.archive.trace_map(start, end, before, first, last, hops)
+
+
+@app.get('/api/map-traces/{identity}')
+def map_trace_detail(identity: int):
+    if not 1 <= identity <= 9223372036854775807:
+        raise HTTPException(422, 'Ungültige Empfangs-ID.')
+    try:
+        item = app.state.archive.trace_map_detail(identity)
+    except sqlite3.OperationalError as exc:
+        raise HTTPException(503, 'Historische Positionen momentan nicht verfügbar. Bitte erneut versuchen.') from exc
+    if item is None:
+        raise HTTPException(404, 'Keine auswertbare TRACE-Beobachtung.')
+    return item
+
+
 @app.get("/api/repeaters")
 def list_repeaters():
     return app.state.archive.repeaters()
