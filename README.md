@@ -420,17 +420,30 @@ Mehrdeutige Hashes bleiben separat. Die einzelnen Hash-Statistiken bleiben in
 SQLite erhalten, sodass später erkannte Kollisionen wieder getrennt angezeigt
 werden können. Die Aliasauflösung in der Paketansicht bleibt unverändert.
 
-Repeater-Zeilen lassen sich aufklappen und zeigen einen RSSI-Verlauf aus dem
-Archiv: letzte Stunde, drei Stunden, 24 Stunden (Standard), sieben Tage oder gesamtes Archiv.
+Eine Auswahlleiste über den Repeater-Zeilen zeigt „Alle“ und die einzelnen Repeater.
+Ein Klick auf einen Repeater wechselt von „Alle“ zur Einzelauswahl; weitere
+Repeater lassen sich hinzufügen und abwählen. Die Auswahl bleibt bei automatischen
+Aktualisierungen und Tabwechseln erhalten. Nur sichtbare Verläufe werden nachgeladen.
+
+Repeater-Zeilen zeigen links Name, Kennung und darunter je Observer den zuletzt empfangenen RSSI
+mit Observer-Name, Empfangszeit und eigenen Min/Max-Markern sowie Empfangsstatistik.
+Observer werden anhand ihrer vollständigen ID getrennt; Empfänge ohne ID bleiben
+unzugeordnet. Links erscheinen nur Observer, die diesen Repeater in den letzten
+8 Stunden empfangen haben. Ältere Messwerte bleiben im Verlauf erhalten.
+Die Statistiken je Observer werden einmalig aus dem Archiv aufgebaut (Schema 14). Rechts steht dauerhaft der RSSI-Verlauf aus dem
+Archiv (auf schmalen Bildschirmen darunter): letzte Stunde, drei Stunden, 24 Stunden (Standard), sieben Tage oder gesamtes Archiv.
 Jeder Observer erhält eine eigene Kurve mit Legende im gemeinsamen Diagramm;
 Messwerte verschiedener Observer werden nicht miteinander verbunden.
 Die Zuordnung erfolgt über die vollständige Observer-ID. Ältere Empfänge ohne ID
 erscheinen separat als „Unzugeordnet“.
-Je Verlauf werden maximal die neuesten 500 Messwerte im gewählten Zeitraum
-angezeigt; eine Begrenzung wird ausdrücklich angezeigt. Fehlende RSSI-Werte
-werden ausgelassen. Punkte zeigen echte Empfänge, die Verbindungslinien dienen
+Der Verlauf berücksichtigt alle Messwerte im gewählten Zeitraum. Bei mehr als
+500 Messwerten wird der gesamte Zeitraum in 125 Zeitabschnitte aufgeteilt;
+je Observer und Abschnitt bleiben der erste, letzte, niedrigste und höchste
+Messwert erhalten (höchstens 500 Punkte je Observer). Die Anzeige nennt die
+Anzahl dargestellter Punkte und zugrunde liegender Messwerte und kennzeichnet
+die Verdichtung. Fehlende RSSI-Werte werden ausgelassen. Punkte zeigen echte Empfänge, die Verbindungslinien dienen
 der Orientierung. Maus, Touch oder Tastatur zeigen Observer, Empfangszeit und RSSI.
-Offene Verläufe werden automatisch aktualisiert und berücksichtigen dieselbe
+Die Verläufe werden automatisch aktualisiert und berücksichtigen dieselbe
 Hash-Zusammenfassung wie die Übersicht. `/api/repeater-history` ist der zugehörige
 Lese-Endpunkt. Beim ersten Start wird automatisch eine indizierte Hop-Zuordnung
 in der Pakettabelle ergänzt und aus vorhandenen Archivdaten befüllt (Schema 4).

@@ -10,7 +10,8 @@ import sqlite3
 from threading import Thread, Event, Lock
 import time
 from datetime import datetime
-from onair_repeaters import record_repeater, repeater_summary, repeater_token
+from onair_repeaters import (record_repeater, repeater_summary, repeater_token,
+                             record_repeater_observer, attach_observer_signals)
 from onair_scopes import scope_label
 from onair_payload import decode_payload_details
 from onair_discovery import discovery_sessions
@@ -152,6 +153,15 @@ class Archive:
                     # One historical index build; no duplicated event archive.
                     db.execute(INDEX_SQL)
                     db.execute('PRAGMA user_version=13')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 14:
+                    db.execute('''CREATE TABLE IF NOT EXISTS repeater_observer_signals (
+                        token TEXT NOT NULL, origin_id TEXT NOT NULL, origin TEXT,
+                        rssi INTEGER, min_rssi INTEGER, max_rssi INTEGER,
+                        last_seen REAL NOT NULL, PRIMARY KEY(token,origin_id))''')
+                    db.execute('DELETE FROM repeater_observer_signals')
+                    for (raw,) in db.execute('SELECT packet_json FROM packets WHERE repeater_token IS NOT NULL ORDER BY id'):
+                        record_repeater_observer(db, json.loads(raw))
+                    db.execute('PRAGMA user_version=14')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -245,6 +255,7 @@ class Archive:
                     continue
                 d = p['decoded']
                 record_repeater(db, p)
+                record_repeater_observer(db, p)
                 record_observer(db, p)
                 record_path(db, p)
                 a = d.get('advert')
@@ -425,35 +436,72 @@ class Archive:
                      **{key: value for key, value in zip(('origin_id', 'origin', 'status_at'), row[2:])
                         if value is not None}) for row in rows]
 
-    def repeaters(self, hours=8):
+    def repeaters(self, hours=8, include_observers=True):
         from onair_mqtt import node_label
         with self.connect() as db:
             db.row_factory = sqlite3.Row
+            db.execute('BEGIN')
             rows = db.execute('SELECT * FROM repeater_receptions').fetchall()
+            signals = db.execute('SELECT * FROM repeater_observer_signals').fetchall() if include_observers else []
             names = dict(db.execute('SELECT public_key,name FROM nodes'))
         items = repeater_summary(rows, names, node_label)
         # Resolve identities using all known tokens before filtering activity.
         if hours:
             since = time.time() - hours * 3600
             items = [item for item in items if item['last_seen'] >= since]
+        if include_observers:
+            attach_observer_signals(items, signals)
+            if hours:
+                for item in items:
+                    item['observers'] = [signal for signal in item['observers']
+                                         if signal['last_seen'] >= since]
         return {'items': items}
 
     def repeater_history(self, identity, hours=24, limit=500):
-        item = next((item for item in self.repeaters(hours=0)['items'] if item['id'] == identity), None)
+        item = next((item for item in self.repeaters(hours=0, include_observers=False)['items'] if item['id'] == identity), None)
+        empty = {'items': [], 'has_more': False, 'total': 0, 'sampled': False}
         if item is None:
-            return {'items': [], 'has_more': False}
+            return empty
         tokens = item['tokens']
         placeholders = ','.join('?' for _ in tokens)
         since = time.time() - hours * 3600 if hours else 0
+        where = f"""FROM packets WHERE repeater_token IN ({placeholders}) AND received >= ?
+            AND json_extract(packet_json, '$.rssi') IS NOT NULL"""
         with self.connect() as db:
-            rows = db.execute(f'''SELECT received, json_extract(packet_json, '$.rssi'),
-                json_extract(packet_json, '$.origin_id'), json_extract(packet_json, '$.origin')
-                FROM packets WHERE repeater_token IN ({placeholders}) AND received >= ?
-                AND json_extract(packet_json, '$.rssi') IS NOT NULL
-                ORDER BY received DESC,id DESC LIMIT ?''', tokens + [since, limit + 1]).fetchall()
+            # Bounds and readings must come from the same snapshot during live ingestion.
+            db.execute('BEGIN')
+            total, start, end = db.execute(
+                'SELECT COUNT(*), MIN(received), MAX(received) ' + where,
+                tokens + [since]).fetchone()
+            if not total:
+                return empty
+            rows = db.execute("""SELECT received, json_extract(packet_json, '$.rssi'),
+                json_extract(packet_json, '$.origin_id'), json_extract(packet_json, '$.origin'), id
+                """ + where + ' ORDER BY received,id', tokens + [since])
+            if total <= limit:
+                selected = list(rows)
+            else:
+                # Keep real first/last/min/max readings per time bucket and observer.
+                # Stream the full interval without loading the archive into memory.
+                buckets = {}
+                bucket_count = max(1, limit // 4)
+                for row in rows:
+                    bucket = min(bucket_count - 1, int((row[0] - start) / (end - start) * bucket_count)) if end > start else 0
+                    key = (row[2] or None, bucket)
+                    if key not in buckets:
+                        buckets[key] = [row, row, row, row]
+                    else:
+                        values = buckets[key]
+                        values[1] = row
+                        if row[1] < values[2][1]:
+                            values[2] = row
+                        if row[1] > values[3][1]:
+                            values[3] = row
+                selected = sorted({row[4]: row for values in buckets.values() for row in values}.values(),
+                                  key=lambda row: (row[0], row[4]))
         return {'items': [{'received': row[0], 'rssi': row[1],
-                           'origin_id': row[2], 'origin': row[3]} for row in reversed(rows[:limit])],
-                'has_more': len(rows) > limit}
+                           'origin_id': row[2], 'origin': row[3]} for row in selected],
+                'has_more': False, 'total': total, 'sampled': len(selected) < total}
 
     def _run(self):
         batch = []

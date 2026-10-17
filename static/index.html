@@ -184,8 +184,11 @@
 <section id="panel-repeaters" class="archive" role="tabpanel" aria-labelledby="tab-repeaters" tabindex="0" hidden>
 <h2>Direkt empfangene Repeater</h2>
 <p class="muted">Nur Repeater mit Empfang in den letzten 8 Stunden · letzter Hop von Flood-Paketen und direkte Repeater-ADVERTs · Statistik über alle archivierten RX-Empfänge einschließlich Wiederholungen · automatische Aktualisierung alle 5 Sekunden.</p>
-<p class="muted">Balken: zuletzt empfangener RSSI · Marker: Minimum (orange) und Maximum (hell) · Skala −140 bis −20 dBm. Passende 1-, 2- und 3-Byte-Hop-Hashes werden zusammengefasst, sofern nur eine längere Kennung bekannt ist. Mehrdeutige Hashes bleiben separat.</p>
+<p class="muted">Je Observer mit Empfang dieses Repeaters in den letzten 8 Stunden: letzter RSSI mit Empfangszeit · Marker: Minimum (orange) und Maximum (hell) je Observer · Skala −140 bis −20 dBm. Passende 1-, 2- und 3-Byte-Hop-Hashes werden zusammengefasst, sofern nur eine längere Kennung bekannt ist. Mehrdeutige Hashes bleiben separat.</p>
 <p id="repeaters-status" role="status">Noch keine Daten geladen.</p>
+<div id="repeaters-selection" class="repeater-selection" role="group" aria-label="Repeater auswählen (Mehrfachauswahl)" hidden></div>
+<p class="muted">Repeater anklicken, um einen oder mehrere auszuwählen. „Alle“ zeigt sämtliche Repeater.</p>
+<p id="repeaters-selection-empty" role="status" hidden>Keine Repeater ausgewählt oder die Auswahl ist nicht mehr aktiv. Wähle einen Repeater oder „Alle“.</p>
 <div id="repeaters-results"></div>
 </section>
 <section id="panel-channels" class="archive" role="tabpanel" aria-labelledby="tab-channels" tabindex="0" hidden>

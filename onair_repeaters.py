@@ -35,6 +35,50 @@ def record_repeater(db, packet):
          datetime.fromisoformat(packet['received_at']).timestamp()))
 
 
+def record_repeater_observer(db, packet):
+    token = repeater_token(packet)
+    if token is None:
+        return
+    db.execute('''INSERT INTO repeater_observer_signals
+        VALUES(?,?,?,?,?,?,?) ON CONFLICT(token,origin_id) DO UPDATE SET
+        origin=CASE WHEN excluded.last_seen >= last_seen THEN excluded.origin ELSE origin END,
+        rssi=CASE WHEN excluded.last_seen >= last_seen THEN excluded.rssi ELSE rssi END,
+        min_rssi=CASE WHEN min_rssi IS NULL THEN excluded.min_rssi
+                     WHEN excluded.min_rssi IS NULL THEN min_rssi ELSE MIN(min_rssi,excluded.min_rssi) END,
+        max_rssi=CASE WHEN max_rssi IS NULL THEN excluded.max_rssi
+                     WHEN excluded.max_rssi IS NULL THEN max_rssi ELSE MAX(max_rssi,excluded.max_rssi) END,
+        last_seen=MAX(last_seen,excluded.last_seen)''',
+        (token, packet.get('origin_id') or '', packet.get('origin'),
+         packet.get('rssi'), packet.get('rssi'), packet.get('rssi'),
+         datetime.fromisoformat(packet['received_at']).timestamp()))
+
+
+def attach_observer_signals(items, rows):
+    by_token = {token: item for item in items for token in item['tokens']}
+    signals = {item['id']: {} for item in items}
+    for row in rows:
+        item = by_token.get(row['token'])
+        if item is None:
+            continue
+        signal = dict(row)
+        del signal['token']
+        signal['origin_id'] = signal['origin_id'] or None
+        observer = signal['origin_id']
+        previous = signals[item['id']].get(observer)
+        if previous is None:
+            signals[item['id']][observer] = signal
+            continue
+        for field, aggregate in (('min_rssi', min), ('max_rssi', max)):
+            values = [v for v in (previous[field], signal[field]) if v is not None]
+            previous[field] = aggregate(values) if values else None
+        if signal['last_seen'] >= previous['last_seen']:
+            for field in ('rssi', 'origin', 'last_seen'):
+                previous[field] = signal[field]
+    for item in items:
+        item['observers'] = sorted(signals[item['id']].values(),
+                                   key=lambda s: ((s['origin'] or '').casefold(), s['origin_id'] or ''))
+
+
 def repeater_summary(rows, names, label):
     rows = list(rows)
     # Use the longest known identifiers, including observed hops without ADVERTs.

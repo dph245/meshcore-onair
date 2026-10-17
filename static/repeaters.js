@@ -1,10 +1,59 @@
 const repeaterViews = new Map();
+const repeaterChoices = new Map();
+let selectedRepeaters = null; // null shows all, a Set selects individual repeaters.
+
+function updateRepeaterSelection() {
+  let visible = 0;
+  for (const [id, view] of repeaterViews) {
+    view.element.hidden = selectedRepeaters !== null && !selectedRepeaters.has(id);
+    if (!view.element.hidden) {
+      visible += 1;
+      loadRepeaterHistory(view);
+    }
+  }
+  for (const [id, button] of repeaterChoices) {
+    button.setAttribute('aria-pressed', id === 'all'
+      ? selectedRepeaters === null : selectedRepeaters === null || selectedRepeaters.has(id));
+  }
+  document.getElementById('repeaters-selection-empty').hidden = !repeaterViews.size || visible > 0;
+}
+
+function renderRepeaterChoices(items) {
+  const choices = document.getElementById('repeaters-selection');
+  const entries = [{id: 'all', name: 'Alle'}, ...items];
+  for (const [id, button] of repeaterChoices) {
+    if (!entries.some(item => item.id === id)) {
+      button.remove();
+      repeaterChoices.delete(id);
+    }
+  }
+  entries.forEach((item, index) => {
+    let button = repeaterChoices.get(item.id);
+    if (!button) {
+      button = text('button', '');
+      button.type = 'button';
+      button.addEventListener('click', () => {
+        if (item.id === 'all') selectedRepeaters = null;
+        else if (selectedRepeaters === null) selectedRepeaters = new Set([item.id]);
+        else if (selectedRepeaters.has(item.id)) selectedRepeaters.delete(item.id);
+        else selectedRepeaters.add(item.id);
+        updateRepeaterSelection();
+      });
+      repeaterChoices.set(item.id, button);
+    }
+    button.textContent = item.name;
+    button.title = item.id === 'all' ? 'Alle Repeater anzeigen' : `${item.name} · ${item.id}`;
+    if (choices.children[index] !== button) choices.insertBefore(button, choices.children[index] || null);
+  });
+  choices.hidden = !items.length;
+  updateRepeaterSelection();
+}
 
 function repeaterView(item) {
   let view = repeaterViews.get(item.id);
   if (!view) {
-    const element = text('details', '', 'repeater-entry');
-    const summary = text('summary', '', 'repeater-row');
+    const element = text('article', '', 'repeater-entry');
+    const overview = text('div', '', 'repeater-row');
     const history = text('div', '', 'repeater-history');
     const label = text('label', 'RSSI-Verlauf · Zeitraum ');
     const select = document.createElement('select');
@@ -20,12 +69,9 @@ function repeaterView(item) {
     const plot = text('div', '', 'noise-scroll');
     const tooltip = text('p', 'Messpunkt berühren, mit der Maus zeigen oder per Tab auswählen.', 'muted');
     history.append(label, message, plot, tooltip);
-    element.append(summary, history);
-    view = {element, summary, select, message, plot, tooltip, item, version: 0};
+    element.append(overview, history);
+    view = {element, overview, select, message, plot, tooltip, item, version: 0};
     repeaterViews.set(item.id, view);
-    element.addEventListener('toggle', () => {
-      if (element.open) loadRepeaterHistory(view);
-    });
     select.addEventListener('change', () => {
       view.version += 1;
       view.loaded = null;
@@ -38,7 +84,7 @@ function repeaterView(item) {
 }
 
 async function loadRepeaterHistory(view) {
-  if (paused || !view.element.open) return;
+  if (paused || view.element.hidden || !view.element.isConnected) return;
   const signature = JSON.stringify([view.item.count, view.item.tokens, view.select.value,
     view.select.value === '0' ? 0 : Math.floor(Date.now() / 60000)]);
   if (signature === view.loaded || signature === view.loading) return;
@@ -53,7 +99,7 @@ async function loadRepeaterHistory(view) {
     if (version !== view.version || paused || !view.element.isConnected) return;
     renderRepeaterHistory(view, result.items);
     view.message.textContent = result.items.length
-      ? `${result.items.length} Messwerte${result.has_more ? ' · nur die neuesten 500 im Zeitraum' : ''} · lokale Empfangszeit · RSSI in dBm`
+      ? `${result.sampled ? `${result.items.length} dargestellte Punkte aus ${result.total} Messwerten · gesamter Zeitraum, je Observer zeitlich verdichtet (erster/letzter Wert und Min/Max)` : `${result.items.length} Messwerte`} · lokale Empfangszeit · RSSI in dBm`
       : 'Keine RSSI-Messwerte in diesem Zeitraum archiviert.';
     view.loaded = signature;
   } catch (error) {
@@ -125,4 +171,31 @@ function renderRepeaterHistory(view, samples) {
     }
   }
   view.plot.append(legend, chart);
+}
+
+function renderRepeaterSignal(sample) {
+  const position = value => `${Math.max(0, Math.min(100, (value + 140) / 120 * 100))}%`;
+  const signal = text('div', '', 'repeater-signal');
+  signal.append(text('div', observerLabel(sample, true), 'repeater-observer'));
+  signal.title = observerLabel(sample);
+  signal.append(text('div', `RSSI ${measurement(sample.rssi, 'dBm')}`, 'repeater-reading'));
+  const track = text('div', '', 'signal-track');
+  track.setAttribute('role', 'img');
+  track.setAttribute('aria-label', `RSSI ${measurement(sample.rssi, 'dBm')}, Minimum ${measurement(sample.min_rssi, 'dBm')}, Maximum ${measurement(sample.max_rssi, 'dBm')}`);
+  if (sample.rssi != null) {
+    const fill = text('span', '', 'signal-fill');
+    fill.style.width = position(sample.rssi);
+    track.append(fill);
+  }
+  for (const [field, title] of [['min_rssi', 'Minimum'], ['max_rssi', 'Maximum']]) {
+    if (sample[field] == null) continue;
+    const marker = text('span', '', `signal-marker ${field}`);
+    marker.style.left = position(sample[field]);
+    marker.title = `${title}: ${measurement(sample[field], 'dBm')}`;
+    track.append(marker);
+  }
+  signal.append(track);
+  signal.append(text('div', `Min ${measurement(sample.min_rssi, 'dBm')} · Max ${measurement(sample.max_rssi, 'dBm')}`, 'muted'));
+  signal.append(text('div', `Zuletzt: ${new Date(sample.last_seen * 1000).toLocaleString('de-DE')}`, 'muted'));
+  return signal;
 }

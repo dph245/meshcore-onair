@@ -419,38 +419,19 @@ async function loadRepeaters() {
     const {items} = await response.json();
     if (paused) return;
     const results = document.getElementById('repeaters-results');
-    const position = value => `${Math.max(0, Math.min(100, (value + 140) / 120 * 100))}%`;
     for (const item of items) {
       const view = repeaterView(item);
-      const row = view.summary;
+      const row = view.overview;
       row.replaceChildren();
       const identity = text('div', '', 'repeater-identity');
       identity.append(text('strong', item.name));
       identity.append(text('div', item.id, 'muted'));
       identity.title = `Empfangene Kennungen: ${item.tokens.join(', ')}`;
-      const signal = text('div', '', 'repeater-signal');
-      signal.append(text('div', `RSSI ${measurement(item.rssi, 'dBm')}`, 'repeater-reading'));
-      const track = text('div', '', 'signal-track');
-      track.setAttribute('role', 'img');
-      track.setAttribute('aria-label', `RSSI ${measurement(item.rssi, 'dBm')}, Minimum ${measurement(item.min_rssi, 'dBm')}, Maximum ${measurement(item.max_rssi, 'dBm')}`);
-      if (item.rssi != null) {
-        const fill = text('span', '', 'signal-fill');
-        fill.style.width = position(item.rssi);
-        track.append(fill);
-      }
-      for (const [field, title] of [['min_rssi', 'Minimum'], ['max_rssi', 'Maximum']]) {
-        if (item[field] == null) continue;
-        const marker = text('span', '', `signal-marker ${field}`);
-        marker.style.left = position(item[field]);
-        marker.title = `${title}: ${measurement(item[field], 'dBm')}`;
-        track.append(marker);
-      }
-      signal.append(track);
-      signal.append(text('div', `Min ${measurement(item.min_rssi, 'dBm')} · Max ${measurement(item.max_rssi, 'dBm')}`, 'muted'));
+      const signals = (item.observers || []).map(renderRepeaterSignal);
       const details = text('div', '', 'repeater-details');
       details.append(text('div', `${item.count.toLocaleString('de-DE')} Empfänge gesamt`));
       details.append(text('div', `Zuletzt: ${new Date(item.last_seen * 1000).toLocaleString('de-DE')}`, 'muted'));
-      row.append(identity, signal, details);
+      row.append(identity, ...signals, details);
     }
     for (const [id, view] of repeaterViews) {
       if (!items.some(item => item.id === id)) {
@@ -461,8 +442,8 @@ async function loadRepeaters() {
     items.forEach((item, index) => {
       const view = repeaterViews.get(item.id);
       if (results.children[index] !== view.element) results.insertBefore(view.element, results.children[index] || null);
-      loadRepeaterHistory(view);
     });
+    renderRepeaterChoices(items);
     message.textContent = items.length
       ? `${items.length} Repeater / Hop-Kennungen · Stand: ${new Date().toLocaleTimeString('de-DE')}`
       : 'Keine direkten Repeater-Empfänge in den letzten 8 Stunden.';
