@@ -34,7 +34,13 @@ def map_size(page, map_id):
     box = page.locator('#'+map_id).bounding_box()
     sidebar = page.locator('[role=tabpanel]:visible .map-sidebar').bounding_box()
     size = page.viewport_size
-    assert box['y'] >= 50 and box['height'] >= size['height'] - 110, (box, size)
+    # The normal map now reserves an explicit compact row for selection/search.
+    tools = page.locator('.map-selection-tools').bounding_box() if map_id == 'node-map' else None
+    reserved = tools['height'] + 14 if tools else 0
+    assert box['y'] >= 50 and box['height'] >= size['height'] - 110 - reserved, (box, size)
+    if tools:
+        assert tools['y'] + tools['height'] <= box['y']
+        assert tools['height'] <= 90, tools
     assert box['y'] + box['height'] <= size['height'], (box, size)
     assert box['x'] + box['width'] <= sidebar['x'], (box, sidebar)
 
@@ -68,7 +74,7 @@ def main():
                 sidebar = page.locator(f'#panel-{tab} .map-sidebar')
                 # Open help, then scroll its own content without moving the map/navigation.
                 summary = sidebar.locator('summary').first
-                summary.tap()
+                if summary.count(): summary.tap()
                 before = page.locator('#'+map_id).bounding_box()
                 sidebar.hover();page.mouse.wheel(0,700);page.wait_for_timeout(150)
                 assert sidebar.evaluate('(e)=>e.scrollTop') > 0

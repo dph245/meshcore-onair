@@ -82,6 +82,13 @@
 <div id="observers-results" class="noise-scroll"></div>
 </section>
 <section id="panel-map" class="archive" role="tabpanel" aria-labelledby="tab-map" tabindex="0" hidden>
+<div class="map-selection-tools" aria-label="Repeater-Suche und normale Linkdarstellung">
+<label class="map-search-label" for="map-repeater-search">Repeater suchen <input id="map-repeater-search" type="search" maxlength="200" placeholder="Name oder Public Key / Präfix" autocomplete="off" aria-controls="map-repeater-results"></label>
+<label for="map-link-mode">Normale Links <select id="map-link-mode"><option value="none">Keine Links</option><option value="selected" selected>Ausgewählter Repeater</option><option value="all">Alle Links (Expertenmodus)</option></select></label>
+<button id="map-neighbors-reset" type="button" disabled>Auswahl aufheben</button>
+<span id="map-selected-repeater" role="status">Kein Repeater ausgewählt</span>
+<div class="map-search-feedback"><span id="map-repeater-search-status" role="status"></span><div id="map-repeater-results"></div><button id="map-repeater-more" type="button" hidden>Weitere Treffer</button></div>
+</div>
 <div id="node-map" aria-label="OpenStreetMap mit bekannten MeshCore-Nodes"></div>
 <aside class="map-sidebar" aria-label="Kartenlegende und Bedienung">
 <h2>Map</h2>
@@ -107,7 +114,7 @@
 <p>Bis zu zwei Beobachtungen zum Vergleich auswählen (Blau / Orange). SNR-Pfeile beziehen sich auf die Endpunkte im Beschriftungsfeld; Messungen stehen in Routenreihenfolge, der erste Durchlauf oben.</p>
 <div id="map-trace-detail" aria-live="polite"></div>
 </section>
-<div id="map-node-tools" class="map-toolbar"><span class="map-legend repeater" data-node-style="repeater">Repeater</span><span class="map-legend room" data-node-style="room">RoomServer</span><span class="map-legend companion" data-node-style="companion">Companion</span><span class="map-legend other" data-node-style="other">Weitere Nodes</span><button id="map-fit" type="button">Alle Nodes anzeigen</button><button id="map-neighbors-reset" type="button" hidden>Alle Verbindungen anzeigen</button><label><input id="map-neighbors-toggle" type="checkbox" checked> Repeater-Verbindungen anzeigen</label></div>
+<div id="map-node-tools" class="map-toolbar"><span class="map-legend repeater" data-node-style="repeater">Repeater</span><span class="map-legend room" data-node-style="room">RoomServer</span><span class="map-legend companion" data-node-style="companion">Companion</span><span class="map-legend other" data-node-style="other">Weitere Nodes</span><button id="map-fit" type="button">Alle Nodes anzeigen</button></div>
 <p id="map-status" role="status">Noch keine Daten geladen.</p>
 <p id="map-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden. Bitte Internetverbindung prüfen.</p>
 <p id="map-neighbors-status" role="status">Noch keine Verbindungen geladen.</p>

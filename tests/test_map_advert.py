@@ -66,3 +66,23 @@ class MapAdvertTests(unittest.TestCase):
         with patch('onair_archive.time.time', return_value=1790600000):
             self.assertIsNone(archive.map_nodes()['items'][0]['advert_path']['hops'])
 
+
+    def test_search_directory_preserves_unmapped_collision_candidates(self):
+        archive = Archive(self.path)
+        archive.close()
+        now = 1790600000
+        candidates = [('dd4c42a1', 'Bridge', 52, 10, now),
+                      ('dd4c42d1', 'Ampleben', None, None, now),
+                      ('dd4c42b1', 'Früher', 53, 11, now - 29 * 86400)]
+        with archive.connect() as db, db:
+            for prefix, name, lat, lon, stamp in candidates:
+                db.execute('INSERT INTO nodes(public_key,name,node_type,advert_time,first_seen,last_seen,latitude,longitude) VALUES(?,?,2,0,0,?,?,?)',
+                           (prefix.ljust(64, '0'), name, stamp, lat, lon))
+        with patch('onair_archive.time.time', return_value=now):
+            result = archive.map_nodes()
+        self.assertEqual(len(result['items']), 1)
+        self.assertEqual(len(result['repeaters']), 3)
+        by_name = {item['name']: item for item in result['repeaters']}
+        self.assertIsNone(by_name['Bridge']['unavailable'])
+        self.assertIn('Kartenposition', by_name['Ampleben']['unavailable'])
+        self.assertIn('4 Wochen', by_name['Früher']['unavailable'])

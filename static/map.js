@@ -1,5 +1,9 @@
 let nodeMap, mapLoading = false;
 let neighborLayer, neighborLinks = [], neighborSignature;
+const neighborLinksByNode = new Map();
+let mapLinkMode = 'selected';
+let mapRepeaterDirectory = [];
+let mapSearchLimit = 30;
 let neighborPage = 0;
 let neighborSortKey = 'count', neighborSortDirection = -1;
 const neighborColumns = [
@@ -102,26 +106,74 @@ function drawNeighborArrow(from, to, fraction, color, layer = neighborLayer) {
 function selectMapRepeater(identity) {
   selectedMapRepeater = identity;
   drawMapNeighbors();
+  if (mapLinksWanted() && neighborSignature === undefined) loadMapNeighbors();
+}
+
+function mapLinksWanted() {
+  return !(globalThis.traceMapActive?.() || false) &&
+    (mapLinkMode === 'all' || (mapLinkMode === 'selected' && selectedMapRepeater !== null));
+}
+
+function setMapLinkMode(mode) {
+  mapLinkMode = ['none', 'selected', 'all'].includes(mode) ? mode : 'selected';
+  document.getElementById('map-link-mode').value = mapLinkMode;
+  drawMapNeighbors();
+  if (mapLinksWanted() && neighborSignature === undefined) loadMapNeighbors();
+}
+
+function renderMapRepeaterSearch() {
+  const query = document.getElementById('map-repeater-search').value.trim().toLocaleLowerCase('de-DE');
+  const list = document.getElementById('map-repeater-results');
+  const status = document.getElementById('map-repeater-search-status');
+  list.replaceChildren();
+  document.getElementById('map-repeater-more').hidden = true;
+  if (!query) { status.textContent = ''; return; }
+  const matches = mapRepeaterDirectory.filter(item =>
+    (item.name || '').toLocaleLowerCase('de-DE').includes(query) || item.public_key.toLowerCase().startsWith(query));
+  status.textContent = `${matches.length} bekannte Repeater gefunden${matches.length > 1 ? ' · Bitte einen Kandidaten auswählen.' : ''}`;
+  for (const item of matches.slice(0, mapSearchLimit)) {
+    const button = text('button', '', 'map-repeater-result');
+    button.type = 'button';
+    button.append(text('strong', item.name || 'Ohne Namen'), text('span', item.public_key));
+    // The directory includes inactive/unlocated candidates so collisions never disappear from search.
+    const available = mapMarkers.has(item.public_key);
+    button.disabled = !available;
+    if (!available) button.append(text('span', item.unavailable || 'Derzeit nicht auf der Karte verfügbar'));
+    button.addEventListener('click', () => {
+      const view = mapMarkers.get(item.public_key);
+      if (!view) return;
+      document.querySelector('#map-modes [data-mode="paths"]').click();
+      setMapLinkMode('selected');
+      selectMapRepeater(item.public_key);
+      nodeMap.setView(view.marker.getLatLng(), Math.max(12, nodeMap.getZoom()));
+      view.marker.openPopup();
+      document.getElementById('map-repeater-search').value = '';
+      renderMapRepeaterSearch();
+      document.getElementById('map-neighbors-reset').focus();
+    });
+    list.append(button);
+  }
+  document.getElementById('map-repeater-more').hidden = matches.length <= mapSearchLimit;
 }
 
 function drawMapNeighbors() {
   if (!nodeMap) return;
   if (selectedMapRepeater && !mapMarkers.has(selectedMapRepeater)) selectedMapRepeater = null;
   const traceMode = globalThis.traceMapActive?.() || false;
-  const showLinks = !traceMode && document.getElementById('map-neighbors-toggle').checked;
-  const focused = showLinks && selectedMapRepeater !== null;
+  const showLinks = mapLinksWanted();
+  const focused = showLinks && mapLinkMode === 'selected' && selectedMapRepeater !== null;
   const visibleNodes = new Set(focused ? [selectedMapRepeater] : []);
-  nodeMap.getContainer().classList.toggle('map-neighbor-focus', focused);
-  document.getElementById('map-neighbors-reset').hidden = !selectedMapRepeater;
+  document.getElementById('map-neighbors-reset').disabled = !selectedMapRepeater;
+  document.getElementById('map-selected-repeater').textContent = selectedMapRepeater
+    ? `Ausgewählt: ${mapMarkers.get(selectedMapRepeater).label || selectedMapRepeater}` : 'Kein Repeater ausgewählt';
   if (!neighborLayer) neighborLayer = L.layerGroup().addTo(nodeMap);
   neighborLayer.clearLayers();
   let mapped = 0;
-  for (const link of neighborLinks) {
-    if (selectedMapRepeater && link.source.id !== selectedMapRepeater && link.target.id !== selectedMapRepeater) continue;
+  const links = !showLinks ? [] : focused ? (neighborLinksByNode.get(selectedMapRepeater) || []) : neighborLinks;
+  for (const link of links) {
     const a = mapMarkers.get(link.source.id), b = mapMarkers.get(link.target.id);
-    if (!link.source.resolved || !link.target.resolved || !a || !b) continue;
+    if (!link.source.resolved || !link.target.resolved || link.source.ambiguous || link.target.ambiguous || !a || !b) continue;
     mapped++;
-    if (!showLinks) continue;
     visibleNodes.add(link.source.id);
     visibleNodes.add(link.target.id);
     const label = `A: ${neighborLabel(link.source)} · B: ${neighborLabel(link.target)} · A → B: ${link.forward_count} · B → A: ${link.reverse_count} · Luftlinie: ${neighborDistance(link)}`;
@@ -144,18 +196,21 @@ function drawMapNeighbors() {
     if (link.reverse_count) drawNeighborArrow(end, start, 0.65, color);
   }
   for (const [key, view] of mapMarkers) {
-    const visible = !traceMode && (!focused || visibleNodes.has(key));
+    const visible = !traceMode;
     // Removing the layer also removes its label, tooltip and popup.
     for (const layer of [view.marker, view.line]) {
       if (!layer) continue;
       if (visible && !nodeMap.hasLayer(layer)) layer.addTo(nodeMap);
       else if (!visible && nodeMap.hasLayer(layer)) layer.remove();
     }
+    const element = view.marker.getElement?.();
+    element?.classList.toggle('map-repeater-selected', key === selectedMapRepeater);
+    element?.classList.toggle('map-repeater-related', focused && visibleNodes.has(key));
+    view.marker.setZIndexOffset?.(key === selectedMapRepeater ? 1000 : 0);
   }
-  const selected = mapMarkers.get(selectedMapRepeater);
-  document.getElementById('map-neighbors-status').textContent = selected
-    ? `Nachbarn von ${selected.label || selectedMapRepeater} · ${mapped} Verbindungen auf der Karte zuordenbar · Klick auf die freie Karte hebt den Filter auf`
-    : `${neighborTotal} beobachtete Verbindungen · ${mapped} auf der Karte zuordenbar · Repeater anklicken, um seine Nachbarn zu sehen`;
+  document.getElementById('map-neighbors-status').textContent = !showLinks
+    ? 'Normale Links ausgeblendet' + (mapLinkMode === 'selected' ? ' · Repeater auswählen, um seine direkten Nachbarn zu sehen.' : '.')
+    : `${focused ? 'Direkte Nachbarn' : 'Alle Links (Expertenmodus)'} · ${mapped} Verbindungen dargestellt · ${neighborTotal} beobachtete Verbindungen insgesamt`;
 }
 
 function renderMapNeighbors(result) {
@@ -168,16 +223,23 @@ function renderMapNeighbors(result) {
     neighborLinks = result.links.map(([a, b, count, forward_count, reverse_count, last_seen, distance_km]) =>
       ({source: nodes[a], target: nodes[b], count, forward_count, reverse_count, last_seen, distance_km}));
   } else neighborLinks = result.items;
+  neighborLinksByNode.clear();
+  for (const link of neighborLinks) {
+    for (const id of new Set([link.source.id, link.target.id])) {
+      if (!neighborLinksByNode.has(id)) neighborLinksByNode.set(id, []);
+      neighborLinksByNode.get(id).push(link);
+    }
+  }
 }
 
 async function loadMapNeighbors() {
-  if (neighborsLoading || paused) return;
+  if (neighborsLoading || paused || !mapLinksWanted()) return;
   neighborsLoading = true;
   try {
     const response = await fetch('/api/repeater-neighbors/map', {
       headers: mapNeighborEtag ? {'If-None-Match': mapNeighborEtag} : {}, cache: 'no-cache'
     });
-    if (response.status === 304) return;
+    if (response.status === 304) { drawMapNeighbors(); return; }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
     if (paused) return;
@@ -439,12 +501,16 @@ async function loadMapNodes() {
       view.position = [item.latitude, item.longitude];
       view.label = label;
       view.nodeType = item.node_type;
+      view.name = item.name;
       view.signature = signature;
     }
     for (const [key, view] of mapMarkers) {
       if (!keys.has(key)) { view.marker.remove(); view.line?.remove(); mapMarkers.delete(key); }
     }
+    mapRepeaterDirectory = result.repeaters || result.items.filter(item => item.node_type === 2);
     layoutMapNodes();
+    // Do not replace a focused result button during the regular node refresh.
+    if (!document.getElementById('map-repeater-results').contains(document.activeElement)) renderMapRepeaterSearch();
     message.textContent = `${mapMarkers.size} Nodes auf der Karte · ${result.without_position} ohne bekannte Position · ${result.inactive} seit mindestens 4 Wochen nicht gehört · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
   } catch (error) {
     message.textContent = `Nodes konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; vorhandene Marker bleiben stehen.`;
@@ -458,16 +524,16 @@ for (const legend of document.querySelectorAll('.map-legend[data-node-style]')) 
 }
 document.getElementById('map-fit').addEventListener('click', fitMapNodes);
 document.getElementById('map-neighbors-reset').addEventListener('click', () => selectMapRepeater(null));
-const neighborsToggle = document.getElementById('map-neighbors-toggle');
-neighborsToggle.checked = true;
-try {
-  neighborsToggle.checked = localStorage.getItem('onair-map-neighbors') !== 'false';
-} catch { /* Default to visible when browser storage is unavailable. */ }
-neighborsToggle.addEventListener('change', () => {
-  try {
-    localStorage.setItem('onair-map-neighbors', String(neighborsToggle.checked));
-  } catch { /* The toggle still works without persistent storage. */ }
-  drawMapNeighbors();
+// Never restore the all-links expert mode from storage on a fresh page.
+document.getElementById('map-link-mode').value = 'selected';
+document.getElementById('map-link-mode').addEventListener('change', event => setMapLinkMode(event.target.value));
+document.getElementById('map-repeater-search').addEventListener('input', () => {
+  mapSearchLimit = 30;
+  renderMapRepeaterSearch();
+});
+document.getElementById('map-repeater-more').addEventListener('click', () => {
+  mapSearchLimit += 30;
+  renderMapRepeaterSearch();
 });
 document.getElementById('map-neighbors-search').maxLength = 200;
 document.getElementById('map-neighbors-search').addEventListener('input', () => {

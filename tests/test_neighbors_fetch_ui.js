@@ -60,6 +60,9 @@ globalThis.fetch = async (url, options) => {
   return {status:calls === 1 ? 200 : 304, ok:calls === 1, headers:new Headers({ETag:'"map1"'}),
     json:async () => { if (calls === 2) throw Error('304 should not decode'); return {nodes:[],links:[],total:123}; }};
 };
+await loadMapNeighbors();
+assert(calls === 0, 'Default without selection skips the map link request');
+mapLinkMode = 'all';
 await loadMapNeighbors(); await loadMapNeighbors();
 assert(neighborTotal === 123, 'Map 304 preserves previous data');
 console.log('Neighbor fetch UI: query parameters, conditional requests, races and errors passed');

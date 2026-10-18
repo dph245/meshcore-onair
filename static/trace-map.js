@@ -27,7 +27,7 @@ function traceMapSnrText(value) {
 
 // Historical observations use the existing Leaflet instance; no fetch on map movement.
 (() => {
-  let mode = document.getElementById('map-neighbors-toggle').checked ? 'paths' : 'nodes', layer, cursor, query, version = 0, controller;
+  let mode = 'paths', layer, cursor, query, version = 0, controller;
   const selected = new Map();
   const el = id => document.getElementById(`map-trace-${id}`);
   window.traceMapActive = () => mode === 'traces';
@@ -179,13 +179,14 @@ function traceMapSnrText(value) {
     document.querySelectorAll('#map-modes button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
     document.getElementById('map-traces').hidden = mode !== 'traces';
     for (const id of ['map-node-tools', 'map-status', 'map-neighbors-status', 'map-node-help']) document.getElementById(id).hidden = mode === 'traces';
-    document.getElementById('map-neighbors-toggle').checked = mode === 'paths';
+    if (mode === 'nodes') setMapLinkMode('none');
+    else if (mode === 'paths' && mapLinkMode === 'none') setMapLinkMode('selected');
     drawMapNeighbors(); draw(); nodeMap?.invalidateSize();
   }));
   document.querySelectorAll('#map-modes button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
-  document.getElementById('map-neighbors-toggle').addEventListener('change', () => {
+  document.getElementById('map-link-mode').addEventListener('change', () => {
     if (mode === 'traces') return;
-    mode = document.getElementById('map-neighbors-toggle').checked ? 'paths' : 'nodes';
+    mode = mapLinkMode === 'none' ? 'nodes' : 'paths';
     document.querySelectorAll('#map-modes button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
   });
   el('form').addEventListener('submit', event => { event.preventDefault(); search(); });

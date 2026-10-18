@@ -116,7 +116,6 @@ def main():
                     page.locator('#observer-west').select_option(KEYS[3])
                     expect(page.locator('#observers-results tbody tr')).to_have_count(1)
                 elif name == 'repeaters':
-                    tap(page, '#repeaters-results summary')
                     expect(page.locator('.repeater-chart')).to_be_visible()
                 elif name == 'channels':
                     tap(page, '#channels-results summary')
@@ -126,7 +125,7 @@ def main():
                     if name == 'archive': tap(page, '#archive-results summary')
                 elif name == 'map':
                     tap(page, '#map-fit')
-                    tap(page, '#map-neighbors-toggle')
+                    page.locator('#map-link-mode').select_option('selected')
                     marker = page.locator('#node-map .map-marker').first
                     marker.scroll_into_view_if_needed()
                     page.wait_for_timeout(350)

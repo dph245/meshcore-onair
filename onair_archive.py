@@ -359,7 +359,16 @@ class Archive:
                                          ambiguous=token in prefixes and match is None))
                     reception['hops'] = hops
                 items.append(item)
-        return {'items': items, 'without_position': without_position, 'inactive': inactive}
+        # Reuse the already loaded rows: search must expose every repeater candidate,
+        # including identities excluded from marker display by the existing rules.
+        visible = {item['public_key'] for item in items}
+        repeaters = [dict(public_key=row['public_key'], name=row['name'],
+                          unavailable=None if row['public_key'] in visible else
+                          'Seit mindestens 4 Wochen nicht gehört' if row['last_seen'] <= cutoff else
+                          'Keine bekannte Kartenposition')
+                     for row in rows if row['node_type'] == 2]
+        return {'items': items, 'repeaters': repeaters,
+                'without_position': without_position, 'inactive': inactive}
 
     def neighbors(self):
         with self.connect() as db, db:
