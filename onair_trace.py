@@ -31,7 +31,8 @@ def trace_sessions(rows, names):
         if session is None or received - session['first_seen'] > WINDOW_SECONDS:
             session = dict(id=row_id, tag=event['tag'], scope=scope, route_key=route_key,
                            first_seen=received, last_seen=received, receptions=0,
-                           observed_hops=0, observers={},
+                           observed_hops=0, observers={}, packets=[],
+                           auth_code=event['auth_code'], flags=event['flags'],
                            hops=[dict(node(token), snr_min=None, snr_max=None)
                                  for token in event['route']])
             sessions.append(session)
@@ -40,12 +41,20 @@ def trace_sessions(rows, names):
         session['receptions'] += 1
         observer = packet.get('origin_id') or ''
         session['observers'][observer] = packet.get('origin') or observer or 'Ohne Observer-ID'
+        session['packets'].append(dict(id=row_id, received=received,
+            observer=packet.get('origin') or observer or 'Ohne Observer-ID',
+            observer_id=observer or None, observed_hops=len(event['snrs']),
+            weakest_snr=min(event['snrs'], default=None)))
         session['observed_hops'] = max(session['observed_hops'], len(event['snrs']))
         for hop, snr in zip(session['hops'], event['snrs']):
             hop['snr_min'] = snr if hop['snr_min'] is None else min(hop['snr_min'], snr)
             hop['snr_max'] = snr if hop['snr_max'] is None else max(hop['snr_max'], snr)
     histories = {}
     for session in sessions:
+        # One real reception, never a route assembled from session min/max values.
+        session['representative_id'] = max(session['packets'],
+            key=lambda p: (p['observed_hops'], p['received'], p['id']))['id']
+        session['packets'].sort(key=lambda p: (p['received'], p['id']), reverse=True)
         route_key = session.pop('route_key')
         history = histories.setdefault(route_key, dict(
             id=session['id'], scope=session['scope'],

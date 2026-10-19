@@ -29,6 +29,7 @@ function traceMapSnrText(value) {
 (() => {
   let mode = 'paths', layer, cursor, query, version = 0, controller;
   const selected = new Map();
+  let activeGroup, receptionPage = 0;
   const el = id => document.getElementById(`map-trace-${id}`);
   window.traceMapActive = () => mode === 'traces';
   const position = hop => hop.position && [hop.position.latitude, hop.position.longitude];
@@ -120,6 +121,7 @@ function traceMapSnrText(value) {
       card.append(list, remove);
       return card;
     }));
+    if (activeGroup) renderReceptions();
     draw();
   }
   async function select(item, checkbox) {
@@ -140,21 +142,76 @@ function traceMapSnrText(value) {
       if (current === version && error.name !== 'AbortError') { checkbox.checked = false; el('status').textContent = `Details nicht verfügbar: ${error.message}`; }
     } finally { checkbox.disabled = false; }
   }
+
+  function groupLabel(item) {
+    const missing = item.hops.filter(h => !h.public_key).length;
+    const ambiguous = item.hops.filter(h => h.ambiguous).length;
+    return `${new Date(item.first_seen * 1000).toLocaleString('de-DE')} · Tag ${item.tag} · ${item.hops.map(traceNode).join(' → ') || 'Leere Route'} · ${item.receptions} Empfänge · ${item.observers.length} Observer · Beste Einzelabdeckung ${item.observed_hops}/${item.hops.length} SNR · Gruppenminimum ${item.weakest_snr == null ? 'unbekannt' : item.weakest_snr + ' dB'} · ${missing} unaufgelöste Hops (davon ${ambiguous} mehrdeutig) · ${item.scope} · Auth ${item.auth_code} · Flags ${item.flags}`;
+  }
+  function renderReceptions() {
+    const container = el('receptions');
+    container.replaceChildren();
+    if (!activeGroup) return;
+    container.append(text('h3', 'Einzelne Empfangspakete'));
+    const table = text('table', ''), head = text('tr', '');
+    for (const title of ['Empfang / Zeit', 'Observer', 'SNR', 'Karte (max. 2)']) head.append(text('th', title));
+    table.append(head);
+    for (const packet of activeGroup.packets.slice(receptionPage * 50, (receptionPage + 1) * 50)) {
+      const row = text('tr', '');
+      row.append(text('td', `#${packet.id} · ${new Date(packet.received * 1000).toLocaleString('de-DE')}`),
+        text('td', `${packet.observer}${packet.observer_id ? ' [' + packet.observer_id + ']' : ''}`),
+        text('td', `${packet.observed_hops}/${activeGroup.hops.length} · Min. ${packet.weakest_snr ?? '—'} dB`));
+      const action = text('td', ''), label = text('label', '');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox'; checkbox.dataset.id = packet.id;
+      checkbox.checked = selected.has(packet.id);
+      checkbox.addEventListener('change', () => select(packet, checkbox));
+      const color = [...selected.keys()].indexOf(packet.id);
+      label.append(checkbox, text('span', color < 0 ? 'Auf Karte' : color ? 'Orange' : 'Blau'));
+      action.append(label); row.append(action); table.append(row);
+    }
+    container.append(table);
+    const pages = Math.ceil(activeGroup.packets.length / 50);
+    if (pages > 1) {
+      const prev = text('button', 'Vorherige Empfänge'), next = text('button', 'Weitere Empfänge');
+      prev.type = next.type = 'button';
+      prev.disabled = receptionPage === 0; next.disabled = receptionPage + 1 === pages;
+      prev.addEventListener('click', () => { receptionPage--; renderReceptions(); });
+      next.addEventListener('click', () => { receptionPage++; renderReceptions(); });
+      container.append(prev, text('span', ` Seite ${receptionPage + 1}/${pages} `), next);
+    }
+  }
+  async function chooseGroup(item) {
+    activeGroup = item; receptionPage = 0;
+    const summary = el('summary');
+    summary.replaceChildren(text('h3', 'TRACE-Ergebnis'), text('p', groupLabel(item)),
+      text('p', `Gruppenminimum und Observerzahl sind aggregiert. Karte und Messwerte zeigen einzelne Empfänge. Empfohlener Einzelempfang: #${item.representative_id} mit größter SNR-Abdeckung; bei Gleichstand neuester Empfang, dann höchste ID.`));
+    const mapButton = text('button', 'Zur TRACE-Karte');
+    mapButton.type = 'button';
+    mapButton.addEventListener('click', () => document.getElementById('node-map').scrollIntoView({block: 'center'}));
+    summary.append(mapButton);
+    // A second group can join the comparison; never silently replace either color.
+    renderReceptions();
+    const packet = item.packets.find(p => p.id === item.representative_id);
+    if (!selected.has(packet.id) && selected.size < 2) await select(packet, {checked: true});
+    else if (!selected.has(packet.id)) el('status').textContent = 'Messgruppe geöffnet. Für ihren Empfang zuerst eine der zwei Kartenbeobachtungen abwählen.';
+    summary.scrollIntoView({block: 'nearest'});
+  }
   async function search(next = false) {
     if (!next) {
       ++version; controller?.abort(); controller = new AbortController();
-      selected.clear(); details(); el('list').replaceChildren();
+      details(); el('list').replaceChildren();
       const hours = el('period').value, end = Date.now() / 1000;
       const start = hours === 'custom' ? new Date(el('start').value).getTime() / 1000 : end - Number(hours) * 3600;
       const until = hours === 'custom' ? new Date(el('end').value).getTime() / 1000 : end;
       if (!Number.isFinite(start) || !Number.isFinite(until) || start >= until || until - start > 31 * 86400) {
         el('status').textContent = 'Gültigen Zeitraum von höchstens 31 Tagen wählen.'; el('next').hidden = true; return;
       }
-      query = new URLSearchParams({start, end: until, first: el('first').value.toLowerCase(), last: el('last').value.toLowerCase()});
+      query = new URLSearchParams({grouped: 'true', start, end: until, first: el('first').value.toLowerCase(), last: el('last').value.toLowerCase()});
       if (el('hops').value !== '') query.set('hops', el('hops').value);
     } else query.set('before', cursor);
     const current = version;
-    el('next').disabled = true; el('status').textContent = 'TRACE-Empfänge werden durchsucht …';
+    el('next').disabled = true; el('status').textContent = 'TRACE-Messgruppen werden geladen …';
     try {
       const response = await fetch(`/api/map-traces?${query}`, {signal: controller.signal});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -162,6 +219,12 @@ function traceMapSnrText(value) {
       if (current !== version) return;
       // Keep the DOM bounded; selected comparison details survive page changes.
       el('list').replaceChildren(...result.items.map(item => {
+        if (result.grouped) {
+          const button = text('button', groupLabel(item), 'trace-group-choice');
+          button.type = 'button';
+          button.addEventListener('click', () => chooseGroup(item));
+          return button;
+        }
         const label = text('label', '', 'trace-map-choice'), checkbox = document.createElement('input');
         checkbox.type = 'checkbox'; checkbox.dataset.id = item.id; checkbox.checked = selected.has(item.id);
         checkbox.addEventListener('change', () => select(item, checkbox));
@@ -169,7 +232,8 @@ function traceMapSnrText(value) {
         return label;
       }));
       cursor = result.before; el('next').hidden = cursor == null;
-      el('status').textContent = `${result.items.length} Treffer · ${result.scanned} Empfänge geprüft${cursor ? ' · Weitere Archivseite verfügbar (auch bei leerer Trefferliste).' : ' · Archivende erreicht.'}`;
+      el('status').textContent = `${result.items.length} ${result.grouped ? 'Messgruppen' : 'Treffer'} · ${result.scanned} Empfänge geprüft${cursor ? ' · Weitere Archivseite verfügbar (auch bei leerer Trefferliste).' : ' · Ende des geladenen Bestands.'}`;
+      if (result.truncated) el('status').textContent += ' · Auf 5000 Empfänge begrenzt; Messgruppen können an Zeitraum-/Bestandsgrenzen unvollständig sein.';
     } catch (error) {
       if (current === version && error.name !== 'AbortError') el('status').textContent = `Suche fehlgeschlagen: ${error.message}`;
     } finally { if (current === version) el('next').disabled = false; }

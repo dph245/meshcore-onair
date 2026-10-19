@@ -207,8 +207,23 @@ class Archive:
                     ignored=ignored, truncated=len(rows) > 5000,
                     more_sessions=len(sessions) > limit, more_routes=len(histories) > 100)
 
-    def trace_map(self, start, end, before, first, last, hops):
-        from onair_trace_map import browse
+    def trace_map(self, start, end, before, first, last, hops, grouped=False):
+        from onair_trace_map import browse, grouped_snapshot, grouped_page
+        if grouped:
+            # Small bounded cache: page/group clicks never recompute correlation.
+            key = (start, end, first, last, hops)
+            with self._distance_lock, self.connect() as db:
+                cache = getattr(self, '_trace_groups', None)
+                if cache is None:
+                    cache = self._trace_groups = OrderedDict()
+                entry = cache.get(key)
+                if entry is None or time.monotonic() >= entry[0]:
+                    entry = (time.monotonic() + 120, grouped_snapshot(db, start, end, first, last, hops))
+                    cache[key] = entry
+                    while len(cache) > 2:
+                        cache.popitem(last=False)
+                cache.move_to_end(key)
+                return grouped_page(entry[1], before)
         with self.connect() as db:
             return browse(db, start, end, before, first, last, hops)
 

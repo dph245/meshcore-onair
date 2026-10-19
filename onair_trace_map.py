@@ -51,3 +51,30 @@ def detail(db, identity, positions):
         pos = positions.at(hop['public_key'], received) if hop['public_key'] else None
         hop['position'] = pos if distance_km(pos, pos) is not None else None
     return item
+
+
+def grouped_snapshot(db, start, end, first='', last='', hops=None):
+    """Bounded snapshot using the SAME correlation as the TRACE analysis tab."""
+    rows = db.execute("""SELECT id,received,packet_json FROM packets
+        WHERE kind='TRACE' AND received>=? AND received<?
+        ORDER BY id DESC LIMIT 5001""", (start, end)).fetchall()
+    names = dict(db.execute('SELECT public_key,name FROM nodes'))
+    sessions, _, ignored = trace_sessions(
+        [(identity, stamp, json.loads(raw)) for identity, stamp, raw in rows[:5000]], names)
+    items = []
+    for session in sessions:
+        route = [hop['hash'] for hop in session['hops']]
+        if ((first and (not route or route[0] != first))
+                or (last and (not route or route[-1] != last))
+                or (hops is not None and len(route) != hops)):
+            continue
+        items.append(session)
+    return dict(items=items, scanned=min(len(rows), 5000), ignored=ignored,
+                truncated=len(rows) > 5000, grouped=True)
+
+
+def grouped_page(snapshot, before=9223372036854775807):
+    offset = 0 if before == 9223372036854775807 else before
+    items = snapshot['items'][offset:offset + PAGE]
+    return dict(snapshot, items=items, total=len(snapshot['items']),
+                before=offset + PAGE if offset + PAGE < len(snapshot['items']) else None)

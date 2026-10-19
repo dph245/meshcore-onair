@@ -98,7 +98,7 @@
 <button type="button" data-mode="traces" aria-pressed="false">TRACEs</button>
 </div>
 <section id="map-traces" hidden>
-<p>Einzelne TRACE-Empfänge. Quelle und Ziel sind nicht sicher enthalten; Filter beziehen sich auf Routen-Hops. Linien zeigen nur benachbarte Hops mit SNR und historisch bekannter Position.</p>
+<p>TRACE-Messgruppen (60-Sekunden-Fenster). Quelle und Ziel sind nicht sicher enthalten; Filter beziehen sich auf Routen-Hops. Linien zeigen nur benachbarte Hops mit SNR und historisch bekannter Position.</p>
 <form id="map-trace-form" class="map-toolbar">
 <label>Zeitraum <select id="map-trace-period"><option value="24">24 Stunden</option><option value="168">7 Tage</option><option value="720">30 Tage</option><option value="custom">Benutzerdefiniert</option></select></label>
 <label>Von <input id="map-trace-start" type="datetime-local"></label>
@@ -109,10 +109,13 @@
 <button type="submit">Suchen</button>
 </form>
 <p id="map-trace-status" role="status">Zeitraum wählen und suchen.</p>
-<div id="map-trace-list"></div>
-<button id="map-trace-next" type="button" hidden>Weitere Empfänge durchsuchen</button>
+<div id="map-trace-summary" aria-live="polite"></div>
 <p>Bis zu zwei Beobachtungen zum Vergleich auswählen (Blau / Orange). SNR-Pfeile beziehen sich auf die Endpunkte im Beschriftungsfeld; Messungen stehen in Routenreihenfolge, der erste Durchlauf oben.</p>
 <div id="map-trace-detail" aria-live="polite"></div>
+<div id="map-trace-receptions"></div>
+<h3>Messgruppen</h3>
+<div id="map-trace-list"></div>
+<button id="map-trace-next" type="button" hidden>Weitere Messgruppen</button>
 </section>
 <div id="map-node-tools" class="map-toolbar"><span class="map-legend repeater" data-node-style="repeater">Repeater</span><span class="map-legend room" data-node-style="room">RoomServer</span><span class="map-legend companion" data-node-style="companion">Companion</span><span class="map-legend other" data-node-style="other">Weitere Nodes</span><button id="map-fit" type="button">Alle Nodes anzeigen</button></div>
 <p id="map-status" role="status">Noch keine Daten geladen.</p>

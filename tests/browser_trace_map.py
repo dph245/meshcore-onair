@@ -3,6 +3,90 @@ from playwright.sync_api import sync_playwright, expect
 from browser_meshlive import route_page
 
 
+
+def grouped_flow(browser):
+    from onair_trace import trace_sessions
+    from test_trace import reception
+    import time
+    now = time.time() - 30
+    names = {'aa'*32: 'Alpha', 'bb'*32: 'Beta'}
+    rows = [(i, now+i, reception(route='aabbaabbaa', snrs=tuple(range(min(i, 5))),
+             observer='east' if i % 2 else 'west')) for i in range(1, 11)]
+    groups, _, _ = trace_sessions(rows, names)
+    assert len(groups) == 1
+    for width, height in [(1280,900), (390,844), (844,390)]:
+        page = browser.new_page(viewport=dict(width=width, height=height))
+        errors, calls, details = [], [], []
+        response_groups = groups
+        page.on('pageerror', lambda e: errors.append(str(e)))
+        route_page(page, [])
+        def listing(route):
+            calls.append(route.request.url)
+            assert 'grouped=true' in route.request.url
+            route.fulfill(json=dict(grouped=True, items=response_groups, scanned=10, before=None,
+                                    truncated=False, total=1))
+        page.route('**/api/map-traces?*', listing)
+        def detail(route):
+            identity = int(route.request.url.rsplit('/',1)[1])
+            details.append(identity)
+            items, _, _ = trace_sessions([rows[identity-1]], names)
+            item = items[0]
+            for hop in item['hops']:
+                hop['position'] = dict(latitude=52 if hop['hash']=='aa' else 52.2, longitude=10)
+            route.fulfill(json=item)
+        page.route('**/api/map-traces/*', detail)
+        page.goto('http://trace-groups.test/')
+        page.locator('#tab-map').click()
+        page.locator('[data-mode=traces]').click()
+        page.locator('#map-trace-form button').click()
+        expect(page.locator('#map-trace-list button')).to_have_count(1)
+        expect(page.locator('#map-trace-list button')).to_contain_text('10 Empfänge')
+        expect(page.locator('#map-trace-list button')).to_contain_text('2 Observer')
+        page.locator('#map-trace-list button').click()
+        expect(page.locator('#map-trace-detail h3')).to_contain_text('#10')
+        expect(page.locator('#map-trace-summary')).to_contain_text('Beste Einzelabdeckung 5/5')
+        expect(page.locator('#map-trace-summary')).to_contain_text('aggregiert')
+        expect(page.locator('#map-trace-receptions input')).to_have_count(10)
+        assert details == [10]
+        assert page.locator('#map-trace-summary').bounding_box()['y'] < page.locator('#map-trace-receptions').bounding_box()['y']
+        page.locator('#map-trace-receptions input[data-id="4"]').check()
+        expect(page.locator('#map-trace-detail section')).to_have_count(2)
+        expect(page.locator('#map-trace-detail h3').nth(1)).to_contain_text('Orange · #4')
+        page.locator('#map-trace-receptions input[data-id="3"]').click()
+        expect(page.locator('#map-trace-receptions input[data-id="3"]')).not_to_be_checked()
+        page.locator('#map-trace-receptions input[data-id="10"]').uncheck()
+        expect(page.locator('#map-trace-detail section')).to_have_count(1)
+        expect(page.locator('#map-trace-detail h3')).to_contain_text('Blau · #4')
+        page.locator('[data-mode=paths]').click()
+        page.locator('[data-mode=traces]').click()
+        expect(page.locator('#map-trace-detail h3')).to_contain_text('#4')
+        assert len(calls) == 1
+        page.locator('#map-trace-summary button').click()
+        assert page.locator('#node-map').is_visible()
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        page.locator('#map-trace-summary').scroll_into_view_if_needed()
+        page.screenshot(path=f'/tmp/onair-trace-v2-{width}.png', full_page=True)
+        # A bounded reception table paginates without fetching/correlating again.
+        extra = [dict(id=100+i, received=now+i*.1, observer='east', observer_id='east',
+                      observed_hops=0, weakest_snr=None) for i in range(51)]
+        response_groups = [dict(groups[0], packets=groups[0]['packets'] + extra, receptions=61)]
+        page.locator('#map-trace-first').fill('aa')
+        page.locator('#map-trace-form button').click()
+        expect(page.locator('#map-trace-list button')).to_contain_text('61 Empfänge')
+        expect(page.locator('#map-trace-detail h3')).to_contain_text('#4')
+        assert 'first=aa' in calls[-1]
+        page.locator('#map-trace-list button').click()
+        expect(page.locator('#map-trace-receptions input')).to_have_count(50)
+        before_calls = len(calls)
+        page.locator('#map-trace-receptions button', has_text='Weitere').click()
+        expect(page.locator('#map-trace-receptions input')).to_have_count(11)
+        page.locator('#map-trace-receptions button', has_text='Vorherige').click()
+        expect(page.locator('#map-trace-receptions input')).to_have_count(50)
+        assert len(calls) == before_calls
+        assert not errors, errors
+        page.close()
+
+
 def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path='/usr/bin/chromium', headless=True,
@@ -95,6 +179,7 @@ def main():
         page.locator('#map-trace-period').select_option('custom')
         assert page.locator('#map-trace-start').is_enabled()
         assert not errors, errors
+        grouped_flow(browser)
         browser.close()
         print('TRACE map desktop/mobile: passed')
 

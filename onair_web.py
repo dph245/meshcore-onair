@@ -222,10 +222,11 @@ def map_traces(start: float = Query(..., ge=0, le=4102444800),
                before: int = Query(9223372036854775807, ge=1, le=9223372036854775807),
                first: str = Query('', pattern=r'^(?:[0-9a-f]{2}|[0-9a-f]{4}|[0-9a-f]{8}|[0-9a-f]{16})?$'),
                last: str = Query('', pattern=r'^(?:[0-9a-f]{2}|[0-9a-f]{4}|[0-9a-f]{8}|[0-9a-f]{16})?$'),
-               hops: int | None = Query(None, ge=0, le=255)):
+               hops: int | None = Query(None, ge=0, le=255),
+               grouped: bool = False):
     if end <= start or end - start > 31 * 86400:
         raise HTTPException(422, 'Zeitraum muss positiv sein und darf höchstens 31 Tage umfassen.')
-    return app.state.archive.trace_map(start, end, before, first, last, hops)
+    return app.state.archive.trace_map(start, end, before, first, last, hops, grouped=grouped)
 
 
 @app.get('/api/map-traces/{identity}')

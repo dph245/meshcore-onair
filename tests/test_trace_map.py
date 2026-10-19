@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import unittest
-from onair_trace_map import browse, detail
+from onair_trace_map import browse, detail, grouped_snapshot, grouped_page
 from onair_distance import Positions
 from test_trace import reception
 
@@ -90,6 +90,64 @@ class TraceMapTests(unittest.TestCase):
         legacy = self.add(3, packet)
         self.assertEqual([h['snr_min'] for h in detail(self.db, legacy, Positions(self.db, 0, 10))['hops']],
                          [12, 7.5, -3])
+
+    def test_grouped_progress_and_single_representative(self):
+        ids = []
+        for i in range(10):
+            ids.append(self.add(100 + i, reception(route='aabbaabbaa',
+                snrs=tuple(range(min(5, i + 1))), observer='east' if i % 2 else 'west')))
+        snapshot = grouped_snapshot(self.db, 0, 200)
+        self.assertEqual(len(snapshot['items']), 1)
+        group = snapshot['items'][0]
+        self.assertEqual(group['receptions'], 10)
+        self.assertEqual(len(group['observers']), 2)
+        self.assertEqual(group['representative_id'], ids[-1])
+        self.assertEqual(group['observed_hops'], 5)
+        self.assertEqual(len(group['packets']), 10)
+        self.assertEqual(grouped_page(snapshot)['items'], [group])
+        # A partial, much weaker sample must not alter the representative's SNR.
+        self.add(110, reception(route='aabbaabbaa', snrs=(-20,)))
+        group = grouped_snapshot(self.db, 0, 200)['items'][0]
+        self.assertEqual(group['weakest_snr'], -20)
+        self.assertEqual(group['representative_id'], ids[-1])
+        representative = detail(self.db, group['representative_id'], Positions(self.db, 0, 200))
+        self.assertEqual([h['snr_min'] for h in representative['hops']], [0, 1, 2, 3, 4])
+
+    def test_grouped_boundaries_filter_and_pagination(self):
+        for i in range(120):
+            self.add(100 + i, reception(tag=i))
+        snapshot = grouped_snapshot(self.db, 0, 500)
+        seen, cursor = [], 9223372036854775807
+        while cursor is not None:
+            page = grouped_page(snapshot, cursor)
+            self.assertLessEqual(len(page['items']), 50)
+            seen.extend(i['id'] for i in page['items'])
+            cursor = page['before']
+        self.assertEqual(len(set(seen)), 120)
+        self.assertEqual(grouped_snapshot(self.db, 0, 500, first='cc')['items'], [])
+        self.assertEqual(len(grouped_snapshot(self.db, 0, 500, hops=2)['items']), 120)
+        self.db.executemany('INSERT INTO packets(received,kind,packet_json) VALUES(?,?,?)',
+            [(i, 'TRACE', json.dumps(reception())) for i in range(5100)])
+        bounded = grouped_snapshot(self.db, 0, 6000)
+        self.assertEqual(bounded['scanned'], 5000)
+        self.assertTrue(bounded['truncated'])
+
+    def test_group_snapshot_cache_reuses_correlation(self):
+        import threading
+        from unittest.mock import patch
+        from onair_archive import Archive
+        from contextlib import nullcontext
+        archive = Archive.__new__(Archive)
+        archive._distance_lock = threading.Lock()
+        archive.connect = lambda: nullcontext(self.db)
+        for i in range(60):
+            self.add(i, reception(tag=i))
+        with patch('onair_trace_map.grouped_snapshot', wraps=grouped_snapshot) as build:
+            first = archive.trace_map(0, 100, 9223372036854775807, '', '', None, grouped=True)
+            second = archive.trace_map(0, 100, first['before'], '', '', None, grouped=True)
+            self.assertEqual(len(first['items']), 50)
+            self.assertEqual(len(second['items']), 10)
+            self.assertEqual(build.call_count, 1)
 
     def test_api_validation(self):
         import asyncio
