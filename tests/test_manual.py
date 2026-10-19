@@ -99,7 +99,7 @@ class ManualTests(unittest.TestCase):
         upgraded = Archive(self.path)
         upgraded.close()
         with upgraded.connect() as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 13)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 14)
         with patch.dict(os.environ, {'ONAIR_DB_PATH': str(self.path)}), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(['list']), 0)
 

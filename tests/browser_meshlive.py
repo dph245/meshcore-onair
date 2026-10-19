@@ -141,7 +141,10 @@ def main():
         assert page.locator('#meshlive-map canvas').count() == 0
         assert not any('mesh_live=true' in r for r in requests)
         asset_requests = [r for r in requests if r.startswith('/static/') and r.split('?')[0].endswith(('.css', '.js'))]
-        assert len(asset_requests) == 14 and all('?v=' in r for r in asset_requests), asset_requests
+        expected_assets = {'/static/' + p.relative_to(ROOT / 'static').as_posix()
+                           for p in (ROOT / 'static').rglob('*') if p.suffix in ('.css', '.js')}
+        assert {r.split('?')[0] for r in asset_requests} == expected_assets, asset_requests
+        assert all('?v=' in r for r in asset_requests), asset_requests
         current_text = text_regression(page)
         if args.compare_ref:
             baseline = browser.new_page(viewport={'width':1280, 'height':900})

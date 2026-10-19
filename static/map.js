@@ -501,7 +501,6 @@ async function loadMapNodes() {
       view.position = [item.latitude, item.longitude];
       view.label = label;
       view.nodeType = item.node_type;
-      view.name = item.name;
       view.signature = signature;
     }
     for (const [key, view] of mapMarkers) {

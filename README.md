@@ -448,15 +448,29 @@ Hash-Zusammenfassung wie die Übersicht. `/api/repeater-history` ist der zugehö
 Lese-Endpunkt. Beim ersten Start wird automatisch eine indizierte Hop-Zuordnung
 in der Pakettabelle ergänzt und aus vorhandenen Archivdaten befüllt (Schema 4).
 
-Der Tab **Map** zeigt außerdem beobachtete Repeater-Nachbarschaften als einblendbare
-Verbindungen. Ein Klick auf einen Repeater filtert die Linien auf seine direkten
-Nachbarn in beiden Richtungen. Bei aktivierter Checkbox **Repeater-Verbindungen anzeigen**
-bleiben nur der ausgewählte Repeater und seine direkten, auf der Karte zuordenbaren
-Nachbarn mit Icons und Namen sichtbar; alle anderen Nodes werden ausgeblendet.
-Die Namen bleiben dabei auch bei kleiner Zoomstufe sichtbar. Ausschalten der
-Checkbox zeigt wieder alle Nodes. Ein Klick auf die freie Karte oder auf **Alle
-Verbindungen anzeigen** hebt den Filter auf. Die Auswahl bleibt bei automatischen
-Aktualisierungen erhalten; die Checkbox zur Sichtbarkeit der Verbindungen gilt weiterhin.
+Der Tab **Map** startet mit dem Linkmodus **Ausgewählter Repeater** und ohne
+normale Linkstrecken. Die dauerhaft erreichbare Auswahl oberhalb der Karte bietet
+**Keine Links**, **Ausgewählter Repeater** und **Alle Links (Expertenmodus)**.
+Ein Klick auf einen Repeater hebt ihn hervor und zeigt im Standardmodus seine
+direkten Nachbarverbindungen in beiden Richtungen. Alle anderen Node-Marker bleiben
+sichtbar. Die Auswahl bleibt bei Verschieben, Zoom und automatischen Aktualisierungen
+erhalten. **Auswahl aufheben** oder ein Klick auf die freie Karte entfernt sie;
+im Standardmodus verschwinden dadurch die Linien. Im Expertenmodus bleiben alle
+Links sichtbar. Ein neuer Seitenaufruf stellt den Standardmodus wieder her.
+
+Die Repeater-Suche oberhalb der Karte findet Namen, Public-Key-Präfixe und vollständige
+Public Keys. Mehrdeutige Präfixe zeigen sämtliche bekannten Repeater-Kandidaten mit
+vollständigen Schlüsseln; eine automatische Zuordnung findet nicht statt. Die Auswahl
+eines verfügbaren Treffers zentriert die Karte, öffnet die vorhandenen Gerätedetails
+und zeigt dessen Links. Kandidaten ohne Kartenposition oder ohne Empfang seit mindestens
+vier Wochen werden mit dem Grund angezeigt, bleiben aber entsprechend den bisherigen
+Kartenregeln nicht auswählbar. Weitere Treffer sind ohne neue Serverabfrage erreichbar.
+
+**Repeater / Nodes** blendet normale Links aus; **Pfade** aktiviert bei Bedarf den
+selektiven Linkmodus. **TRACEs**, der Vergleich zweier TRACE-Empfänge und deren
+SNR-Beschriftungen bleiben vom normalen Linkmodus unabhängig. Einzelheiten und
+Prüfergebnisse: [Kartenübersicht – Etappe 1](docs/map-selection-stage1.md).
+
 Die Karte zeichnet die Verbindungen als
 Linien mit Richtungspfeilen. Blau bedeutet beide Richtungen beobachtet, Orange
 nur eine Richtung beobachtet. Bei sehr kurzen Linien entfallen die Pfeile aus
@@ -476,12 +490,17 @@ Die Spalten **A → B** und **B → A** zählen beide Weiterleitungsrichtungen s
 ein Filter zeigt nur in einer Richtung beobachtete Verbindungen. A → B bedeutet:
 erst von A, dann von B weitergeleitet. Einseitige Beobachtung ist kein Beweis für
 eine Funk-Einbahnstraße; Verkehr, Routing und Observer-Standorte beeinflussen sie.
-Nachbarschaftsdaten werden für den sichtbaren Tab alle 30 Sekunden abgerufen.
+Nachbarschaftsdaten werden für den sichtbaren Nachbar-Tab alle 30 Sekunden abgerufen.
+Die Karte lädt sie erst, wenn normale Links benötigt werden, und prüft sie dann
+im gleichen Takt; Suche, Zoom und Verschieben lösen keine zusätzlichen Linkabfragen aus.
 Der Server hält einen gemeinsamen Snapshot für 30 Sekunden im Speicher;
 gleichzeitige Anfragen lösen keine mehrfachen Berechnungen aus. Suche, Richtungsfilter,
 Sortierung und Seitenauswahl der Tabelle laufen auf dem Server; pro Abruf kommen
 höchstens 100 Zeilen zurück. Die Karte lädt separat nur Verbindungen mit zwei
-bekannten Positionen und überträgt jeden beteiligten Node einmal.
+bekannten Positionen und überträgt jeden beteiligten Node einmal. Ein lokaler
+Nachbarindex beschränkt im Standardmodus die erzeugten Linien und Pfeile auf
+den ausgewählten Repeater. Die gesamte kompakte Linkliste bleibt nach dem ersten
+Abruf für Auswahlwechsel im Browser verfügbar.
 Beide Endpunkte verwenden ETags: Bei unveränderten Daten antworten sie auf
 `If-None-Match` mit HTTP 304 ohne Antwortinhalt. Pro Snapshot werden höchstens
 64 Antwortvarianten gespeichert. Nachbarpaare und Richtungszähler werden beim

@@ -69,6 +69,13 @@ def main():
         assert page.locator('.trace-snr-label[data-trace-id="3"]').first.inner_text().splitlines()[-2:] == ['→ +7,5 dB', '← +0,25 dB']
         assert page.locator('.trace-snr-label[data-trace-id="3"]').nth(1).inner_text().splitlines()[-2:] == ['→ −10,5 dB', '← −3,0 dB']
         assert page.locator('.trace-snr-label[data-trace-id="4"]').first.inner_text().splitlines()[-2:] == ['→ −1,0 dB', '← +3,0 dB']
+        # Normal-link settings must never clear or redraw away TRACE comparison/SNR.
+        trace_count = page.locator('#node-map .leaflet-overlay-pane path').count()
+        for mode in ['none', 'all', 'selected']:
+            page.locator('#map-link-mode').select_option(mode)
+            expect(page.locator('.trace-snr-label')).to_have_count(4)
+            expect(page.locator('.trace-snr-value')).to_have_count(8)
+            assert page.locator('#node-map .leaflet-overlay-pane path').count() == trace_count
         # Dense sections at regional zoom: both routes retain every value on mobile.
         page.evaluate('nodeMap.setView([52.1,10.1], 7, {animate:false})')
         page.wait_for_timeout(300)

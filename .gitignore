@@ -52,3 +52,5 @@ tests/*
 !tests/test_trace_map.py
 !tests/browser_trace_map.py
 !tests/test_trace_map_ui.js
+
+!tests/browser_map_selection.py
