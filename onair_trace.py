@@ -6,7 +6,7 @@ from onair_scopes import scope_label
 WINDOW_SECONDS = 60
 
 
-def trace_sessions(rows, names):
+def trace_sessions(rows, names, include_packets=False):
     sessions, active, identities = [], {}, {}
     ignored = 0
 
@@ -54,7 +54,10 @@ def trace_sessions(rows, names):
         # One real reception, never a route assembled from session min/max values.
         session['representative_id'] = max(session['packets'],
             key=lambda p: (p['observed_hops'], p['received'], p['id']))['id']
-        session['packets'].sort(key=lambda p: (p['received'], p['id']), reverse=True)
+        if include_packets:
+            session['packets'].sort(key=lambda p: (p['received'], p['id']), reverse=True)
+        else:
+            session.pop('packets')
         route_key = session.pop('route_key')
         history = histories.setdefault(route_key, dict(
             id=session['id'], scope=session['scope'],

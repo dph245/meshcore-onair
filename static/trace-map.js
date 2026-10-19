@@ -183,6 +183,9 @@ function traceMapSnrText(value) {
   }
   async function chooseGroup(item) {
     activeGroup = item; receptionPage = 0;
+    for (const button of el('list').querySelectorAll('.trace-group-choice')) {
+      button.setAttribute('aria-pressed', String(button.dataset.id === String(item.id)));
+    }
     const summary = el('summary');
     summary.replaceChildren(text('h3', 'TRACE-Ergebnis'), text('p', groupLabel(item)),
       text('p', `Gruppenminimum und Observerzahl sind aggregiert. Karte und Messwerte zeigen einzelne Empfänge. Empfohlener Einzelempfang: #${item.representative_id} mit größter SNR-Abdeckung; bei Gleichstand neuester Empfang, dann höchste ID.`));
@@ -221,7 +224,8 @@ function traceMapSnrText(value) {
       el('list').replaceChildren(...result.items.map(item => {
         if (result.grouped) {
           const button = text('button', groupLabel(item), 'trace-group-choice');
-          button.type = 'button';
+          button.type = 'button'; button.dataset.id = item.id;
+          button.setAttribute('aria-pressed', String(activeGroup?.id === item.id));
           button.addEventListener('click', () => chooseGroup(item));
           return button;
         }

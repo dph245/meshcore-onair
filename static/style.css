@@ -343,3 +343,5 @@ main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
 #map-trace-receptions table{white-space:normal;table-layout:fixed}
 #map-trace-receptions th,#map-trace-receptions td{padding:6px;overflow-wrap:anywhere}
 #map-trace-summary p{overflow-wrap:anywhere}
+
+.trace-group-choice[aria-pressed=true]{border-color:var(--accent);box-shadow:inset 3px 0 var(--accent)}

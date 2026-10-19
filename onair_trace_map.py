@@ -60,7 +60,7 @@ def grouped_snapshot(db, start, end, first='', last='', hops=None):
         ORDER BY id DESC LIMIT 5001""", (start, end)).fetchall()
     names = dict(db.execute('SELECT public_key,name FROM nodes'))
     sessions, _, ignored = trace_sessions(
-        [(identity, stamp, json.loads(raw)) for identity, stamp, raw in rows[:5000]], names)
+        [(identity, stamp, json.loads(raw)) for identity, stamp, raw in rows[:5000]], names, include_packets=True)
     items = []
     for session in sessions:
         route = [hop['hash'] for hop in session['hops']]

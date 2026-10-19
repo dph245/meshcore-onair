@@ -384,6 +384,20 @@ liefert höchstens 100 Chronikgruppen und 100 Routenverläufe mit jeweils den
 neuesten 200 Messgruppen. Die Oberfläche zeigt erreichte Grenzen an.
 Die Auswertung unterstützt alte Archivpakete ohne Datenmigration.
 
+**Map → TRACEs** zeigt Messgruppen als Haupteinträge. Ein Klick öffnet das Ergebnis
+oberhalb der Einzelpakete und wählt den Empfang mit größter tatsächlicher
+SNR-Abdeckung für die Karte. Bei Gleichstand gewinnt der neueste Empfang,
+danach die höchste ID. Gruppenminima sind ausdrücklich aggregiert; Kartenwerte
+stammen immer aus einzelnen Empfängen. Die Empfangstabelle erhält den Vergleich
+zweier Beobachtungen in Blau/Orange. Filter- und Seitenwechsel behalten die Auswahl.
+
+Der optionale API-Modus `grouped=true` verwendet dieselbe Gruppierung und höchstens
+5000 Empfänge pro Zeitraum, mit 50 Messgruppen pro Seite. Zwei Abfrage-Snapshots
+werden jeweils bis zu 120 Sekunden gespeichert. Einzelpakete werden lokal in
+Tabellenseiten mit 50 Einträgen angezeigt. Ohne den Parameter bleibt die bestehende
+Einzelempfangs-API kompatibel. Details, Tests und Grenzen:
+[TRACE-Ansicht 2.0](docs/trace-ui-v2.md).
+
 ```bash
 .venv/bin/python -m unittest discover -s tests -p 'test_trace.py'
 deno run --allow-read=static/trace.js tests/test_trace_ui.js

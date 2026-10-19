@@ -12,7 +12,7 @@ def grouped_flow(browser):
     names = {'aa'*32: 'Alpha', 'bb'*32: 'Beta'}
     rows = [(i, now+i, reception(route='aabbaabbaa', snrs=tuple(range(min(i, 5))),
              observer='east' if i % 2 else 'west')) for i in range(1, 11)]
-    groups, _, _ = trace_sessions(rows, names)
+    groups, _, _ = trace_sessions(rows, names, include_packets=True)
     assert len(groups) == 1
     for width, height in [(1280,900), (390,844), (844,390)]:
         page = browser.new_page(viewport=dict(width=width, height=height))
