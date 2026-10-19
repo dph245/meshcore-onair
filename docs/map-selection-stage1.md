@@ -3,6 +3,9 @@
 Stand: 19. Oktober 2026. Implementierung auf Basis des vorigen Standes `d567222`;
 der Zwischenstand wurde während der Arbeit als `4f9e7e1` übernommen.
 
+> Folgeänderung: [Etappe 1.1](map-selection-stage1.1.md) ersetzt die hier beschriebene
+> vollständige Markerübersicht bei aktiver Auswahl durch selektive Marker und zoomabhängige Nachbarlabels.
+
 ## Verhalten
 
 - Die Karte startet mit **Ausgewählter Repeater**, ohne Auswahl und ohne normale Links.

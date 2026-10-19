@@ -27,6 +27,8 @@ def main():
         page.route('**/api/map-traces/*', detail)
         page.goto('http://trace.test/')
         page.locator('#tab-map').click()
+        page.wait_for_function('mapMarkers.size > 0')
+        page.evaluate("setMapLinkMode('none'); selectMapRepeater([...mapMarkers.keys()][0])")
         page.locator('[data-mode=traces]').click()
         assert page.locator('#map-node-tools').is_hidden()
         page.locator('#map-trace-form button').click()

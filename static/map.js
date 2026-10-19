@@ -66,7 +66,7 @@ function layoutMapNodes() {
         if (!view.line) {
           view.line = L.polyline([origin, displayed], {
             className: 'map-position-link', weight: 1.5, opacity: 0.8, interactive: false
-          }).addTo(nodeMap);
+          });
         } else view.line.setLatLngs([origin, displayed]);
       } else if (view.line) {
         view.line.remove();
@@ -195,8 +195,9 @@ function drawMapNeighbors() {
     if (link.forward_count) drawNeighborArrow(start, end, 0.65, color);
     if (link.reverse_count) drawNeighborArrow(end, start, 0.65, color);
   }
+  nodeMap.getContainer().classList.toggle('map-neighbor-focus', focused);
   for (const [key, view] of mapMarkers) {
-    const visible = !traceMode;
+    const visible = !traceMode && (!focused || visibleNodes.has(key));
     // Removing the layer also removes its label, tooltip and popup.
     for (const layer of [view.marker, view.line]) {
       if (!layer) continue;
@@ -372,6 +373,7 @@ function updateMapLabels() {
   container.style.setProperty('--map-node-size', `${mapNodeSize()}px`);
   container.classList.toggle('map-labels-small', zoom >= 10 && zoom < 12);
   container.classList.toggle('map-labels-hidden', zoom < 10);
+  container.classList.toggle('map-neighbor-labels-hidden', zoom < 14);
 }
 
 function showNodeMap() {
@@ -479,7 +481,7 @@ async function loadMapNodes() {
       if (!view) {
         const marker = L.marker([item.latitude, item.longitude], {icon: markerIcon,
           alt: `${type}: ${label}`, riseOnHover: true,
-          bubblingMouseEvents: false}).addTo(nodeMap);
+          bubblingMouseEvents: false});
         marker.bindTooltip(text('span', label), tooltipOptions);
         marker.bindPopup(mapNodeInfo(item));
         view = {marker};

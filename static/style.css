@@ -25,9 +25,10 @@ tr.packet td{vertical-align:top}td.message{white-space:pre-wrap;overflow-wrap:an
 #theme-toggle{white-space:nowrap}a{color:var(--accent)}
 #node-map .map-position-link{stroke:var(--secondary)}
 #node-map.map-labels-small .map-repeater-label{font-size:10px;line-height:13px;padding:1px 4px}
-#node-map.map-labels-hidden:not(.map-neighbor-focus) .map-repeater-label{display:none}
-#node-map:not(.map-labels-hidden) .map-repeater-tooltip,
-#node-map.map-neighbor-focus .map-repeater-tooltip{display:none}
+#node-map.map-labels-hidden .map-repeater-label{display:none}
+#node-map.map-neighbor-focus.map-neighbor-labels-hidden .map-repeater-label{display:none}
+#node-map:not(.map-labels-hidden):not(.map-neighbor-focus) .map-repeater-tooltip,
+#node-map.map-neighbor-focus:not(.map-neighbor-labels-hidden) .map-repeater-tooltip{display:none}
 
 .live-filter{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 18px}.live-filter input,.live-filter select{font:inherit;background:var(--surface);color:var(--fg);border:1px solid var(--control-border);padding:5px;max-width:100%}.live-filter input{width:280px}.live-filter select{max-width:min(100%,360px)}.live-filter p{flex-basis:100%;margin:0}.live-filter p:empty{display:none}
 
@@ -315,8 +316,8 @@ main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
 .map-repeater-result{text-align:left;white-space:normal;overflow-wrap:anywhere;flex-shrink:0}
 .map-repeater-result span{display:block;font-size:12px}
 #node-map .map-repeater-selected .map-node-symbol{outline:4px solid #e17a00;outline-offset:3px;box-shadow:0 0 0 7px #fff}
-#node-map.map-labels-hidden .map-repeater-selected .map-repeater-label,
-#node-map.map-labels-hidden .map-repeater-related .map-repeater-label{display:flex}
+#node-map .map-repeater-selected .map-repeater-label,
+#node-map.map-neighbor-focus.map-neighbor-labels-hidden .map-repeater-selected .map-repeater-label{display:flex}
 @media(max-width:500px){
   .map-selection-tools .map-search-label{flex-basis:100%}
   .map-selection-tools label:has(#map-link-mode){flex:1 1 100%;flex-direction:row;align-items:center;white-space:nowrap;font-size:12px}

@@ -452,8 +452,11 @@ Der Tab **Map** startet mit dem Linkmodus **Ausgewählter Repeater** und ohne
 normale Linkstrecken. Die dauerhaft erreichbare Auswahl oberhalb der Karte bietet
 **Keine Links**, **Ausgewählter Repeater** und **Alle Links (Expertenmodus)**.
 Ein Klick auf einen Repeater hebt ihn hervor und zeigt im Standardmodus seine
-direkten Nachbarverbindungen in beiden Richtungen. Alle anderen Node-Marker bleiben
-sichtbar. Die Auswahl bleibt bei Verschieben, Zoom und automatischen Aktualisierungen
+direkten Nachbarverbindungen in beiden Richtungen. Im selektiven Modus bleiben nur
+der ausgewählte Repeater und seine eindeutig zugeordneten direkten Nachbarn sichtbar.
+Sein Namenslabel bleibt bei jeder Zoomstufe erhalten; Nachbarlabels erscheinen erst
+ab Zoom 14. Klick/Popup und Hover-Namen bleiben erreichbar. Ohne Auswahl sowie in
+**Keine Links** und **Alle Links** erscheinen sämtliche normalerweise sichtbaren Nodes. Die Auswahl bleibt bei Verschieben, Zoom und automatischen Aktualisierungen
 erhalten. **Auswahl aufheben** oder ein Klick auf die freie Karte entfernt sie;
 im Standardmodus verschwinden dadurch die Linien. Im Expertenmodus bleiben alle
 Links sichtbar. Ein neuer Seitenaufruf stellt den Standardmodus wieder her.
@@ -469,7 +472,8 @@ Kartenregeln nicht auswählbar. Weitere Treffer sind ohne neue Serverabfrage err
 **Repeater / Nodes** blendet normale Links aus; **Pfade** aktiviert bei Bedarf den
 selektiven Linkmodus. **TRACEs**, der Vergleich zweier TRACE-Empfänge und deren
 SNR-Beschriftungen bleiben vom normalen Linkmodus unabhängig. Einzelheiten und
-Prüfergebnisse: [Kartenübersicht – Etappe 1](docs/map-selection-stage1.md).
+Prüfergebnisse: [Kartenübersicht – Etappe 1](docs/map-selection-stage1.md) und
+[Marker und Beschriftungen – Etappe 1.1](docs/map-selection-stage1.1.md).
 
 Die Karte zeichnet die Verbindungen als
 Linien mit Richtungspfeilen. Blau bedeutet beide Richtungen beobachtet, Orange

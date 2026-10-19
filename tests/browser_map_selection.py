@@ -14,6 +14,75 @@ LINKS = dict(nodes=[[n['public_key'], n['name']] for n in NODES],
                     [0, 3, 2, 0, 2, 102, 16000]], total=3)
 
 
+
+def dense_neighbors(browser):
+    # Synthetic identities/topology: counts from the field report, no production data.
+    nodes = [dict(deepcopy(NODES[0]), public_key=f'{i:064x}', name=f'Node {i}',
+                  node_type=2 if i < 250 else 1 + i % 4,
+                  latitude=52 + (i % 40) * .03, longitude=10 + (i // 40) * .03)
+             for i in range(1600)]
+    nodes[0].update(name='ÖselPieter', public_key='8ebc1d'.ljust(64, '0'))
+    nodes[1].update(name='Brocken3', public_key='b317ac'.ljust(64, '0'))
+    # Preserve the existing exact-position offset layout, even with hidden peers.
+    for i in [2, 3, 1599]:
+        nodes[i].update(latitude=52.01, longitude=10.01)
+    links = [[0, i, 3, 2, 1, 100, 4] for i in range(2, 39)]
+    links += [[1, i, 3, 2, 1, 100, 4] for i in range(2, 211)]
+    for width, height in [(1280, 900), (390, 844), (844, 390)]:
+        page = browser.new_page(viewport=dict(width=width, height=height))
+        errors, requests, calls = [], [], []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        route_page(page, requests)
+        page.route('**/api/map-nodes', lambda route: route.fulfill(json=dict(
+            items=nodes, inactive=0, without_position=0)))
+        def respond(route):
+            calls.append(route.request.url)
+            route.fulfill(json=dict(nodes=[[n['public_key'], n['name']] for n in nodes],
+                                    links=links, total=len(links)))
+        page.route('**/api/repeater-neighbors/map', respond)
+        page.goto('http://dense.test/')
+        page.locator('#tab-map').click()
+        expect(page.locator('#node-map .map-marker')).to_have_count(1600)
+        assert not calls
+        page.evaluate('window.originalMarkers = new Map([...mapMarkers].map(([k,v]) => [k,v.marker]))')
+        for selected, count in [(0, 37), (1, 209), (0, 37), (1, 209)]:
+            key = nodes[selected]['public_key']
+            page.evaluate('(key) => selectMapRepeater(key)', key)
+            expect(page.locator('#node-map .map-marker')).to_have_count(count + 1)
+            assert page.evaluate('neighborLayer.getLayers().filter(l => l.options.bubblingMouseEvents === false).length') == count
+            for zoom in [7, 10, 12, 13, 14, 7]:
+                page.evaluate('(zoom) => nodeMap.setView([52.04,10.04], zoom, {animate:false})', zoom)
+                page.wait_for_timeout(60)
+                # Detached hidden icons never participate in browser label layout.
+                visible_labels = page.locator('#node-map .map-repeater-label').evaluate_all(
+                    "(els) => els.filter(e => getComputedStyle(e).display !== 'none').length")
+                assert visible_labels == (count + 1 if zoom >= 14 else 1), (zoom, visible_labels)
+                assert page.locator('#node-map .map-repeater-selected .map-repeater-label').evaluate(
+                    "(e) => getComputedStyle(e).display") != 'none'
+            page.evaluate('loadMapNodes()')
+            expect(page.locator('#node-map .map-marker')).to_have_count(count + 1)
+            assert page.evaluate('[...mapMarkers].every(([k,v]) => originalMarkers.get(k) === v.marker)')
+            assert page.evaluate('!nodeMap.hasLayer(mapMarkers.get([...mapMarkers.keys()][1599]).line)')
+        assert len(calls) == 1, 'Selection/zoom/refresh reuse the local neighbor index'
+        # Actual click opens the existing popup even while permanent labels are hidden.
+        page.evaluate('(key) => mapMarkers.get(key).marker.getElement().click()', nodes[2]['public_key'])
+        expect(page.locator('#node-map .leaflet-popup-content')).to_contain_text(nodes[2]['public_key'])
+        page.evaluate('nodeMap.closePopup()')
+        for mode in ['none', 'all']:
+            page.locator('#map-link-mode').select_option(mode)
+            expect(page.locator('#node-map .map-marker')).to_have_count(1600)
+        page.locator('#map-link-mode').select_option('selected')
+        page.locator('#map-neighbors-reset').click()
+        expect(page.locator('#node-map .map-marker')).to_have_count(1600)
+        page.evaluate('(key) => selectMapRepeater(key)', nodes[1]['public_key'])
+        page.evaluate('(key) => nodeMap.setView(mapMarkers.get(key).marker.getLatLng(), 7, {animate:false})', nodes[1]['public_key'])
+        page.mouse.move(0, 0)
+        page.locator('#node-map').screenshot(path=f'/tmp/onair-dense-{width}x{height}.png')
+        assert not errors, errors
+        page.close()
+    print('Dense selection: 1600 nodes, 37/209 neighbors, zoom 7–14, marker reuse, refresh and three viewports passed')
+
+
 def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path='/usr/bin/chromium', headless=True,
@@ -50,7 +119,7 @@ def main():
             expect(page.locator('#map-selected-repeater')).to_contain_text(NAMES[0])
             expect(page.locator('#node-map .map-repeater-selected')).to_have_count(1)
             expect(page.locator('#node-map .leaflet-popup-content')).to_contain_text(KEYS[0])
-            expect(page.locator('#node-map .map-marker')).to_have_count(4)
+            expect(page.locator('#node-map .map-marker')).to_have_count(3)
             page.wait_for_function('neighborLayer.getLayers().length === 5')
             assert len(link_calls) == 1
             assert page.evaluate('neighborLayer.getLayers().filter(l => l.options.bubblingMouseEvents === false).length') == 2
@@ -59,7 +128,7 @@ def main():
             page.evaluate('nodeMap.closePopup(); nodeMap.panBy([30,20], {animate:false}); nodeMap.setZoom(11, {animate:false})')
             assert page.evaluate('selectedMapRepeater') == KEYS[0]
             assert len(link_calls) == 1
-            # Actual marker interaction replaces the selection; other markers stay in the layer.
+            # Actual marker interaction replaces the selection; unrelated markers leave the layer.
             page.evaluate('(key) => nodeMap.setView(mapMarkers.get(key).marker.getLatLng(), 12, {animate:false})', KEYS[1])
             page.evaluate('(key) => mapMarkers.get(key).marker.getElement().click()', KEYS[1])
             expect(page.locator('#map-selected-repeater')).to_contain_text(NAMES[1])
@@ -117,6 +186,7 @@ def main():
             page.screenshot(path=f'/tmp/onair-map-selection-{width}x{height}.png', full_page=True)
             assert not errors, errors
             page.close()
+        dense_neighbors(browser)
         browser.close()
     print('Selective map links: four desktop/mobile sizes, modes, collisions, search, far links, context and request counts passed')
 
