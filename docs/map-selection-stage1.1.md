@@ -1,5 +1,8 @@
 # Etappe 1.1 – Marker und Beschriftungen
 
+> Folgeänderung: [Etappe 1.2](map-selection-stage1.2.md) stellt direkte Nachbarn
+> unter Zoom 12 als kleine interaktive Punkte dar. Die Selektion bleibt unverändert.
+
 ## Bestandsaufnahme und Änderung
 
 Etappe 1 verwendete bereits einen lokalen Nachbarindex und getrennte normale

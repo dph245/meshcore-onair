@@ -454,8 +454,9 @@ normale Linkstrecken. Die dauerhaft erreichbare Auswahl oberhalb der Karte biete
 Ein Klick auf einen Repeater hebt ihn hervor und zeigt im Standardmodus seine
 direkten Nachbarverbindungen in beiden Richtungen. Im selektiven Modus bleiben nur
 der ausgewählte Repeater und seine eindeutig zugeordneten direkten Nachbarn sichtbar.
-Sein Namenslabel bleibt bei jeder Zoomstufe erhalten; Nachbarlabels erscheinen erst
-ab Zoom 14. Klick/Popup und Hover-Namen bleiben erreichbar. Ohne Auswahl sowie in
+Der ausgewählte Repeater bleibt bei jeder Zoomstufe als Icon mit Name sichtbar.
+Direkte Nachbarn erscheinen bis Zoom 11 als kleine klickbare Punkte, bei 12–13 als
+Icons ohne Namen und ab Zoom 14 als Icons mit Namen. Klick/Popup und Hover-Namen bleiben erreichbar. Ohne Auswahl sowie in
 **Keine Links** und **Alle Links** erscheinen sämtliche normalerweise sichtbaren Nodes. Die Auswahl bleibt bei Verschieben, Zoom und automatischen Aktualisierungen
 erhalten. **Auswahl aufheben** oder ein Klick auf die freie Karte entfernt sie;
 im Standardmodus verschwinden dadurch die Linien. Im Expertenmodus bleiben alle
@@ -473,7 +474,8 @@ Kartenregeln nicht auswählbar. Weitere Treffer sind ohne neue Serverabfrage err
 selektiven Linkmodus. **TRACEs**, der Vergleich zweier TRACE-Empfänge und deren
 SNR-Beschriftungen bleiben vom normalen Linkmodus unabhängig. Einzelheiten und
 Prüfergebnisse: [Kartenübersicht – Etappe 1](docs/map-selection-stage1.md) und
-[Marker und Beschriftungen – Etappe 1.1](docs/map-selection-stage1.1.md).
+[Marker und Beschriftungen – Etappe 1.1](docs/map-selection-stage1.1.md) sowie
+[Punktdarstellung – Etappe 1.2](docs/map-selection-stage1.2.md).
 
 Die Karte zeichnet die Verbindungen als
 Linien mit Richtungspfeilen. Blau bedeutet beide Richtungen beobachtet, Orange

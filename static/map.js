@@ -374,6 +374,7 @@ function updateMapLabels() {
   container.classList.toggle('map-labels-small', zoom >= 10 && zoom < 12);
   container.classList.toggle('map-labels-hidden', zoom < 10);
   container.classList.toggle('map-neighbor-labels-hidden', zoom < 14);
+  container.classList.toggle('map-neighbor-points', zoom < 12);
 }
 
 function showNodeMap() {
@@ -471,6 +472,8 @@ async function loadMapNodes() {
         className: item.node_type === 2 ? 'map-repeater-tooltip' : ''};
       const icon = text('div', '', 'map-marker-content');
       icon.append(mapNodeSymbol(style));
+      // Reuse MeshLive's dot styling; keep the existing 36px interactive marker.
+      icon.append(text('span', '', `meshlive-node-dot map-neighbor-dot ${style}`));
       if (item.node_type === 2) {
         const nodeLabel = text('span', '', 'map-repeater-label');
         nodeLabel.append(text('span', item.name || 'Ohne Namen'),

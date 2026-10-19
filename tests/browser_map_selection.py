@@ -1,5 +1,6 @@
 """Offline real-Leaflet checks for selective links; no server, MQTT or production DB."""
 from copy import deepcopy
+from math import sin, cos
 from playwright.sync_api import sync_playwright, expect
 from browser_meshlive import route_page, NODES
 
@@ -19,17 +20,18 @@ def dense_neighbors(browser):
     # Synthetic identities/topology: counts from the field report, no production data.
     nodes = [dict(deepcopy(NODES[0]), public_key=f'{i:064x}', name=f'Node {i}',
                   node_type=2 if i < 250 else 1 + i % 4,
-                  latitude=52 + (i % 40) * .03, longitude=10 + (i // 40) * .03)
+                  latitude=51.5 + cos(i * 2.4) * (0.2 + i % 31 / 31) * 3,
+                  longitude=10 + sin(i * 2.4) * (0.2 + i % 31 / 31) * 5)
              for i in range(1600)]
-    nodes[0].update(name='ÖselPieter', public_key='8ebc1d'.ljust(64, '0'))
-    nodes[1].update(name='Brocken3', public_key='b317ac'.ljust(64, '0'))
+    nodes[0].update(latitude=52, longitude=10.5, name='ÖselPieter', public_key='8ebc1d'.ljust(64, '0'))
+    nodes[1].update(latitude=51.8, longitude=10.62, name='Brocken3', public_key='b317ac'.ljust(64, '0'))
     # Preserve the existing exact-position offset layout, even with hidden peers.
     for i in [2, 3, 1599]:
         nodes[i].update(latitude=52.01, longitude=10.01)
     links = [[0, i, 3, 2, 1, 100, 4] for i in range(2, 39)]
     links += [[1, i, 3, 2, 1, 100, 4] for i in range(2, 211)]
     for width, height in [(1280, 900), (390, 844), (844, 390)]:
-        page = browser.new_page(viewport=dict(width=width, height=height))
+        page = browser.new_page(viewport=dict(width=width, height=height), has_touch=width < 1000)
         errors, requests, calls = [], [], []
         page.on('pageerror', lambda error: errors.append(str(error)))
         route_page(page, requests)
@@ -50,9 +52,17 @@ def dense_neighbors(browser):
             page.evaluate('(key) => selectMapRepeater(key)', key)
             expect(page.locator('#node-map .map-marker')).to_have_count(count + 1)
             assert page.evaluate('neighborLayer.getLayers().filter(l => l.options.bubblingMouseEvents === false).length') == count
-            for zoom in [7, 10, 12, 13, 14, 7]:
+            for zoom in [7, 10, 11, 12, 13, 14, 11, 14, 7]:
                 page.evaluate('(zoom) => nodeMap.setView([52.04,10.04], zoom, {animate:false})', zoom)
                 page.wait_for_timeout(60)
+                dots = page.locator('#node-map .map-neighbor-dot').evaluate_all(
+                    "(els) => els.filter(e => getComputedStyle(e).display !== 'none').length")
+                assert dots == (count if zoom < 12 else 0), (zoom, dots)
+                symbols = page.locator('#node-map .map-node-symbol').evaluate_all(
+                    "(els) => els.filter(e => getComputedStyle(e).display !== 'none').length")
+                assert symbols == (1 if zoom < 12 else count + 1)
+                assert page.locator('#node-map .map-repeater-selected .map-node-symbol').evaluate(
+                    "(e) => getComputedStyle(e).display") != 'none'
                 # Detached hidden icons never participate in browser label layout.
                 visible_labels = page.locator('#node-map .map-repeater-label').evaluate_all(
                     "(els) => els.filter(e => getComputedStyle(e).display !== 'none').length")
@@ -64,13 +74,34 @@ def dense_neighbors(browser):
             assert page.evaluate('[...mapMarkers].every(([k,v]) => originalMarkers.get(k) === v.marker)')
             assert page.evaluate('!nodeMap.hasLayer(mapMarkers.get([...mapMarkers.keys()][1599]).line)')
         assert len(calls) == 1, 'Selection/zoom/refresh reuse the local neighbor index'
-        # Actual click opens the existing popup even while permanent labels are hidden.
-        page.evaluate('(key) => mapMarkers.get(key).marker.getElement().click()', nodes[2]['public_key'])
-        expect(page.locator('#node-map .leaflet-popup-content')).to_contain_text(nodes[2]['public_key'])
+        # Real pointer/touch input on a point, including the invisible part of its hit area.
+        target = nodes[50]['public_key']
+        page.evaluate('''(key) => {
+            const marker = mapMarkers.get(key).marker;
+            nodeMap.setView(marker.getLatLng(), 11, {animate:false});
+            marker.getElement().id = 'point-touch-target';
+        }''', target)
+        hit = page.locator('#point-touch-target')
+        dot = hit.locator('.map-neighbor-dot')
+        assert dot.bounding_box()['width'] == 8
+        assert hit.bounding_box()['width'] == 36
+        hit.hover()
+        expect(page.locator('#node-map .leaflet-tooltip')).to_contain_text('Node 50')
+        # 10px from the center is outside the visible 4px-radius dot.
+        if width < 1000:
+            hit.tap(position=dict(x=28, y=18))
+        else:
+            hit.click(position=dict(x=28, y=18))
+        expect(page.locator('#node-map .leaflet-popup-content')).to_contain_text(target)
+        assert page.evaluate('selectedMapRepeater') == target
+        assert page.locator('#point-touch-target .map-node-symbol').evaluate(
+            "(e) => getComputedStyle(e).display") != 'none'
         page.evaluate('nodeMap.closePopup()')
         for mode in ['none', 'all']:
             page.locator('#map-link-mode').select_option(mode)
             expect(page.locator('#node-map .map-marker')).to_have_count(1600)
+            assert page.locator('#node-map .map-neighbor-dot').evaluate_all(
+                "(els) => els.every(e => getComputedStyle(e).display === 'none')")
         page.locator('#map-link-mode').select_option('selected')
         page.locator('#map-neighbors-reset').click()
         expect(page.locator('#node-map .map-marker')).to_have_count(1600)
@@ -88,7 +119,7 @@ def main():
         browser = pw.chromium.launch(executable_path='/usr/bin/chromium', headless=True,
                                      args=['--no-sandbox', '--disable-dev-shm-usage'])
         for width, height in [(1280, 900), (390, 844), (320, 568), (844, 390)]:
-            page = browser.new_page(viewport=dict(width=width, height=height))
+            page = browser.new_page(viewport=dict(width=width, height=height), has_touch=width < 1000)
             errors, requests = [], []
             page.on('pageerror', lambda error: errors.append(str(error)))
             route_page(page, requests)

@@ -333,3 +333,8 @@ main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
   #map-selected-repeater{flex:0 0 100%;font-size:11px;line-height:14px}
   #map-repeater-results{max-height:80px}
 }
+
+/* Only normal selected-neighbor view uses points; marker/anchor/hit area stay 36px. */
+#node-map .map-neighbor-dot{display:none;pointer-events:none}
+#node-map.map-neighbor-focus.map-neighbor-points .map-repeater-related:not(.map-repeater-selected) .map-node-symbol{display:none}
+#node-map.map-neighbor-focus.map-neighbor-points .map-repeater-related:not(.map-repeater-selected) .map-neighbor-dot{display:block}
