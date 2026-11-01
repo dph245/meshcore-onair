@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import io
 import json
+import ssl
 import unittest
 import tempfile
 from types import SimpleNamespace
@@ -14,6 +15,64 @@ from node_fixtures import node_database
 
 NODE_NAMES = {'6f33a9' + '0' * 58: 'Test-Repeater',
               'b317ac' + '0' * 58: 'Brocken'}
+
+
+class MqttConnectionTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch.multiple(mqtt, MQTT_TLS='false', MQTT_USERNAME='',
+                                         MQTT_PASSWORD='', MQTT_CA_CERTS=''))
+        self.factory = self.enterContext(patch.object(mqtt.mqtt, 'Client'))
+        self.client = self.factory.return_value
+
+    def test_existing_plain_tcp_defaults(self):
+        self.assertIs(mqtt.create_client(), self.client)
+        self.client.username_pw_set.assert_not_called()
+        self.client.tls_set_context.assert_not_called()
+        self.client.connect.assert_not_called()
+        self.client.publish.assert_not_called()
+
+    def test_tls_and_credentials_with_verified_server(self):
+        with patch.multiple(mqtt, MQTT_TLS='true', MQTT_USERNAME='reader',
+                            MQTT_PASSWORD='  secret!$  '):
+            mqtt.create_client()
+        self.client.username_pw_set.assert_called_once_with('reader', '  secret!$  ')
+        context = self.client.tls_set_context.call_args.args[0]
+        self.assertIsInstance(context, ssl.SSLContext)
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertGreaterEqual(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+        self.client.connect.assert_not_called()
+        self.client.publish.assert_not_called()
+
+    def test_custom_ca_is_loaded(self):
+        with patch.multiple(mqtt, MQTT_TLS='on', MQTT_CA_CERTS='/certs/broker.pem'), \
+                patch.object(mqtt.ssl, 'create_default_context') as create_context:
+            mqtt.create_client()
+        create_context.assert_called_once_with(cafile='/certs/broker.pem')
+        self.client.tls_set_context.assert_called_once_with(create_context.return_value)
+
+    def test_unreadable_ca_fails_without_plaintext_fallback(self):
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.multiple(mqtt, MQTT_TLS='true', MQTT_CA_CERTS=folder + '/missing.pem'):
+            with self.assertRaises(FileNotFoundError):
+                mqtt.create_client()
+        self.client.connect.assert_not_called()
+        self.client.tls_set_context.assert_not_called()
+
+    def test_credentials_without_tls_remain_supported(self):
+        with patch.multiple(mqtt, MQTT_USERNAME='reader', MQTT_PASSWORD='secret'):
+            mqtt.create_client()
+        self.client.username_pw_set.assert_called_once_with('reader', 'secret')
+        self.client.tls_set_context.assert_not_called()
+
+    def test_invalid_configuration_is_rejected_before_client_creation(self):
+        for settings, variable in [({'MQTT_TLS': 'treu'}, 'ONAIR_MQTT_TLS'),
+                                   ({'MQTT_PASSWORD': 'secret'}, 'ONAIR_MQTT_PASSWORD'),
+                                   ({'MQTT_CA_CERTS': '/ca.pem'}, 'ONAIR_MQTT_CA_CERTS')]:
+            with self.subTest(settings=list(settings)), patch.multiple(mqtt, **settings):
+                with self.assertRaisesRegex(ValueError, variable):
+                    mqtt.create_client()
+        self.factory.assert_not_called()
 
 
 def packet(raw='15416f33abcd', **fields):

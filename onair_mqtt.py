@@ -1,6 +1,7 @@
 import json
 import math
 import os
+import ssl
 import uuid
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
@@ -21,6 +22,10 @@ from onair_payload import decode_payload_details
 BROKER_HOST = os.environ.get("ONAIR_MQTT_HOST", "192.168.88.40")
 BROKER_PORT = int(os.environ.get("ONAIR_MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("ONAIR_MQTT_TOPIC", "meshcore/#")
+MQTT_TLS = os.environ.get("ONAIR_MQTT_TLS", "false").strip().lower()
+MQTT_USERNAME = os.environ.get("ONAIR_MQTT_USERNAME", "")
+MQTT_PASSWORD = os.environ.get("ONAIR_MQTT_PASSWORD", "")
+MQTT_CA_CERTS = os.environ.get("ONAIR_MQTT_CA_CERTS", "")
 
 SHOW_STATUS = True
 SHOW_TX = os.environ.get("ONAIR_SHOW_TX", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -574,11 +579,26 @@ def on_message(client, userdata, msg):
 # ============================================================
 
 def create_client(packet_sink=None, status_sink=None):
+    if MQTT_TLS not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+        raise ValueError("ONAIR_MQTT_TLS muss true oder false sein")
+    use_tls = MQTT_TLS in {"1", "true", "yes", "on"}
+    if MQTT_PASSWORD and not MQTT_USERNAME:
+        raise ValueError("ONAIR_MQTT_PASSWORD benötigt ONAIR_MQTT_USERNAME")
+    if MQTT_CA_CERTS and not use_tls:
+        raise ValueError("ONAIR_MQTT_CA_CERTS benötigt ONAIR_MQTT_TLS=true")
+
     client = mqtt.Client(
         mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"meshcore-onair-{uuid.uuid4().hex[:10]}",
         userdata={"packet_sink": packet_sink, "status_sink": status_sink},
     )
+
+    if MQTT_USERNAME:
+        client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD or None)
+    if use_tls:
+        context = ssl.create_default_context(cafile=MQTT_CA_CERTS or None)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        client.tls_set_context(context)
 
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect

@@ -28,6 +28,40 @@ Broker und Topic lassen sich über `ONAIR_MQTT_HOST`, `ONAIR_MQTT_PORT` und
 Der Webmodus versucht bei Ausfällen automatisch die Verbindung wiederherzustellen.
 Die Kopfzeile unterscheidet MQTT-Ausfall und WebSocket-Ausfall.
 
+### MQTT über TCP/TLS mit Benutzername und Passwort
+
+Für einen TLS-fähigen MQTT-Broker diese Werte in `.env` eintragen (Docker):
+
+```dotenv
+ONAIR_MQTT_HOST=mqtt.example.org
+ONAIR_MQTT_PORT=8883
+ONAIR_MQTT_TOPIC=meshcore/#
+ONAIR_MQTT_TLS=true
+ONAIR_MQTT_USERNAME=mein-benutzer
+ONAIR_MQTT_PASSWORD='mein-passwort'
+```
+
+Host, Port, Topic und Zugangsdaten durch die Brokerwerte ersetzen. Als Host nur
+den DNS-Namen angeben, ohne `mqtts://` oder `tcp://`. Der Port bleibt explizit
+konfiguriert: TLS verwendet häufig 8883, ohne TLS bleibt die Vorgabe 1883.
+Passwörter mit `$`, `#` oder Leerzeichen in der Compose-`.env` in einfache
+Anführungszeichen setzen; die Zeichen innerhalb der Anführungszeichen bleiben erhalten.
+Danach `docker compose up -d --build` ausführen.
+
+TLS verwendet mindestens TLS 1.2 und prüft Zertifikatskette sowie Hostname anhand
+der System-CAs. Bei einer privaten CA zusätzlich `ONAIR_MQTT_CA_CERTS` auf eine
+lesbare PEM-CA-Datei setzen. Für Docker beispielsweise die Datei unter
+`./data/mqtt-ca.crt` ablegen und `ONAIR_MQTT_CA_CERTS=/data/mqtt-ca.crt` eintragen.
+Ohne eigene CA bleibt diese Variable leer. Fehlerhafte Zertifikate führen zum
+Verbindungsfehler; es gibt keinen Rückfall auf unverschlüsseltes TCP.
+Die zugrunde liegenden Methoden beschreibt die
+[Paho-Client-Dokumentation](https://eclipse.dev/paho/files/paho.mqtt.python/html/client.html).
+
+Beim direkten Python-Start dieselben Variablen vor dem Start exportieren;
+`.env` wird dort nicht automatisch geladen. TLS und Benutzeranmeldung lassen sich
+unabhängig aktivieren. Ohne neue Einstellungen bleibt der bisherige anonyme
+TCP-Betrieb erhalten. Der Monitor bleibt ausschließlich Subscriber.
+
 ## Docker
 
 Voraussetzung: Docker mit Compose. Im Projektverzeichnis:
