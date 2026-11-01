@@ -16,6 +16,7 @@ MAX_RECEPTIONS = 25000
 # links while retaining a finite bound on deduplication and cached evidence.
 MAX_PAIR_RECEPTIONS = 250000
 MAX_DAYS = 31
+PATH_BATCH_SIZE = 128
 # The predicate must be identical in the partial index and evidence queries.
 FLOOD_WHERE = """json_extract(packet_json,'$.direction')='rx'
     AND json_extract(packet_json,'$.decoded.route_type') IN (0,1)
@@ -123,15 +124,27 @@ def analyze(db, start, end, minimum=200, source='', target=''):
              for r in db.execute('SELECT public_key,name,node_type,latitude,longitude FROM nodes')}
     tokens = {t for row in db.execute('SELECT source,target FROM repeater_pairs') for t in row}
     resolved = resolve_path_tokens(db, nodes, tokens)
+    ambiguous_tokens = {token for token, node in resolved.items() if node['ambiguous']}
     positions = Positions(db, start, end, pair_filter or ())
     pair_cache = {}
     candidates = {}
     ambiguous_paths = 0
     missing_position_pairs = set()
-    for raw, in db.execute('SELECT path FROM repeater_paths WHERE first_seen<? AND last_seen>=?', (end, start)):
+    path_query = 'SELECT path FROM repeater_paths WHERE first_seen<? AND last_seen>=?'
+    path_args = [end, start]
+    if pair_filter:
+        # A cheap text prefilter avoids decoding the entire mesh in Python.
+        # Quoted tokens match both compact and spaced JSON. Resolution still
+        # includes all identities, and adjacency is checked below as before.
+        for endpoint in pair_filter:
+            aliases = sorted(token for token, node in resolved.items()
+                             if node['id'] == endpoint and node['resolved'] and not node['ambiguous'])
+            path_query += ' AND (' + (' OR '.join('instr(path,?)>0' for _ in aliases) or '0') + ')'
+            path_args.extend(json.dumps(token) for token in aliases)
+    for raw, in db.execute(path_query, path_args):
         hops = json.loads(raw)
         directions = set()
-        ambiguous = False
+        ambiguous = len(hops) > 1 and any(token in ambiguous_tokens for token in hops)
         for left, right in set(zip(hops, hops[1:])):
             key = (left, right)
             if key not in pair_cache:
@@ -146,20 +159,22 @@ def analyze(db, start, end, minimum=200, source='', target=''):
                         pair_cache[key] = (a['id'], b['id'])
             if pair_cache[key]:
                 directions.add(pair_cache[key])
-            ambiguous |= any(resolved.get(t, {}).get('ambiguous', False) for t in key)
         ambiguous_paths += ambiguous
         if directions:
             candidates[json.dumps(hops, separators=(',', ':'))] = directions
     limit = MAX_PAIR_RECEPTIONS if pair_filter else MAX_RECEPTIONS
-    # Finish each indexed path query before opening the next. A merge of all
-    # cursors kept tens of thousands of SQLite statements active on large meshes.
+    # A bounded batch of indexed path lookups shares one cursor. Statistics do
+    # not depend on row order; evidence is sorted after aggregation below.
     def receptions():
         remaining = limit + 1
-        for path in candidates:
+        paths = list(candidates)
+        for offset in range(0, len(paths), PATH_BATCH_SIZE):
+            batch = paths[offset:offset + PATH_BATCH_SIZE]
+            placeholders = ','.join('?' for _ in batch)
             cursor = db.execute(f"""SELECT id,received,packet_json FROM packets
-                WHERE {FLOOD_WHERE} AND json_extract(packet_json,'$.decoded.hops')=?
-                AND received>=? AND received<? ORDER BY received,id LIMIT ?""",
-                                (path, start, end, remaining))
+                WHERE {FLOOD_WHERE} AND json_extract(packet_json,'$.decoded.hops') IN ({placeholders})
+                AND received>=? AND received<? LIMIT ?""",
+                                (*batch, start, end, remaining))
             try:
                 for row in cursor:
                     yield row

@@ -108,6 +108,40 @@ aller Pfade seinem frühesten Empfang zugeordnet. Empfangsbelege werden zum Schl
 nach Empfangszeit und Paket-ID sortiert. So bleiben Diagramme, Deduplizierung und
 Belegseiten unabhängig von der Pfadreihenfolge korrekt.
 
+### Optimierung für den VPS, 01.11.2026
+
+Paaranalysen filtern die Pfadliste bereits in SQLite anhand der exakt zitierten
+Rohkennungen beider Endpunkte. Alle eindeutig aufgelösten Präfixvarianten werden
+berücksichtigt, sowohl in kompaktem als auch in normal formatiertem JSON. Nur die
+verbleibenden Pfade werden in Python dekodiert; direkte Nachbarschaft und
+Präfixkollisionen werden weiterhin vollständig geprüft. Der Diagnosewert
+`ambiguous_candidate_paths` bezieht sich bei einer Paarabfrage nun auf diese
+vorgefilterten Pfade; in der Gesamtübersicht bleibt er netzweit.
+
+Die Rohpakete werden in Paketen von höchstens 128 Pfaden über den vorhandenen
+partiellen Index gelesen. Es bleibt maximal ein Cursor aktiv. Eine Sortierung
+jedes Abfragepakets in SQLite entfällt, da die Aggregation bereits unabhängig
+von der Lesereihenfolge arbeitet und Belege abschließend sortiert werden.
+EXPLAIN bestätigt weiterhin `USING INDEX packets_flood_path_received`.
+Keine Migration, neuen Indizes oder Änderungen am Archivformat erforderlich.
+Die vorhandenen Grenzen und der Ergebnis-Cache bleiben erhalten.
+
+Vergleich auf derselben nur lesend geöffneten SQLite-Transaktion, Paar `968d8d` ↔
+`e97fce`, identisches 31-Tage-Fenster mit 55.803 Empfängen und 32.178 Pfaden:
+
+| Version | Zwei Durchläufe | Rohdatenabfragen |
+|---|---|---:|
+| Vorher | 5,203 s / 5,369 s | 32.178 |
+| Nachher | 2,571 s / 2,654 s | 252 |
+
+Reihenfolge: vorher/nachher/nachher/vorher. Alle fachlichen Ergebnisfelder,
+Diagramme und vollständigen Beleglisten wurden per SHA-256 verglichen und waren
+identisch; ausgenommen wurde allein der oben erläuterte Diagnosewert.
+Das entspricht lokal ungefähr einer Halbierung der Laufzeit; es ist keine
+Messung auf dem OVH-VPS und keine Laufzeitzusage. Neue Regressionen prüfen den
+Vorausfilter, gemischte Präfixlängen und JSON-Formatierungen, nicht benachbarte
+Endpunkte, Indexnutzung, Chargengrenzen und höchstens einen aktiven Cursor.
+
 Die korrigierte Analyse wurde direkt mit dem gemeldeten Paar auf dem lokalen
 4,8-GiB-Archiv geprüft, ausschließlich mit SQLite `mode=ro` und `query_only=ON`:
 5,186 Sekunden für 55.715 Empfänge, 32.129 Pfade und 10.013 verschiedene Inhalte

@@ -137,7 +137,7 @@ class DistanceTests(unittest.TestCase):
         self.assertEqual(result['missing_at_reception'], 1)
 
     def test_query_uses_partial_index_and_limit_rejects_incomplete_results(self):
-        plan = self.db.execute(f"EXPLAIN QUERY PLAN SELECT id,received,packet_json FROM packets WHERE {FLOOD_WHERE} AND json_extract(packet_json,'$.decoded.hops')=? AND received>=? AND received<? ORDER BY received,id LIMIT 10", ('[]', START, START+60)).fetchall()
+        plan = self.db.execute(f"EXPLAIN QUERY PLAN SELECT id,received,packet_json FROM packets WHERE {FLOOD_WHERE} AND json_extract(packet_json,'$.decoded.hops') IN (?,?) AND received>=? AND received<? LIMIT 10", ('[]', '["aa","bb"]', START, START+60)).fetchall()
         self.assertIn('USING INDEX packets_flood_path_received', str(plan))
         for i in range(3): add(self.db, packet(['3134db', '3c4afc'], START + i, str(i)))
         with patch('onair_distance.MAX_RECEPTIONS', 2):
@@ -179,12 +179,31 @@ class DistanceTests(unittest.TestCase):
         self.assertEqual(scoped['items'][0]['forward_receptions'], 1)
         self.assertEqual(scoped['items'][0]['reverse_receptions'], 1)
         raw_reads = [q for q in queries if 'SELECT id,received,packet_json FROM packets' in q]
-        self.assertEqual(len(raw_reads), 2)
+        self.assertEqual(len(raw_reads), 1)
         self.assertFalse(any("='[\"3c4afc\",\"bbccdd\"]'" in q for q in raw_reads))
         add(self.db, packet(['3134db', '3c4afc'], START + 22))
         with patch('onair_distance.MAX_PAIR_RECEPTIONS', 2):
             with self.assertRaisesRegex(AnalysisLimitError, 'für diese Verbindung'):
                 analyze(self.db, START, START + 60, source=A, target=B)
+
+    def test_pair_prefilter_skips_foreign_paths_but_preserves_aliases_and_adjacency(self):
+        add(self.db, packet(['3134db', '3c4afc'], START))
+        add(self.db, packet(['3134', '3c4a'], START + 1))
+        # Older compact JSON and normal spaced JSON must both match.
+        self.db.execute('UPDATE repeater_paths SET path=? WHERE path=?',
+                        ('["3134","3c4a"]', '["3134", "3c4a"]'))
+        add(self.db, packet(['3134db', 'bbccdd', '3c4afc'], START + 2, 'bbbb'))
+        add(self.db, packet(['3c4afc', 'bbccdd'], START + 3, 'cccc'))
+        original_loads = json.loads
+        def checked_loads(value, *args, **kwargs):
+            self.assertNotEqual(value, '["3c4afc", "bbccdd"]', 'Foreign path decoded in Python')
+            return original_loads(value, *args, **kwargs)
+        with patch('onair_distance.json.loads', side_effect=checked_loads):
+            result = analyze(self.db, START, START + 60, 0, A, B)
+        self.assertEqual(result['candidate_receptions'], 2)
+        self.assertEqual(len(result['items']), 1)
+        self.assertEqual(result['items'][0]['paths'], 2)
+        self.assertEqual(result['items'][0]['packets'], 1)
 
     def test_short_pair_and_distinct_pair_caches(self):
         position(self.db, B, 50.456154, 13.64674, START - 1, stamp=2)
@@ -237,7 +256,7 @@ class DistanceTests(unittest.TestCase):
                 return db.execute(sql, args)
 
         result = analyze(TrackedDB(), START, START + 2 * 86400, 0, A, B)
-        self.assertEqual((active, queries), (0, 129))
+        self.assertEqual((active, queries), (0, 2))
         link = result['items'][0]
         self.assertEqual((link['receptions'], link['packets'], link['paths']), (129, 2, 129))
         self.assertEqual((link['first_seen'], link['last_seen']), (START, START + 86400 + 126))

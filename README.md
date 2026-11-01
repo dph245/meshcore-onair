@@ -1226,6 +1226,13 @@ Rohpakete werden über Pfad und Zeitspanne im Index gesucht. Gültige Positions-
 werden separat aus dem ADVERT-Bestand gelesen; fehlende Rohzeitpunkte werden nie
 anhand aggregierter first_seen/last_seen rekonstruiert.
 
+Bei Paaranalysen filtert SQLite fremde Pfade vor der Python-Auswertung aus.
+Rohdatenabfragen bündeln bis zu 128 Pfade über den vorhandenen Index; dafür ist
+keine zusätzliche Datenbankmigration erforderlich. Ein lokaler Vergleich auf
+demselben Archivstand halbierte die Laufzeit ungefähr (5,2–5,4 auf 2,6 Sekunden).
+Messaufbau und Ergebnisvergleich stehen in der verlinkten Validierungsdokumentation;
+auf dem VPS können die Laufzeiten abweichen.
+
 Ein eigener, auf zwei Ergebnisse begrenzter Cache hält Resultate 120 Sekunden;
 Zeitraum, Mindestentfernung und das kanonische Repeaterpaar gehören zum Cache-Key.
 Analyseanfragen blockieren nicht den Lock der bisherigen Nachbaransicht. Mehr als
