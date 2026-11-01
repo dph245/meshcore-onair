@@ -86,6 +86,7 @@ class DistanceTests(unittest.TestCase):
         add(self.db, packet(['3134', '3c4a'], START))
         self.db.execute('INSERT INTO nodes VALUES(?,?,1,0,1,1,NULL,NULL,NULL)', ('3134ff'.ljust(64, '0'), 'Companion'))
         self.assertEqual(analyze(self.db, START, START + 60)['items'], [])
+        self.assertEqual(analyze(self.db, START, START + 60, 0, A, B)['items'], [])
         add(self.db, packet(['3134db', '3c4afc'], START + 1))
         self.assertEqual(len(analyze(self.db, START, START + 60)['items']), 1)
         self.db.execute("INSERT INTO repeater_receptions VALUES('3134dbff',1,NULL,NULL,NULL,0)")
@@ -105,6 +106,23 @@ class DistanceTests(unittest.TestCase):
         # Nodes may since have moved close: formerly distant links must still appear.
         self.db.execute('UPDATE nodes SET latitude=50.456,longitude=12.647 WHERE public_key=?', (B,))
         self.assertEqual(analyze(self.db, START, START + 60)['items'][0]['receptions'], 1)
+
+    def test_distance_above_500_is_excluded_using_historical_positions(self):
+        add(self.db, packet(['3134db', '3c4afc'], START))
+        position(self.db, B, 20, 0, START + 10, 2)
+        add(self.db, packet(['3134db', '3c4afc'], START + 20, 'bbbb'))
+        result = analyze(self.db, START, START + 60, 0, A, B)
+        self.assertEqual(result['items'][0]['receptions'], 1)
+        self.assertEqual(result['items'][0]['last_seen'], START)
+        # Once the entire historical window is over 500 km, prune the pair
+        # before any raw receptions can consume the analysis budget.
+        result = analyze(self.db, START + 11, START + 60, 0, A, B)
+        self.assertEqual(result['candidate_receptions'], 0)
+        self.assertEqual(result['items'], [])
+        with patch('onair_distance.distance_km', return_value=500):
+            self.assertEqual(analyze(self.db, START, START + 60, 0, A, B)['items'][0]['receptions'], 2)
+        with patch('onair_distance.distance_km', return_value=500.000001):
+            self.assertEqual(analyze(self.db, START, START + 60, 0, A, B)['items'], [])
 
     def test_missing_or_invalid_historical_positions_are_not_filled_from_nodes(self):
         self.db.execute("DELETE FROM packets WHERE kind='ADVERT'")
@@ -136,14 +154,106 @@ class DistanceTests(unittest.TestCase):
             page = self.archive.distance_analysis(START, START + 200, source=A, target=B, offset=100)
             self.assertEqual(len(page['evidence']), 3)
             self.assertFalse(page['more'])
-            self.assertEqual(scan.call_count, 1)
+            # A pair has its own cache entry; reversed IDs share that entry.
+            self.archive.distance_analysis(START, START + 200, source=B, target=A)
+            self.assertEqual(scan.call_count, 2)
             clock.return_value = 221
             self.archive.distance_analysis(START, START + 200)
-            self.assertEqual(scan.call_count, 2)
+            self.assertEqual(scan.call_count, 3)
+
+    def test_pair_filter_precedes_raw_reads_and_limits(self):
+        # Busy unrelated B-C links must not exhaust the selected A-B budget.
+        for i in range(8):
+            add(self.db, packet(['3c4afc', 'bbccdd'], START + i))
+        add(self.db, packet(['3134db', '3c4afc', 'bbccdd'], START + 20, 'abcd'))
+        add(self.db, packet(['3c4afc', '3134db'], START + 21, 'dcba'))
+        queries = []
+        self.db.set_trace_callback(queries.append)
+        with patch('onair_distance.MAX_RECEPTIONS', 1), patch('onair_distance.MAX_PAIR_RECEPTIONS', 2):
+            with self.assertRaises(AnalysisLimitError):
+                analyze(self.db, START, START + 60)
+            queries.clear()
+            scoped = analyze(self.db, START, START + 60, source=A, target=B)
+        self.assertEqual(scoped['candidate_receptions'], 2)
+        self.assertEqual(len(scoped['items']), 1)
+        self.assertEqual(scoped['items'][0]['forward_receptions'], 1)
+        self.assertEqual(scoped['items'][0]['reverse_receptions'], 1)
+        raw_reads = [q for q in queries if 'SELECT id,received,packet_json FROM packets' in q]
+        self.assertEqual(len(raw_reads), 2)
+        self.assertFalse(any("='[\"3c4afc\",\"bbccdd\"]'" in q for q in raw_reads))
+        add(self.db, packet(['3134db', '3c4afc'], START + 22))
+        with patch('onair_distance.MAX_PAIR_RECEPTIONS', 2):
+            with self.assertRaisesRegex(AnalysisLimitError, 'für diese Verbindung'):
+                analyze(self.db, START, START + 60, source=A, target=B)
+
+    def test_short_pair_and_distinct_pair_caches(self):
+        position(self.db, B, 50.456154, 13.64674, START - 1, stamp=2)
+        add(self.db, packet(['3134db', '3c4afc'], START))
+        add(self.db, packet(['bbccdd', '3c4afc'], START + 1, 'bbbb'))
+        self.db.commit()
+        ab = self.archive.distance_analysis(START, START + 60, 0, A, B)
+        cb = self.archive.distance_analysis(START, START + 60, 0, C, B)
+        self.assertLess(ab['link']['distance_max_km'], 100)
+        self.assertEqual(ab['link']['source']['id'], A)
+        self.assertEqual(cb['link']['source']['id'], B)
+        self.assertEqual(cb['link']['target']['id'], C)
+        self.assertEqual(ab['link']['receptions'], 1)
+        self.assertEqual(self.archive.distance_analysis(START, START + 60, 100, A, B)['link'], None)
+        for source, target in [(A, ''), (A, A), ('aa', B)]:
+            with self.assertRaises(ValueError):
+                analyze(self.db, START, START + 60, 0, source, target)
+
+    def test_many_paths_close_cursors_and_keep_first_reception_chronology(self):
+        for i in range(128):
+            # The earliest copy occurs in the last path: path order is not time order.
+            received = START if i == 127 else START + 86400 + i
+            add(self.db, packet(['3134db', '3c4afc', f'{0x800000 + i:06x}'], received))
+        add(self.db, packet(['3c4afc', '3134db'], START + 1, 'bbbb'))
+        active = 0
+        queries = 0
+        db = self.db
+
+        class Cursor:
+            def __init__(self, cursor):
+                self.cursor = cursor
+            def __iter__(self):
+                return self
+            def __next__(self):
+                return next(self.cursor)
+            def close(self):
+                nonlocal active
+                self.cursor.close()
+                active -= 1
+
+        class TrackedDB:
+            def execute(self, sql, args=()):
+                nonlocal active, queries
+                if sql.startswith('SELECT id,received,packet_json FROM packets'):
+                    if active:
+                        raise AssertionError('Previous path cursor is still active')
+                    active += 1
+                    queries += 1
+                    return Cursor(db.execute(sql, args))
+                return db.execute(sql, args)
+
+        result = analyze(TrackedDB(), START, START + 2 * 86400, 0, A, B)
+        self.assertEqual((active, queries), (0, 129))
+        link = result['items'][0]
+        self.assertEqual((link['receptions'], link['packets'], link['paths']), (129, 2, 129))
+        self.assertEqual((link['first_seen'], link['last_seen']), (START, START + 86400 + 126))
+        self.assertEqual((link['forward_first'], link['forward_last']), (START, START + 86400 + 126))
+        self.assertEqual([day['forward'] for day in link['days']], [1, 0])
+        self.assertEqual([day['forward_receptions'] for day in link['days']], [1, 127])
+        self.assertEqual(link['hours'][0]['forward'], 1)
+        evidence = response(result, B, A)['evidence'] + response(result, A, B, 100)['evidence']
+        self.assertEqual(len(evidence), 129)
+        self.assertEqual([(r['received'], r['id']) for r in evidence],
+                         sorted((r['received'], r['id']) for r in evidence))
 
     def test_window_and_dst_bucket_semantics(self):
         for start, end, minimum in [(START, START, 200), (START, START+32*86400, 200),
-                                    (float('nan'), START, 200), (START, START+60, 99)]:
+                                    (float('nan'), START, 200), (START, START+60, 99),
+                                    (START, START+60, 501)]:
             with self.assertRaises(ValueError): validate_window(start, end, minimum)
         zone = ZoneInfo('Europe/Berlin')
         start = datetime(2026, 10, 25, tzinfo=zone).timestamp()
@@ -183,11 +293,14 @@ class DistanceApiTests(unittest.TestCase):
         with patch.object(app.state, 'archive', archive, create=True), \
                 patch('fastapi.routing.run_in_threadpool', direct):
             for query in ('', 'start=nan&end=1', 'start=1&end=2&minimum=99',
+                          'start=1&end=2&minimum=501',
                           'start=1&end=2&source=aa', f'start=1&end=2&source={A}',
                           f'start=1&end=2&source={A}&target={A}', 'start=1&end=2&offset=-1'):
                 self.assertEqual(asyncio.run(get(query))[0]['status'], 422, query)
             self.assertEqual(asyncio.run(get('start=1&end=2'))[0]['status'], 200)
             archive.distance_analysis.assert_called_once_with(1.0,2.0,200,'','',0)
+            self.assertEqual(asyncio.run(get(f'start=1&end=2&minimum=0&source={A}&target={B}&offset=57400'))[0]['status'], 200)
+            archive.distance_analysis.assert_called_with(1.0,2.0,0.0,A,B,57400)
             archive.distance_analysis.side_effect = AnalysisLimitError('Zeitraum verkürzen')
             messages = asyncio.run(get('start=1&end=2'))
             self.assertEqual(messages[0]['status'], 422)

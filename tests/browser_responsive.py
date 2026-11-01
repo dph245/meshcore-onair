@@ -142,6 +142,9 @@ def main():
                     page.locator('#map-neighbors-search').fill('Berg')
                     tap(page, '#neighbors-sort-source')
                     expect(page.locator('#map-neighbors-list tr')).to_have_count(2)
+                elif name == 'dx':
+                    expect(page.locator('#distance-form')).to_be_visible()
+                    expect(page.locator('#distance-analysis')).not_to_have_attribute('open', '')
                 elif name == 'routes':
                     page.locator('#routes-start').fill(KEYS[0])
                     page.locator('#routes-target').fill(KEYS[1])
@@ -175,7 +178,7 @@ def main():
                 page.wait_for_timeout(100)
                 layout(page, (w, h, 'rotation'))
             assert not errors, errors
-            print(f'{width}x{height}: all 14 tabs, populated details, forms, navigation and overflow passed', flush=True)
+            print(f'{width}x{height}: all {len(tabs)} tabs, populated details, forms, navigation and overflow passed', flush=True)
             page.close()
         browser.close()
 

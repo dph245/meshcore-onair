@@ -5,12 +5,16 @@ from datetime import datetime, timedelta
 import hashlib
 import json
 import math
+import re
 from zoneinfo import ZoneInfo
 
-from onair_neighbors import distance_km, resolve_path_tokens
+from onair_neighbors import MAX_LINK_DISTANCE_KM, distance_km, resolve_path_tokens
 
 ZONE = ZoneInfo('Europe/Berlin')
 MAX_RECEPTIONS = 25000
+# A scoped query cannot fan out across the whole mesh. Allow busy individual
+# links while retaining a finite bound on deduplication and cached evidence.
+MAX_PAIR_RECEPTIONS = 250000
 MAX_DAYS = 31
 # The predicate must be identical in the partial index and evidence queries.
 FLOOD_WHERE = """json_extract(packet_json,'$.direction')='rx'
@@ -26,12 +30,13 @@ class AnalysisLimitError(ValueError):
     pass
 
 
-def validate_window(start, end, minimum):
+def validate_window(start, end, minimum, scoped=False):
     if (not all(math.isfinite(v) for v in (start, end, minimum))
             or start < 0 or end <= start or end - start > MAX_DAYS * 86400):
         raise ValueError('Zeitraum muss positiv sein und darf höchstens 31 Tage umfassen.')
-    if not 100 <= minimum <= 20000:
-        raise ValueError('Mindestentfernung muss zwischen 100 und 20000 km liegen.')
+    lower = 0 if scoped else 100
+    if not lower <= minimum <= MAX_LINK_DISTANCE_KM:
+        raise ValueError(f'Mindestentfernung muss zwischen {lower} und {MAX_LINK_DISTANCE_KM} km liegen.')
 
 
 def packet_identity(decoded):
@@ -47,15 +52,17 @@ class Positions:
     No interpolation or retroactive use of later adverts. Raw adverts may have been
     pruned: in that case historical position is explicitly unavailable.
     """
-    def __init__(self, db, start, end):
+    def __init__(self, db, start, end, keys=()):
         self.times = defaultdict(list)
         self.values = defaultdict(list)
         newest = {}
-        for received, raw in db.execute("""SELECT received,
+        key_filter = "AND json_extract(packet_json,'$.decoded.advert.public_key') IN (?,?)" if keys else ''
+        for received, raw in db.execute(f"""SELECT received,
                 json_extract(packet_json,'$.decoded.advert') FROM packets
                 WHERE kind='ADVERT' AND received<?
                 AND json_extract(packet_json,'$.decoded.advert_status') IS NULL
-                ORDER BY received,id""", (end,)):
+                {key_filter}
+                ORDER BY received,id""", (end, *keys)):
             if not raw:
                 continue
             a = json.loads(raw)
@@ -91,7 +98,9 @@ class Positions:
         pa, ra = self.bounds[a]
         pb, rb = self.bounds[b]
         # Triangle bound also finds formerly distant nodes that have since moved.
-        return distance_km(pa, pb) + ra + rb >= minimum
+        separation = distance_km(pa, pb)
+        return (separation + ra + rb >= minimum
+                and separation - ra - rb <= MAX_LINK_DISTANCE_KM)
 
 
 def bins(start, end):
@@ -105,13 +114,16 @@ def bins(start, end):
     return result
 
 
-def analyze(db, start, end, minimum=200):
-    validate_window(start, end, minimum)
+def analyze(db, start, end, minimum=200, source='', target=''):
+    pair_filter = tuple(sorted((source, target))) if source or target else None
+    if pair_filter and (source == target or not all(re.fullmatch('[0-9a-f]{64}', k) for k in pair_filter)):
+        raise ValueError('Zwei unterschiedliche vollständige Repeater-IDs angeben.')
+    validate_window(start, end, minimum, scoped=pair_filter is not None)
     nodes = {r[0]: dict(id=r[0], name=r[1] or r[0], node_type=r[2], latitude=r[3], longitude=r[4])
              for r in db.execute('SELECT public_key,name,node_type,latitude,longitude FROM nodes')}
     tokens = {t for row in db.execute('SELECT source,target FROM repeater_pairs') for t in row}
     resolved = resolve_path_tokens(db, nodes, tokens)
-    positions = Positions(db, start, end)
+    positions = Positions(db, start, end, pair_filter or ())
     pair_cache = {}
     candidates = {}
     ambiguous_paths = 0
@@ -126,7 +138,8 @@ def analyze(db, start, end, minimum=200):
                 a, b = resolved.get(left), resolved.get(right)
                 pair_cache[key] = None
                 if (a and b and a['resolved'] and b['resolved'] and not a['ambiguous']
-                        and not b['ambiguous'] and a['id'] != b['id']):
+                        and not b['ambiguous'] and a['id'] != b['id']
+                        and (pair_filter is None or tuple(sorted((a['id'], b['id']))) == pair_filter)):
                     if a['id'] not in positions.bounds or b['id'] not in positions.bounds:
                         missing_position_pairs.add(tuple(sorted((a['id'], b['id']))))
                     elif positions.possibly_distant(a['id'], b['id'], minimum):
@@ -137,21 +150,34 @@ def analyze(db, start, end, minimum=200):
         ambiguous_paths += ambiguous
         if directions:
             candidates[json.dumps(hops, separators=(',', ':'))] = directions
-    rows = []
-    # Each lookup seeks directly to a path AND its requested time range.
-    for path in candidates:
-        remaining = MAX_RECEPTIONS + 1 - len(rows)
-        rows.extend(db.execute(f"""SELECT id,received,packet_json FROM packets
-            WHERE {FLOOD_WHERE} AND json_extract(packet_json,'$.decoded.hops')=?
-            AND received>=? AND received<? ORDER BY received,id LIMIT ?""",
-                               (path, start, end, remaining)))
-        if len(rows) > MAX_RECEPTIONS:
-            raise AnalysisLimitError('Mehr als 25.000 passende Empfänge. Bitte Zeitraum verkürzen oder Mindestentfernung erhöhen.')
-    rows.sort(key=lambda row: (row[1], row[0]))
+    limit = MAX_PAIR_RECEPTIONS if pair_filter else MAX_RECEPTIONS
+    # Finish each indexed path query before opening the next. A merge of all
+    # cursors kept tens of thousands of SQLite statements active on large meshes.
+    def receptions():
+        remaining = limit + 1
+        for path in candidates:
+            cursor = db.execute(f"""SELECT id,received,packet_json FROM packets
+                WHERE {FLOOD_WHERE} AND json_extract(packet_json,'$.decoded.hops')=?
+                AND received>=? AND received<? ORDER BY received,id LIMIT ?""",
+                                (path, start, end, remaining))
+            try:
+                for row in cursor:
+                    yield row
+                    remaining -= 1
+                    if remaining == 0:
+                        return
+            finally:
+                cursor.close()
     links = {}
     global_packets = set()
     missing_at_reception = 0
-    for row_id, received, raw in rows:
+    candidate_receptions = 0
+    for row_id, received, raw in receptions():
+        candidate_receptions += 1
+        if candidate_receptions > limit:
+            count = f'{limit:,}'.replace(',', '.')
+            scope = ' für diese Verbindung' if pair_filter else ''
+            raise AnalysisLimitError(f'Mehr als {count} passende Empfänge{scope}. Bitte Zeitraum verkürzen oder Mindestentfernung erhöhen.')
         packet = json.loads(raw)
         d = packet['decoded']
         path = json.dumps(d['hops'], separators=(',', ':'))
@@ -162,7 +188,7 @@ def analyze(db, start, end, minimum=200):
             if dist is None:
                 missing_at_reception += 1
                 continue
-            if dist < minimum:
+            if dist < minimum or dist > MAX_LINK_DISTANCE_KM:
                 continue
             pair = tuple(sorted((a, b)))
             matches[pair].append(('forward' if a == pair[0] else 'reverse', dist))
@@ -172,12 +198,13 @@ def analyze(db, start, end, minimum=200):
                     receptions=0, forward_receptions=0, reverse_receptions=0,
                     first_seen=received, last_seen=received,
                     distance_min_km=directions[0][1], distance_max_km=directions[0][1],
-                    _seen=set(), _directions=set(), _paths=set(),
+                    _seen=set(), _directions={}, _paths=set(),
                     days=bins(start, end), hours={str(h): dict(label=f'{h:02d}', forward=0, reverse=0,
                         forward_receptions=0, reverse_receptions=0) for h in range(24)}, evidence=[])
             link = links[pair]
             link['receptions'] += 1
-            link['last_seen'] = received
+            link['first_seen'] = min(link['first_seen'], received)
+            link['last_seen'] = max(link['last_seen'], received)
             link['_seen'].add(identity)
             link['_paths'].add(path)
             global_packets.add(identity)
@@ -187,14 +214,12 @@ def analyze(db, start, end, minimum=200):
                 link['distance_min_km'] = min(link['distance_min_km'], dist)
                 link['distance_max_km'] = max(link['distance_max_km'], dist)
                 link[direction + '_receptions'] += 1
-                link.setdefault(direction + '_first', received)
-                link[direction + '_last'] = received
+                link[direction + '_first'] = min(link.get(direction + '_first', received), received)
+                link[direction + '_last'] = max(link.get(direction + '_last', received), received)
                 for bucket in buckets:
                     bucket[direction + '_receptions'] += 1
-                if (identity, direction) not in link['_directions']:
-                    link['_directions'].add((identity, direction))
-                    for bucket in buckets:
-                        bucket[direction] += 1
+                key = (identity, direction)
+                link['_directions'][key] = min(link['_directions'].get(key, received), received)
             link['evidence'].append(dict(id=row_id, received=received, kind=d['payload_name'],
                 observer_hash=packet.get('observer_hash'), observer=packet.get('origin'),
                 path=d['hops'], route=d['route_name'], packet_key=identity,
@@ -203,14 +228,21 @@ def analyze(db, start, end, minimum=200):
         link['packets'] = len(link.pop('_seen'))
         link['paths'] = len(link.pop('_paths'))
         directions = link.pop('_directions')
+        # Paths arrive separately. Attribute each content/direction to its first
+        # reception in the entire window, regardless of path iteration order.
+        for (_, direction), received in directions.items():
+            moment = datetime.fromtimestamp(received, ZONE)
+            link['days'][str(moment.date())][direction] += 1
+            link['hours'][str(moment.hour)][direction] += 1
         for direction in ('forward', 'reverse'):
             link[direction + '_packets'] = sum(d == direction for _, d in directions)
+        link['evidence'].sort(key=lambda row: (row['received'], row['id']))
         link['days'] = list(link['days'].values())
         link['hours'] = list(link['hours'].values())
     extent = db.execute('SELECT (SELECT MIN(received) FROM packets), (SELECT MAX(received) FROM packets)').fetchone()
     return dict(start=start, end=end, minimum_km=minimum, timezone='Europe/Berlin',
                 archive_first=extent[0], archive_last=extent[1], packet_count=len(global_packets),
-                candidate_receptions=len(rows), ambiguous_candidate_paths=ambiguous_paths,
+                candidate_receptions=candidate_receptions, ambiguous_candidate_paths=ambiguous_paths,
                 missing_position_pairs=len(missing_position_pairs), missing_at_reception=missing_at_reception,
                 items=sorted(links.values(), key=lambda l: (-l['packets'], l['source']['id'], l['target']['id'])))
 

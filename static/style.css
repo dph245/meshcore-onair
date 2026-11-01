@@ -250,13 +250,12 @@ main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
   #panel-map .map-sidebar,#panel-meshlive .map-sidebar{max-height:100%;overflow:auto}
 }
 
-.distance-analysis {margin-top:1.5rem; padding:1rem; border:1px solid var(--border, #657080); border-radius:8px}
-.distance-analysis>summary {cursor:pointer; font-weight:600}
 .distance-filters {display:flex; flex-wrap:wrap; align-items:end; gap:.75rem}
 .distance-filters label {display:flex; flex-direction:column; gap:.25rem; min-width:0}
 .distance-filters input {max-width:100%; min-width:0; box-sizing:border-box}
 .distance-link {display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; padding:.6rem 0; border-bottom:1px solid var(--border, #657080)}
 .distance-link button {white-space:normal; text-align:left; overflow-wrap:anywhere}
+.distance-node {white-space:normal; overflow-wrap:anywhere; max-width:100%; text-align:left}
 .distance-charts {display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr)); gap:1rem}
 .distance-bin {display:grid; grid-template-columns:6rem minmax(0,1fr) minmax(0,1fr); gap:.4rem; margin:.3rem 0; font-size:.8rem; align-items:center}
 .distance-bar {position:relative; min-height:1.6rem; padding:.2rem; box-sizing:border-box}
@@ -269,7 +268,6 @@ main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
 .distance-path {font-family:monospace; line-height:1.8}
 .distance-path strong {text-decoration:underline; text-underline-offset:3px}
 @media(max-width:480px) {
-  .distance-analysis {padding:.65rem}
   .distance-filters label {width:100%}
   .distance-bin {grid-template-columns:5.5rem minmax(0,1fr) minmax(0,1fr); gap:.2rem}
 }

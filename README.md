@@ -511,6 +511,11 @@ erhalten. **Auswahl aufheben** oder ein Klick auf die freie Karte entfernt sie;
 im Standardmodus verschwinden dadurch die Linien. Im Expertenmodus bleiben alle
 Links sichtbar. Ein neuer Seitenaufruf stellt den Standardmodus wieder her.
 
+Nachbartabelle und Kartenlinks ignorieren Verbindungen mit bekannter Entfernung
+über **500 km**. Genau 500 km bleiben zulässig; Verbindungen ohne eindeutig
+bestimmbare Entfernung bleiben in der Tabelle als unbekannt erhalten.
+Die Rohdaten werden nicht gelöscht.
+
 Die Repeater-Suche oberhalb der Karte findet Namen, Public-Key-Präfixe und vollständige
 Public Keys. Mehrdeutige Präfixe zeigen sämtliche bekannten Repeater-Kandidaten mit
 vollständigen Schlüsseln; eine automatische Zuordnung findet nicht statt. Die Auswahl
@@ -1116,7 +1121,7 @@ iOS/Safari und physische Notches beziehungsweise Browserleisten wurden nicht gep
 
 ### Responsive Bedienung der gesamten Anwendung
 
-Alle 14 Tabs sind für Smartphone, Tablet und Desktop geprüft. Bis 950 px scrollt
+Die Tabs unterstützen Smartphone, Tablet und Desktop. Bis 950 px scrollt
 die Navigation horizontal und hält den aktiven Tab nach Wechsel oder Rotation
 sichtbar. Im Live-Tab lassen sich die Paketfilter einklappen; breite Tabellen und
 Messdiagramme scrollen lokal. Kartenbedienung, Popups und Formulare berücksichtigen
@@ -1141,15 +1146,30 @@ Status und zentrale Bedienelemente eine kompakte Zeile. Karte und Bedienung steh
 auch bei 667 px nebeneinander; der Inhalt nutzt die übrige dynamische Viewporthöhe.
 Rotation, Scrollen und Karten-Resize prüft zusätzlich `tests/browser_landscape.py`.
 
-### Historische Fernverbindungen in „Nachbarn“
+### DX: Historische Fernverbindungen
 
-„Fernverbindungen zeitlich untersuchen“ ergänzt die vorhandene Nachbartabelle.
+Der eigene Tab **DX** neben **Nachbarn** zeigt die Fernverbindungsanalyse direkt,
+ohne ein aufzuklappendes Akkordeon. Das Öffnen des Tabs startet keine Archivabfrage.
 Die Analyse startet ausschließlich per Knopfdruck; die bisherige Aktualisierung,
 Sortierung, Suche und Karte behalten ihren eigenen Cache. Über „Analysieren“ an
-einer Tabellenzeile lässt sich deren Zeitverlauf öffnen. Die separate Auswahl
-unterhalb der Tabelle zeigt alle Fernverbindungen innerhalb desselben Zeitfensters.
+einer Tabellenzeile in **Nachbarn** lässt sich direkt zu **DX** wechseln und
+gezielt deren Zeitverlauf öffnen: Nur diese beiden
+Repeater werden analysiert, auch nach Zeitraumänderungen und beim Nachladen.
+Die ausgewählte Verbindung wird oberhalb der Filter angezeigt; „Alle Verbindungen
+untersuchen“ wechselt zurück zur Gesamtübersicht (Start erst per „Analysieren“).
+Die Gesamtübersicht im DX-Tab zeigt alle Fernverbindungen innerhalb desselben
+Zeitfensters. Filter, Auswahl und Ergebnisse bleiben beim Tabwechsel erhalten.
+Die Node-Namen in Übersicht und Detailergebnis öffnen die **Map**, zentrieren den
+gewählten Repeater und zeigen seine direkten Nachbarlinks. „Zeitverlauf“ öffnet
+weiterhin die Paaranalyse. Für historische Repeater ohne aktuelle Kartenposition
+erscheint ein Hinweis statt einer erfundenen Position.
 
 - Mindestentfernung standardmäßig 200 km, wählbar 100/150/200/250/300 km.
+  Beim direkten Aufruf einer Tabellenverbindung gilt zunächst 0 km, damit auch
+  lokale Verbindungen unter 100 km untersucht werden können.
+- Feste Obergrenze **500 km**. Historische Empfänge mit größerer damaliger
+  Entfernung zählen weder für Diagramme noch Statistiken oder Einzelbelege.
+  Bei beweglichen Repeatern bleiben die Empfänge innerhalb der Grenze erhalten.
 - Zeitfenster maximal 31 Tage, Beginn inklusive und Ende exklusiv. Eingaben gelten
   in der angezeigten Browser-Zeitzone; Tages-/Stundendiagramme und Empfangszeiten
   werden immer in `Europe/Berlin` dargestellt.
@@ -1187,7 +1207,9 @@ Troposphärenausbreitung oder dauerhafte Erreichbarkeit.
 `GET /api/repeater-neighbors/analysis?start=<Unixzeit>&end=<Unixzeit>&minimum=200`
 liefert die Verbindungen im Zeitraum. `source=<64-stelliger Public Key>` und
 `target=<64-stelliger Public Key>` liefern Diagramme und Einzelbelege für ein Paar;
-`offset=100` blättert die Belege weiter. A/B sind nach Public Key kanonisch sortiert.
+der Paarfilter wirkt bereits vor dem Lesen der Rohpakete und dem Empfangslimit.
+Hier ist `minimum=0` zulässig. `offset=100` blättert die Belege weiter.
+A/B sind nach Public Key kanonisch sortiert.
 Die bestehende Namenssuche der Nachbartabelle kann zur Auswahl genutzt werden.
 
 Schema 13 ergänzt ausschließlich den partiellen Ausdrucksindex
@@ -1200,9 +1222,11 @@ Rohpakete werden über Pfad und Zeitspanne im Index gesucht. Gültige Positions-
 werden separat aus dem ADVERT-Bestand gelesen; fehlende Rohzeitpunkte werden nie
 anhand aggregierter first_seen/last_seen rekonstruiert.
 
-Ein eigener, auf zwei Zeitfenster begrenzter Cache hält Resultate 120 Sekunden.
+Ein eigener, auf zwei Ergebnisse begrenzter Cache hält Resultate 120 Sekunden;
+Zeitraum, Mindestentfernung und das kanonische Repeaterpaar gehören zum Cache-Key.
 Analyseanfragen blockieren nicht den Lock der bisherigen Nachbaransicht. Mehr als
-25.000 passende Rohempfänge führen zu HTTP 422 mit Aufforderung, den Zeitraum zu
+25.000 passende Rohempfänge in der Gesamtübersicht beziehungsweise 250.000 für
+ein einzelnes Repeaterpaar führen zu HTTP 422 mit Aufforderung, den Zeitraum zu
 verkürzen oder die Mindestentfernung zu erhöhen; es gibt keine stillschweigende
 Teilauswertung. Der Index und die letzten Positionsmeldungen ersetzen keinen
 Beweis des tatsächlichen Standorts eines mobilen Repeaters.

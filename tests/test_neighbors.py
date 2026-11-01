@@ -40,7 +40,17 @@ class NeighborTests(unittest.TestCase):
                                       ('bb' + '0' * 62, 48.137, 11.575)]:
                     db.execute('''INSERT INTO nodes(public_key,advert_time,first_seen,last_seen,node_type,latitude,longitude)
                                   VALUES(?,1,1,1,2,?,?)''', (key, lat, lon))
-            self.assertAlmostEqual(archive.neighbors()['items'][0]['distance_km'], 504.3, delta=0.2)
+            self.assertEqual(archive.neighbors()['items'], [])
+            # The cutoff is strictly greater than 500 km, including map payloads.
+            from onair_neighbors import neighbor_map
+            with patch('onair_neighbors.distance_km', return_value=500):
+                items = archive.neighbors()['items']
+                self.assertEqual(items[0]['distance_km'], 500)
+                self.assertEqual(len(neighbor_map(items)['links']), 1)
+            with patch('onair_neighbors.distance_km', return_value=500.000001):
+                items = archive.neighbors()['items']
+                self.assertEqual(items, [])
+                self.assertEqual(neighbor_map(items)['links'], [])
             with archive.connect() as db, db:
                 db.execute('''INSERT INTO nodes(public_key,advert_time,first_seen,last_seen,node_type,latitude,longitude)
                               VALUES(?,1,1,1,2,50,10)''', ('aa' + '1' * 62,))

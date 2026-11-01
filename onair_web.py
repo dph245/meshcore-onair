@@ -14,7 +14,8 @@ import onair_mqtt
 import onair_channels
 from onair_archive import Archive
 from onair_replay import ReplayLimitError
-from onair_distance import AnalysisLimitError
+from onair_distance import AnalysisLimitError, MAX_PAIR_RECEPTIONS
+from onair_neighbors import MAX_LINK_DISTANCE_KM
 from onair_routes import route_nodes, plan_routes
 from fastapi.responses import Response
 from onair_assets import VersionedStaticFiles, index_response
@@ -301,12 +302,14 @@ def repeater_neighbors_map(request: Request):
 def repeater_distance_analysis(
         start: float = Query(..., ge=0, le=4102444800),
         end: float = Query(..., ge=0, le=4102444800),
-        minimum: float = Query(200, ge=100, le=20000),
+        minimum: float = Query(200, ge=0, le=MAX_LINK_DISTANCE_KM),
         source: str = Query('', pattern=r'^(?:[0-9a-f]{64})?$'),
         target: str = Query('', pattern=r'^(?:[0-9a-f]{64})?$'),
-        offset: int = Query(0, ge=0, le=25000)):
+        offset: int = Query(0, ge=0, le=MAX_PAIR_RECEPTIONS)):
     if bool(source) != bool(target) or (source and source == target):
         raise HTTPException(422, 'Zwei unterschiedliche vollständige Repeater-IDs angeben.')
+    if not source and minimum < 100:
+        raise HTTPException(422, 'Für die Gesamtübersicht mindestens 100 km wählen.')
     try:
         return app.state.archive.distance_analysis(start, end, minimum, source, target, offset)
     except AnalysisLimitError as exc:

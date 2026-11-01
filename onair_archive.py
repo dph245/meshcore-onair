@@ -391,14 +391,15 @@ class Archive:
             return neighbor_summary(db)
 
     def distance_analysis(self, start, end, minimum=200, source='', target='', offset=0):
-        key = (start, end, minimum)
+        pair = tuple(sorted((source, target)))
+        key = (start, end, minimum, pair)
         # Keep expensive requests out of the existing neighbor snapshot lock.
         with self._distance_lock:
             cached = self._distance_cache.get(key)
             if cached is None or time.monotonic() >= cached[0]:
                 with self.connect() as db, db:
                     db.execute('BEGIN')
-                    result = analyze_distance(db, start, end, minimum)
+                    result = analyze_distance(db, start, end, minimum, source, target)
                 cached = (time.monotonic() + 120, result)
                 self._distance_cache[key] = cached
                 while len(self._distance_cache) > 2:

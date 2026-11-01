@@ -14,6 +14,7 @@
 <button id="tab-nodes" type="button" role="tab" aria-controls="panel-nodes" aria-selected="false" tabindex="-1">Nodes</button>
 <button id="tab-map" type="button" role="tab" aria-controls="panel-map" aria-selected="false" tabindex="-1">Map</button>
 <button id="tab-neighbors" type="button" role="tab" aria-controls="panel-neighbors" aria-selected="false" tabindex="-1">Nachbarn</button>
+<button id="tab-dx" type="button" role="tab" aria-controls="panel-dx" aria-selected="false" tabindex="-1">DX</button>
 <button id="tab-routes" type="button" role="tab" aria-controls="panel-routes" aria-selected="false" tabindex="-1">Routen</button>
 <button id="tab-discovery" type="button" role="tab" aria-controls="panel-discovery" aria-selected="false" tabindex="-1">Discovery</button>
 <button id="tab-trace" type="button" role="tab" aria-controls="panel-trace" aria-selected="false" tabindex="-1">TRACE</button>
@@ -165,18 +166,22 @@
 </section>
 <section id="panel-neighbors" class="archive" role="tabpanel" aria-labelledby="tab-neighbors" tabindex="0" hidden>
 <h2>Beobachtete Repeater-Nachbarn</h2>
-<p class="muted">Nachbarn aus aufeinanderfolgenden Hops empfangener Flood-Pfade · gesamtes Archiv · pro Empfang höchstens einmal je Verbindung und je Richtung, einschließlich Wiederholungen und mehrerer Observer · Aktualisierung alle 30 Sekunden. Keine Aussage über aktuelle Erreichbarkeit oder Funkqualität.</p>
+<p class="muted">Nachbarn aus aufeinanderfolgenden Hops empfangener Flood-Pfade · gesamtes Archiv · pro Empfang höchstens einmal je Verbindung und je Richtung, einschließlich Wiederholungen und mehrerer Observer · Aktualisierung alle 30 Sekunden. Verbindungen mit bekannter Entfernung über 500 km werden ausgeblendet. Keine Aussage über aktuelle Erreichbarkeit oder Funkqualität.</p>
 <p class="muted">A → B: erst von A, dann von B weitergeleitet. Nur eine beobachtete Richtung beweist keine Funk-Einbahnstraße. Bei Schleifen kann ein Empfang für beide Richtungen zählen; die Summe der Richtungszähler kann deshalb größer als „Empfänge gesamt“ sein.</p>
 <p id="neighbors-status" role="status">Noch keine Verbindungen geladen.</p>
 <label class="neighbors-direction-filter"><input id="neighbors-one-way" type="checkbox"> Nur in einer Richtung beobachtet</label>
 <label>Repeater suchen <input id="map-neighbors-search" type="search" placeholder="Name oder Hash"></label>
 <p><button id="map-neighbors-prev" type="button">Zurück</button> <span id="map-neighbors-page"></span> <button id="map-neighbors-next" type="button">Weiter</button></p>
 <div id="map-neighbors-list" class="noise-scroll"></div>
-<details id="distance-analysis" class="distance-analysis">
-<summary>Fernverbindungen zeitlich untersuchen</summary>
-<p>Aufeinanderfolgende Repeater in empfangenen Flood-Pfaden. Alle Zeiten sind Empfangszeiten unserer Observer, keine Sendezeiten des entfernten Hops. Gleichzeitige Beobachtungen belegen keine bestimmte Wetterlage oder troposphärische Ursache.</p>
+</section>
+<section id="panel-dx" class="archive" role="tabpanel" aria-labelledby="tab-dx" tabindex="0" hidden>
+<h2>DX · Fernverbindungen</h2>
+<div id="distance-analysis">
+<p>Aufeinanderfolgende Repeater in empfangenen Flood-Pfaden. Verbindungen über 500 km werden in Nachbartabelle, Kartenlinks und Analyse ignoriert. Alle Zeiten sind Empfangszeiten unserer Observer, keine Sendezeiten des entfernten Hops. Gleichzeitige Beobachtungen belegen keine bestimmte Wetterlage oder troposphärische Ursache.</p>
+<p id="distance-scope" hidden></p>
+<button id="distance-all" type="button" hidden>Alle Verbindungen untersuchen</button>
 <form id="distance-form" class="distance-filters">
-<label>Mindestentfernung <select id="distance-minimum"><option>100</option><option>150</option><option selected>200</option><option>250</option><option>300</option></select> km</label>
+<label>Mindestentfernung <select id="distance-minimum"><option value="0" hidden disabled>0 (ausgewählte Verbindung)</option><option>100</option><option>150</option><option selected>200</option><option>250</option><option>300</option></select> km</label>
 <label>Von (einschließlich) <input id="distance-start" type="datetime-local" required></label>
 <label>Bis (ausschließlich) <input id="distance-end" type="datetime-local" required></label>
 <button type="submit">Analysieren</button>
@@ -189,7 +194,7 @@
 <button id="distance-more-links" type="button" hidden>Weitere Verbindungen anzeigen</button>
 <div id="distance-detail"></div>
 <button id="distance-more" type="button" hidden>Weitere 100 Empfangsbelege</button>
-</details>
+</div>
 </section>
 <section id="panel-repeaters" class="archive" role="tabpanel" aria-labelledby="tab-repeaters" tabindex="0" hidden>
 <h2>Direkt empfangene Repeater</h2>

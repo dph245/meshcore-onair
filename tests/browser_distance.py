@@ -2,7 +2,7 @@
 import copy
 from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import sync_playwright, expect
-from browser_meshlive import route_page
+from browser_meshlive import route_page, NODES
 
 A, B = '3134db'.ljust(64, '0'), '3c4afc'.ljust(64, '0')
 START = 1790546400
@@ -27,11 +27,30 @@ def main():
         errors, requests, analysis = [], [], []
         page.on('pageerror', lambda error: errors.append(str(error)))
         route_page(page, requests)
+        map_nodes = [dict(copy.deepcopy(NODES[i]), public_key=endpoint['id'], name=endpoint['name'])
+                     for i, endpoint in enumerate((LINK['source'], LINK['target']))]
+        page.route('**/api/map-nodes', lambda route: route.fulfill(json=dict(
+            items=map_nodes, repeaters=[dict(public_key=n['public_key'], name=n['name']) for n in map_nodes],
+            inactive=0, without_position=0)))
+        page.route('**/api/repeater-neighbors/map', lambda route: route.fulfill(json=dict(
+            nodes=[[n['public_key'], n['name']] for n in map_nodes],
+            links=[[0,1,9,8,1,START+3600,308.498]], total=1)))
         failure = [False]
+        reject_overview = [False]
+        neighbor = copy.deepcopy(LINK)
+        neighbor.update(first_seen=START - 40 * 86400, last_seen=START+3600,
+                        distance_km=70.2, count=57425, forward_count=57425, reverse_count=0)
+        page.route('**/api/repeater-neighbors/table?*', lambda route: route.fulfill(json=dict(
+            items=[neighbor], page=0, total=1, total_all=1, one_way_total=1)))
         def handle(route):
             q = parse_qs(urlparse(route.request.url).query); analysis.append(q)
             if failure[0]: route.fulfill(status=422, json={'detail':'Bitte Zeitraum verkürzen.'}); return
-            if 'source' not in q: route.fulfill(json=dict(BASE, items=[LINK])); return
+            if 'source' not in q:
+                if reject_overview[0]:
+                    route.fulfill(status=422, json={'detail':'Mehr als 25.000 passende Empfänge.'})
+                else:
+                    route.fulfill(json=dict(BASE, items=[LINK]))
+                return
             offset = int(q.get('offset', ['0'])[0])
             rows = [dict(id=i+1, received=START+i, kind='ADVERT', directions=['reverse' if i == 0 else 'forward'],
                          observer='<Observer>', observer_hash='ABCD', route='FLOOD', packet_key='a'*64,
@@ -40,14 +59,25 @@ def main():
             route.fulfill(json=dict(BASE, link=LINK, evidence=rows, more=offset+100<107))
         page.route('**/api/repeater-neighbors/analysis?*', handle)
         page.goto('http://distance.test/')
-        page.locator('#tab-neighbors').click()
-        page.locator('#distance-analysis>summary').click()
-        assert not analysis, 'Opening the tab/details must not scan the archive'
+        page.locator('#tab-dx').click()
+        expect(page.locator('#panel-dx')).to_be_visible()
+        expect(page.locator('#distance-form')).to_be_visible()
+        expect(page.locator('#panel-neighbors')).to_be_hidden()
+        assert not analysis, 'Opening DX must not scan the archive'
         page.locator('#distance-example').click()
         expect(page.locator('#distance-status')).to_contain_text('1 Fernverbindungen')
         assert analysis[-1]['start'] == [str(START)]
         assert analysis[-1]['end'] == [str(START+3*86400)]
-        page.locator('#distance-links button').click()
+        # Cold map start must wait for markers before selecting the source.
+        page.locator('#distance-links .distance-node').first.click()
+        expect(page.locator('#panel-map')).to_be_visible()
+        page.wait_for_function('(key) => selectedMapRepeater === key', arg=A)
+        expect(page.locator('#node-map .map-repeater-selected')).to_have_count(1)
+        expect(page.locator('#map-link-mode')).to_have_value('selected')
+        expect(page.locator('#node-map .leaflet-popup-content')).to_contain_text('Auersberg <test>')
+        page.wait_for_function('neighborLayer.getLayers().length > 0')
+        page.locator('#tab-dx').click()
+        page.locator('#distance-links .distance-analyze').click()
         expect(page.locator('#distance-status')).to_contain_text('100 Einzelbelege')
         assert page.locator('#distance-evidence details').count() == 100
         assert page.locator('.distance-bin').count() == 25
@@ -59,6 +89,17 @@ def main():
         expect(page.locator('#distance-status')).to_contain_text('107 Einzelbelege')
         assert page.locator('#distance-evidence details').count() == 107
         expect(page.locator('#distance-more')).to_be_hidden()
+        # Reusing an initialized map also restores path mode and neighbor links.
+        page.locator('#tab-map').click()
+        page.locator('#map-link-mode').select_option('none')
+        page.locator('#map-modes [data-mode="traces"]').click()
+        page.locator('#tab-dx').click()
+        page.locator('#distance-detail .distance-node').last.click()
+        page.wait_for_function('(key) => selectedMapRepeater === key', arg=B)
+        expect(page.locator('#map-link-mode')).to_have_value('selected')
+        expect(page.locator('#map-modes [data-mode="paths"]')).to_have_attribute('aria-pressed', 'true')
+        expect(page.locator('#node-map .leaflet-popup-content').filter(has_text='Wendland')).to_be_visible()
+        page.locator('#tab-dx').click()
         page.set_viewport_size({'width':390,'height':844})
         page.locator('#distance-detail').scroll_into_view_if_needed()
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'No mobile page overflow'
@@ -68,19 +109,64 @@ def main():
         page.locator('#distance-minimum').select_option('250')
         expect(page.locator('#distance-detail')).to_be_empty()
         page.locator('#distance-form button[type=submit]').click()
-        expect(page.locator('#distance-status')).to_contain_text('1 Fernverbindungen')
+        expect(page.locator('#distance-status')).to_contain_text('100 Einzelbelege')
         assert analysis[-1]['minimum'] == ['250']
+        assert analysis[-1]['source'] == [A]
         failure[0] = True
         page.locator('#distance-form button[type=submit]').click()
         expect(page.locator('#distance-status')).to_contain_text('Bitte Zeitraum verkürzen.')
         expect(page.locator('#distance-links')).to_be_empty()
-        # Existing table action opens the analysis using the selected link's bounds.
+        # Click the actual table action: a local 70-km link must not run an overview.
         failure[0] = False
-        source = copy.deepcopy(LINK)
-        source.update(first_seen=START,last_seen=START+3600,distance_km=308.498)
-        page.evaluate('(link)=>window.openDistanceAnalysis(link)',source)
+        reject_overview[0] = True
+        before = len(analysis)
+        page.locator('#tab-neighbors').click()
+        page.locator('#map-neighbors-list button', has_text='Analysieren').click()
+        expect(page.locator('#tab-dx')).to_have_attribute('aria-selected', 'true')
+        expect(page.locator('#panel-neighbors')).to_be_hidden()
+        expect(page.locator('#distance-status')).to_contain_text('100 Einzelbelege')
+        assert len(analysis) == before + 1
+        assert analysis[-1]['source'] == [A]
+        assert analysis[-1]['target'] == [B]
+        assert analysis[-1]['minimum'] == ['0']
+        assert float(analysis[-1]['end'][0]) - float(analysis[-1]['start'][0]) <= 31 * 86400
+        expect(page.locator('#distance-scope')).to_contain_text('Auersberg <test> [3134db]')
+        page.locator('#distance-start').fill('2026-09-28T00:00')
+        page.locator('#distance-form button[type=submit]').click()
         expect(page.locator('#distance-status')).to_contain_text('100 Einzelbelege')
         assert analysis[-1]['source'] == [A]
+        page.locator('#distance-more').click()
+        expect(page.locator('#distance-status')).to_contain_text('107 Einzelbelege')
+        assert analysis[-1]['target'] == [B]
+        assert analysis[-1]['offset'] == ['100']
+        # Tab changes preserve the selected pair and its loaded evidence.
+        before = len(analysis)
+        page.locator('#tab-neighbors').click()
+        page.locator('#tab-neighbors').focus()
+        page.keyboard.press('ArrowRight')
+        expect(page.locator('#tab-dx')).to_be_focused()
+        expect(page.locator('#panel-dx')).to_be_visible()
+        expect(page.locator('#distance-status')).to_contain_text('107 Einzelbelege')
+        assert len(analysis) == before
+        before = len(analysis)
+        page.locator('#distance-all').click()
+        expect(page.locator('#distance-scope')).to_be_hidden()
+        assert len(analysis) == before, 'Changing scope requires an explicit new analysis'
+        page.locator('#distance-form button[type=submit]').click()
+        expect(page.locator('#distance-status')).to_contain_text('Mehr als 25.000')
+        assert 'source' not in analysis[-1]
+        assert analysis[-1]['minimum'] == ['200']
+        # Historical DX endpoints may no longer have a current map position.
+        map_nodes.clear()
+        page.evaluate('loadMapNodes()')
+        page.wait_for_function('mapMarkers.size === 0')
+        page.locator('#tab-neighbors').click()
+        page.locator('#map-neighbors-list button', has_text='Analysieren').click()
+        expect(page.locator('#distance-detail .distance-node')).to_have_count(2)
+        page.locator('#distance-detail .distance-node').first.click()
+        expect(page.locator('#panel-map')).to_be_visible()
+        expect(page.locator('#map-repeater-search-status')).to_contain_text('derzeit nicht auf der Karte verfügbar')
+        assert page.evaluate('selectedMapRepeater') is None
         assert not errors, errors
         browser.close()
         print('Historical analysis: desktop/mobile, chart directions, evidence pagination, escaping, filters and errors passed')

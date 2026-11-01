@@ -109,6 +109,42 @@ function selectMapRepeater(identity) {
   if (mapLinksWanted() && neighborSignature === undefined) loadMapNeighbors();
 }
 
+let pendingMapRepeater = null;
+
+function focusMapRepeater(identity) {
+  const view = mapMarkers.get(identity);
+  if (!view || view.nodeType !== 2) return false;
+  document.querySelector('#map-modes [data-mode="paths"]').click();
+  setMapLinkMode('selected');
+  selectMapRepeater(identity);
+  nodeMap.setView(view.marker.getLatLng(), Math.max(12, nodeMap.getZoom()));
+  view.marker.openPopup();
+  document.getElementById('map-repeater-search').value = '';
+  renderMapRepeaterSearch();
+  document.getElementById('map-neighbors-reset').focus({preventScroll:true});
+  return true;
+}
+
+function applyPendingMapRepeater(loaded = false) {
+  if (!pendingMapRepeater) return;
+  if (document.getElementById('panel-map').hidden) { pendingMapRepeater = null; return; }
+  if (focusMapRepeater(pendingMapRepeater.id)) pendingMapRepeater = null;
+  else if (loaded) {
+    selectMapRepeater(null);
+    document.getElementById('map-repeater-search').value = pendingMapRepeater.id;
+    renderMapRepeaterSearch();
+    document.getElementById('map-repeater-search-status').textContent =
+      `${pendingMapRepeater.name || pendingMapRepeater.id.slice(0, 6)}: derzeit nicht auf der Karte verfügbar (keine aktuelle Kartenposition).`;
+    pendingMapRepeater = null;
+  }
+}
+
+function openMapRepeater(identity, name = '') {
+  pendingMapRepeater = {id: identity, name};
+  selectTab(document.getElementById('tab-map'));
+  applyPendingMapRepeater();
+}
+
 function mapLinksWanted() {
   return !(globalThis.traceMapActive?.() || false) &&
     (mapLinkMode === 'all' || (mapLinkMode === 'selected' && selectedMapRepeater !== null));
@@ -140,16 +176,7 @@ function renderMapRepeaterSearch() {
     button.disabled = !available;
     if (!available) button.append(text('span', item.unavailable || 'Derzeit nicht auf der Karte verfügbar'));
     button.addEventListener('click', () => {
-      const view = mapMarkers.get(item.public_key);
-      if (!view) return;
-      document.querySelector('#map-modes [data-mode="paths"]').click();
-      setMapLinkMode('selected');
-      selectMapRepeater(item.public_key);
-      nodeMap.setView(view.marker.getLatLng(), Math.max(12, nodeMap.getZoom()));
-      view.marker.openPopup();
-      document.getElementById('map-repeater-search').value = '';
-      renderMapRepeaterSearch();
-      document.getElementById('map-neighbors-reset').focus();
+      focusMapRepeater(item.public_key);
     });
     list.append(button);
   }
@@ -517,6 +544,7 @@ async function loadMapNodes() {
     // Do not replace a focused result button during the regular node refresh.
     if (!document.getElementById('map-repeater-results').contains(document.activeElement)) renderMapRepeaterSearch();
     message.textContent = `${mapMarkers.size} Nodes auf der Karte · ${result.without_position} ohne bekannte Position · ${result.inactive} seit mindestens 4 Wochen nicht gehört · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
+    applyPendingMapRepeater(true);
   } catch (error) {
     message.textContent = `Nodes konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; vorhandene Marker bleiben stehen.`;
   } finally {

@@ -4,6 +4,8 @@ import math
 import re
 from datetime import datetime
 
+MAX_LINK_DISTANCE_KM = 500
+
 
 def distance_km(a, b):
     """Great-circle distance from known positions; (0, 0) means unset."""
@@ -149,7 +151,9 @@ def neighbor_summary(db):
         link['reverse_count'] += reverse
         link['first_seen'] = min(link['first_seen'], first)
         link['last_seen'] = max(link['last_seen'], last)
-    return {'items': sorted(links.values(), key=lambda item: (-item['count'], item['source']['id'], item['target']['id']))}
+    items = [link for link in links.values()
+             if link['distance_km'] is None or link['distance_km'] <= MAX_LINK_DISTANCE_KM]
+    return {'items': sorted(items, key=lambda item: (-item['count'], item['source']['id'], item['target']['id']))}
 
 
 def neighbor_page(items, q='', one_way=False, sort='count', descending=True, page=0, limit=100):

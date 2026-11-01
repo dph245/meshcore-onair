@@ -5,6 +5,7 @@
   if (!root) return;
   let request = 0, controller, result, selected, evidenceOffset = 0;
   let overview = [], shown = 0;
+  let pairScope = null;
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   el('zone').textContent = `Zeitraumauswahl: ${timezone}. Diagramme und Empfangszeiten: Europe/Berlin.`;
   const localValue = date => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -37,6 +38,17 @@
     el('detail').replaceChildren();
     el('more-links').hidden = true;
     el('more').hidden = true;
+  }
+  function setScope(link) {
+    pairScope = link ? [link.source.id, link.target.id] : null;
+    el('scope').textContent = link
+      ? `Ausgewählte Verbindung: ${link.source.name} [${link.source.id.slice(0, 6)}] ↔ ${link.target.name} [${link.target.id.slice(0, 6)}]`
+      : '';
+    el('scope').hidden = !link;
+    el('all').hidden = !link;
+    const zero = el('minimum').querySelector('option[value="0"]');
+    zero.hidden = zero.disabled = !link;
+    if (!link && el('minimum').value === '0') el('minimum').value = '200';
   }
   async function load(pair = null, append = false) {
     const ticket = ++request;
@@ -82,13 +94,21 @@
       el('status').textContent = `Analyse nicht verfügbar: ${error.message}`;
     } finally { if (ticket === request) el('more').disabled = false; }
   }
+  function nodeMapButton(endpoint) {
+    const button = node('button', `${endpoint.name} [${endpoint.id.slice(0, 6)}]`, 'distance-node');
+    button.type = 'button';
+    button.title = 'Auf der Map auswählen und direkte Nachbarlinks anzeigen';
+    button.addEventListener('click', () => openMapRepeater(endpoint.id, endpoint.name));
+    return button;
+  }
   function renderLinks() {
     for (const link of overview.slice(shown, shown + 50)) {
       const card = node('div', undefined, 'distance-link');
-      const button = node('button', `${link.source.name} ↔ ${link.target.name}`);
+      const button = node('button', 'Zeitverlauf', 'distance-analyze');
       button.type = 'button';
-      button.addEventListener('click', () => load([link.source.id, link.target.id]));
-      card.append(button, node('span', `${distance(link)} · ${link.packets} Pakete / ${link.receptions} Empfänge · A → B: ${link.forward_packets} · B → A: ${link.reverse_packets}`));
+      button.addEventListener('click', () => { setScope(link); load(pairScope); });
+      card.append(nodeMapButton(link.source), node('span', '↔'), nodeMapButton(link.target), button,
+        node('span', `${distance(link)} · ${link.packets} Pakete / ${link.receptions} Empfänge · A → B: ${link.forward_packets} · B → A: ${link.reverse_packets}`));
       el('links').append(card);
     }
     shown = Math.min(shown + 50, overview.length);
@@ -113,9 +133,11 @@
   }
   function renderDetail(link) {
     const detail = el('detail');
-    detail.replaceChildren(node('h3', `${link.source.name} ↔ ${link.target.name}`));
-    detail.append(node('p', `A: ${link.source.name} · ${link.source.id}`, 'distance-identity'),
-      node('p', `B: ${link.target.name} · ${link.target.id}`, 'distance-identity'),
+    const heading = node('h3');
+    heading.append(nodeMapButton(link.source), document.createTextNode(' ↔ '), nodeMapButton(link.target));
+    detail.replaceChildren(heading);
+    detail.append(node('p', `A: ${link.source.id}`, 'distance-identity'),
+      node('p', `B: ${link.target.id}`, 'distance-identity'),
       node('p', `${distance(link)} nach den damals zuletzt bekannten Positionen · ${link.packets} Pakete · ${link.receptions} Empfänge · ${link.paths} Pfadvarianten`),
       node('p', `Erster Empfang: ${time(link.first_seen)} · Letzter Empfang: ${time(link.last_seen)}`));
     for (const [key, label] of [['forward', 'A → B'], ['reverse', 'B → A']])
@@ -142,7 +164,11 @@
       card.append(path); list.append(card);
     }
   }
-  el('form').addEventListener('submit', event => { event.preventDefault(); load(); });
+  el('form').addEventListener('submit', event => { event.preventDefault(); load(pairScope); });
+  el('all').addEventListener('click', () => {
+    ++request; controller?.abort(); clear(); setScope(null);
+    el('status').textContent = 'Gesamtübersicht ausgewählt. Analyse starten.';
+  });
   el('form').addEventListener('input', () => {
     ++request; controller?.abort(); clear();
     el('status').textContent = 'Filter geändert. Analyse neu laden.';
@@ -151,18 +177,22 @@
   el('more-links').addEventListener('click', renderLinks);
   el('example').addEventListener('click', () => {
     ++request; controller?.abort(); clear();
+    setScope(null);
     el('start').value = localValue(new Date('2026-09-28T00:00:00+02:00'));
     el('end').value = localValue(new Date('2026-10-01T00:00:00+02:00'));
     el('minimum').value = '200';
     load();
   });
   window.openDistanceAnalysis = link => {
-    root.open = true;
+    const tab = document.getElementById('tab-dx');
+    selectTab(tab);
+    tab.focus({preventScroll:true});
     const end = new Date((link.last_seen + 60) * 1000);
     el('end').value = localValue(end);
     el('start').value = localValue(new Date(Math.max(link.first_seen - 60, end.getTime() / 1000 - 31 * 86400 + 60) * 1000));
-    el('minimum').value = String([300, 250, 200, 150, 100].find(v => v <= (link.distance_km ?? 100)) || 100);
-    clear(); load([link.source.id, link.target.id]);
+    setScope(link);
+    el('minimum').value = '0';
+    clear(); load(pairScope);
     root.scrollIntoView({block:'start'});
   };
 })();
