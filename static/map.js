@@ -1,5 +1,6 @@
 let nodeMap, mapLoading = false;
 let neighborLayer, neighborLinks = [], neighborSignature;
+let mapNeighborsPromise;
 const neighborLinksByNode = new Map();
 let mapLinkMode = 'selected';
 let mapRepeaterDirectory = [];
@@ -191,6 +192,7 @@ function drawMapNeighbors() {
   const focused = showLinks && mapLinkMode === 'selected' && selectedMapRepeater !== null;
   const visibleNodes = new Set(focused ? [selectedMapRepeater] : []);
   document.getElementById('map-neighbors-reset').disabled = !selectedMapRepeater;
+  document.getElementById('map-dx-analysis').disabled = !selectedMapRepeater;
   document.getElementById('map-selected-repeater').textContent = selectedMapRepeater
     ? `Ausgewählt: ${mapMarkers.get(selectedMapRepeater).label || selectedMapRepeater}` : 'Kein Repeater ausgewählt';
   if (!neighborLayer) neighborLayer = L.layerGroup().addTo(nodeMap);
@@ -207,6 +209,10 @@ function drawMapNeighbors() {
     const info = text('div', label);
     info.append(text('div', `${neighborDirection(link)} · ${link.count} Empfänge insgesamt`));
     info.append(text('div', `Zuletzt beobachtet: ${new Date(link.last_seen * 1000).toLocaleString('de-DE')}`));
+    const analyze = text('button', 'DX-Analyse');
+    analyze.type = 'button';
+    analyze.addEventListener('click', () => window.openDistanceAnalysis?.(link));
+    info.append(analyze);
     const color = link.forward_count && link.reverse_count ? '#3388ff' : '#d97706';
     const start = a.marker.getLatLng(), end = b.marker.getLatLng();
     const line = L.polyline([start, end], {
@@ -260,9 +266,11 @@ function renderMapNeighbors(result) {
   }
 }
 
-async function loadMapNeighbors() {
-  if (neighborsLoading || paused || !mapLinksWanted()) return;
+async function loadMapNeighbors(force = false) {
+  if (neighborsLoading) return mapNeighborsPromise;
+  if (paused || (!mapLinksWanted() && !force)) return;
   neighborsLoading = true;
+  mapNeighborsPromise = (async () => {
   try {
     const response = await fetch('/api/repeater-neighbors/map', {
       headers: mapNeighborEtag ? {'If-None-Match': mapNeighborEtag} : {}, cache: 'no-cache'
@@ -279,6 +287,8 @@ async function loadMapNeighbors() {
   } finally {
     neighborsLoading = false;
   }
+  })();
+  return mapNeighborsPromise;
 }
 
 function loadNeighbors() {
@@ -557,6 +567,19 @@ for (const legend of document.querySelectorAll('.map-legend[data-node-style]')) 
 }
 document.getElementById('map-fit').addEventListener('click', fitMapNodes);
 document.getElementById('map-neighbors-reset').addEventListener('click', () => selectMapRepeater(null));
+document.getElementById('map-dx-analysis').addEventListener('click', async () => {
+  const identity = selectedMapRepeater;
+  if (!identity) return;
+  if (neighborSignature === undefined) await loadMapNeighbors(true);
+  if (selectedMapRepeater !== identity || document.getElementById('panel-map').hidden) return;
+  if (neighborSignature === undefined) {
+    document.getElementById('map-neighbors-status').textContent = 'DX-Auswahl nicht verfügbar. Bitte Nachbarverbindungen laden; gegebenenfalls Pause beenden.';
+    return;
+  }
+  const view = mapMarkers.get(identity);
+  window.openRepeaterDistanceAnalysis?.({id: identity, name: view?.label || identity},
+    neighborLinksByNode.get(identity) || []);
+});
 // Never restore the all-links expert mode from storage on a fresh page.
 document.getElementById('map-link-mode').value = 'selected';
 document.getElementById('map-link-mode').addEventListener('change', event => setMapLinkMode(event.target.value));

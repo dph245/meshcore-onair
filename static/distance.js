@@ -6,6 +6,7 @@
   let request = 0, controller, result, selected, evidenceOffset = 0;
   let overview = [], shown = 0;
   let pairScope = null;
+  let repeaterChoice = null;
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   el('zone').textContent = `Zeitraumauswahl: ${timezone}. Diagramme und Empfangszeiten: Europe/Berlin.`;
   const localValue = date => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -51,6 +52,7 @@
     if (!link && el('minimum').value === '0') el('minimum').value = '200';
   }
   async function load(pair = null, append = false) {
+    repeaterChoice = null;
     const ticket = ++request;
     controller?.abort();
     controller = new AbortController();
@@ -164,14 +166,23 @@
       card.append(path); list.append(card);
     }
   }
-  el('form').addEventListener('submit', event => { event.preventDefault(); load(pairScope); });
+  el('form').addEventListener('submit', event => {
+    event.preventDefault();
+    if (repeaterChoice) {
+      el('status').textContent = 'Bitte zuerst eine Nachbarverbindung für die DX-Analyse wählen.';
+      return;
+    }
+    load(pairScope);
+  });
   el('all').addEventListener('click', () => {
+    repeaterChoice = null;
     ++request; controller?.abort(); clear(); setScope(null);
     el('status').textContent = 'Gesamtübersicht ausgewählt. Analyse starten.';
   });
   el('form').addEventListener('input', () => {
     ++request; controller?.abort(); clear();
-    el('status').textContent = 'Filter geändert. Analyse neu laden.';
+    if (repeaterChoice) renderRepeaterChoice();
+    else el('status').textContent = 'Filter geändert. Analyse neu laden.';
   });
   el('more').addEventListener('click', () => selected && load(selected, true));
   el('more-links').addEventListener('click', renderLinks);
@@ -183,13 +194,38 @@
     el('minimum').value = '200';
     load();
   });
+  function renderRepeaterChoice() {
+    const {endpoint, links} = repeaterChoice;
+    el('scope').textContent = `Ausgewählter Repeater: ${endpoint.name}`;
+    el('scope').hidden = false;
+    el('all').hidden = false;
+    el('status').textContent = links.length
+      ? `${endpoint.name}: Nachbarverbindung für die DX-Analyse wählen.`
+      : `${endpoint.name}: Keine eindeutig zugeordneten Nachbarverbindungen bis 500 km verfügbar.`;
+    for (const link of links) {
+      const other = link.source.id === endpoint.id ? link.target : link.source;
+      const card = node('div', undefined, 'distance-link');
+      const button = node('button', `${other.name} [${other.id.slice(0, 6)}] · ${link.distance_km.toFixed(1)} km`, 'distance-analyze');
+      button.type = 'button';
+      button.addEventListener('click', () => window.openDistanceAnalysis(link));
+      card.append(button); el('links').append(card);
+    }
+  }
+  window.openRepeaterDistanceAnalysis = (endpoint, links) => {
+    ++request; controller?.abort(); clear(); setScope(null);
+    repeaterChoice = {endpoint, links};
+    const tab = document.getElementById('tab-dx');
+    selectTab(tab); tab.focus({preventScroll:true});
+    renderRepeaterChoice();
+  };
   window.openDistanceAnalysis = link => {
     const tab = document.getElementById('tab-dx');
     selectTab(tab);
     tab.focus({preventScroll:true});
     const end = new Date((link.last_seen + 60) * 1000);
     el('end').value = localValue(end);
-    el('start').value = localValue(new Date(Math.max(link.first_seen - 60, end.getTime() / 1000 - 31 * 86400 + 60) * 1000));
+    const earliest = end.getTime() / 1000 - 31 * 86400 + 60;
+    el('start').value = localValue(new Date(Math.max(Number.isFinite(link.first_seen) ? link.first_seen - 60 : earliest, earliest) * 1000));
     setScope(link);
     el('minimum').value = '0';
     clear(); load(pairScope);

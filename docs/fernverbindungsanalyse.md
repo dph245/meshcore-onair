@@ -33,6 +33,12 @@ Die Auswahl wartet beim ersten Aufruf auf die geladenen Kartenmarker und wechsel
 gegebenenfalls aus TRACE zurück zur normalen Pfadansicht. Fehlende aktuelle
 Kartenpositionen werden ausdrücklich gemeldet. Die Paaranalyse bleibt separat
 über „Zeitverlauf“ erreichbar; DX-Filter und Ergebnisse bleiben erhalten.
+Umgekehrt öffnet **DX-Analyse** bei einer Kartenauswahl die direkten Nachbarn im
+DX-Tab. Erst die Wahl einer Gegenstation startet die gezielte historische Analyse;
+ein Formular-Submit ohne Gegenstation löst keine globale Abfrage aus. Fehlende
+Nachbarn werden angezeigt. Kartenlink-Popups bieten denselben Button für den
+direkten Paarstart. Ohne im kompakten Linkindex gespeicherten Erstempfang werden
+bis zu 31 Tage vor dem letzten beobachteten Empfang vorbelegt.
 
 Eine feste Obergrenze von **500 km** gilt für Nachbartabelle, Kartenlinks und
 Analyse. Genau 500 km bleiben enthalten. In der Nachbarübersicht zählt die

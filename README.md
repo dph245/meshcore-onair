@@ -515,6 +515,10 @@ Nachbartabelle und Kartenlinks ignorieren Verbindungen mit bekannter Entfernung
 über **500 km**. Genau 500 km bleiben zulässig; Verbindungen ohne eindeutig
 bestimmbare Entfernung bleiben in der Tabelle als unbekannt erhalten.
 Die Rohdaten werden nicht gelöscht.
+Bei ausgewähltem Repeater öffnet **DX-Analyse** im DX-Tab die Liste seiner
+direkten Nachbarverbindungen. Eine Gegenstation auswählen, um genau dieses Paar
+zu untersuchen. Im Popup einer Kartenverbindung startet **DX-Analyse** direkt
+die Auswertung der beiden Endpunkte. Ohne Auswahl ist der Kartenbutton deaktiviert.
 
 Die Repeater-Suche oberhalb der Karte findet Namen, Public-Key-Präfixe und vollständige
 Public Keys. Mehrdeutige Präfixe zeigen sämtliche bekannten Repeater-Kandidaten mit

@@ -76,9 +76,23 @@ def main():
         expect(page.locator('#map-link-mode')).to_have_value('selected')
         expect(page.locator('#node-map .leaflet-popup-content')).to_contain_text('Auersberg <test>')
         page.wait_for_function('neighborLayer.getLayers().length > 0')
-        page.locator('#tab-dx').click()
+        expect(page.locator('#map-dx-analysis')).to_be_enabled()
+        before = len(analysis)
+        page.locator('#map-dx-analysis').click()
+        expect(page.locator('#panel-dx')).to_be_visible()
+        expect(page.locator('#distance-status')).to_contain_text('Nachbarverbindung')
+        expect(page.locator('#distance-links .distance-analyze')).to_have_count(1)
+        expect(page.locator('#distance-links .distance-analyze')).to_contain_text('Wendland')
+        assert len(analysis) == before, 'Choosing a repeater must not scan unrelated links'
+        page.locator('#distance-start').fill('2026-09-28T00:00')
+        page.locator('#distance-form button[type=submit]').click()
+        expect(page.locator('#distance-status')).to_contain_text('zuerst eine Nachbarverbindung')
+        expect(page.locator('#distance-links .distance-analyze')).to_have_count(1)
+        assert len(analysis) == before, 'A node-only selection must never start a global scan'
         page.locator('#distance-links .distance-analyze').click()
         expect(page.locator('#distance-status')).to_contain_text('100 Einzelbelege')
+        assert analysis[-1]['source'] == [A] and analysis[-1]['target'] == [B]
+        assert float(analysis[-1]['end'][0]) - float(analysis[-1]['start'][0]) <= 31 * 86400
         assert page.locator('#distance-evidence details').count() == 100
         assert page.locator('.distance-bin').count() == 25
         assert page.locator('#distance-detail test').count() == 0
@@ -99,7 +113,13 @@ def main():
         expect(page.locator('#map-link-mode')).to_have_value('selected')
         expect(page.locator('#map-modes [data-mode="paths"]')).to_have_attribute('aria-pressed', 'true')
         expect(page.locator('#node-map .leaflet-popup-content').filter(has_text='Wendland')).to_be_visible()
-        page.locator('#tab-dx').click()
+        page.evaluate('''() => neighborLayer.getLayers()
+            .find(layer => layer.options.bubblingMouseEvents === false)
+            .fire('click', {latlng:nodeMap.getCenter()})''')
+        page.locator('#node-map .leaflet-popup-content button', has_text='DX-Analyse').click()
+        expect(page.locator('#panel-dx')).to_be_visible()
+        expect(page.locator('#distance-status')).to_contain_text('100 Einzelbelege')
+        assert analysis[-1]['source'] == [A] and analysis[-1]['target'] == [B]
         page.set_viewport_size({'width':390,'height':844})
         page.locator('#distance-detail').scroll_into_view_if_needed()
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'No mobile page overflow'
