@@ -371,10 +371,11 @@ function updateMapLabels() {
   const zoom = nodeMap.getZoom();
   const container = nodeMap.getContainer();
   container.style.setProperty('--map-node-size', `${mapNodeSize()}px`);
-  container.classList.toggle('map-labels-small', zoom >= 10 && zoom < 12);
-  container.classList.toggle('map-labels-hidden', zoom < 10);
+  const dotSize = Math.max(6, Math.min(14, 8 + (zoom - 10) * 0.75));
+  container.style.setProperty('--meshlive-node-size', `${dotSize}px`);
+  container.classList.toggle('map-labels-hidden', zoom < 12);
   container.classList.toggle('map-neighbor-labels-hidden', zoom < 14);
-  container.classList.toggle('map-neighbor-points', zoom < 12);
+  container.classList.toggle('map-node-points', zoom < 12);
 }
 
 function showNodeMap() {

@@ -1,5 +1,13 @@
 # Etappe 1.2 – Zoomabhängige Punktdarstellung
 
+Aktualisierung: Die Punktdarstellung unter Zoom 12 gilt inzwischen auch ohne
+Auswahl sowie in **Keine Links** und **Alle Links** für alle Node-Typen. Die
+Punktgröße folgt MeshLive (`max(6, min(14, 8 + (Zoom - 10) * 0.75))` Pixel).
+Nur der ausgewählte Repeater behält sein Icon und seinen Namen. Die bestehende
+36 × 36 px große Trefferfläche bleibt erhalten. Die Browserprüfung deckt diese
+Übergänge zusätzlich in der vollständigen Übersicht mit 1.600 Nodes ab.
+Die folgende Beschreibung dokumentiert den ursprünglichen Stand von Etappe 1.2.
+
 ## Bestandsaufnahme: MeshLive
 
 MeshLive verwendet keine CircleMarker, sondern normale Leaflet-Marker mit

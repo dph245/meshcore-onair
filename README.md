@@ -505,7 +505,8 @@ der ausgewählte Repeater und seine eindeutig zugeordneten direkten Nachbarn sic
 Der ausgewählte Repeater bleibt bei jeder Zoomstufe als Icon mit Name sichtbar.
 Direkte Nachbarn erscheinen bis Zoom 11 als kleine klickbare Punkte, bei 12–13 als
 Icons ohne Namen und ab Zoom 14 als Icons mit Namen. Klick/Popup und Hover-Namen bleiben erreichbar. Ohne Auswahl sowie in
-**Keine Links** und **Alle Links** erscheinen sämtliche normalerweise sichtbaren Nodes. Die Auswahl bleibt bei Verschieben, Zoom und automatischen Aktualisierungen
+**Keine Links** und **Alle Links** erscheinen sämtliche normalerweise sichtbaren Nodes,
+unter Zoom 12 ebenfalls als Punkte. Die Auswahl bleibt bei Verschieben, Zoom und automatischen Aktualisierungen
 erhalten. **Auswahl aufheben** oder ein Klick auf die freie Karte entfernt sie;
 im Standardmodus verschwinden dadurch die Linien. Im Expertenmodus bleiben alle
 Links sichtbar. Ein neuer Seitenaufruf stellt den Standardmodus wieder her.
@@ -641,7 +642,9 @@ OpenStreetMap: Repeater als Funkturm (grün), RoomServer als drei Figuren
 (violett). Die Symbole haben einen weißen Hintergrund und eine Größe von 36 Pixeln.
 Repeater sind als `Funkfeuer [dd42cf]` beschriftet; die sechs Hex-Zeichen sind
 die ersten drei Bytes des Public Keys. Ab Zoom 12 erscheinen die Labels in
-normaler Größe, bei Zoom 10–11 kleiner und unter Zoom 10 bleiben nur die Icons.
+normaler Größe. Unter Zoom 12 erscheinen die Nodes als farbige Punkte ohne permanente
+Labels. Wie in MeshLive schrumpfen die Punkte beim Herauszoomen (mindestens 6 px).
+Ein ausgewählter Repeater behält sein hervorgehobenes Icon mit Namen.
 Die Details sind bei jeder Zoomstufe erreichbar. Maus oder
 Tastaturfokus zeigen Details, Klick/Touch öffnet ein Popup mit Public Key,
 Koordinaten, Zeitpunkt der Position und erster/letzter Empfangszeit.

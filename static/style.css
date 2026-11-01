@@ -24,7 +24,6 @@ tr.packet td{vertical-align:top}td.message{white-space:pre-wrap;overflow-wrap:an
 
 #theme-toggle{white-space:nowrap}a{color:var(--accent)}
 #node-map .map-position-link{stroke:var(--secondary)}
-#node-map.map-labels-small .map-repeater-label{font-size:10px;line-height:13px;padding:1px 4px}
 #node-map.map-labels-hidden .map-repeater-label{display:none}
 #node-map.map-neighbor-focus.map-neighbor-labels-hidden .map-repeater-label{display:none}
 #node-map:not(.map-labels-hidden):not(.map-neighbor-focus) .map-repeater-tooltip,
@@ -334,10 +333,10 @@ main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
   #map-repeater-results{max-height:80px}
 }
 
-/* Only normal selected-neighbor view uses points; marker/anchor/hit area stay 36px. */
+/* Zoomed-out nodes use points in every link mode; keep the selected icon and 36px hit areas. */
 #node-map .map-neighbor-dot{display:none;pointer-events:none}
-#node-map.map-neighbor-focus.map-neighbor-points .map-repeater-related:not(.map-repeater-selected) .map-node-symbol{display:none}
-#node-map.map-neighbor-focus.map-neighbor-points .map-repeater-related:not(.map-repeater-selected) .map-neighbor-dot{display:block}
+#node-map.map-node-points .map-marker:not(.map-repeater-selected) .map-node-symbol{display:none}
+#node-map.map-node-points .map-marker:not(.map-repeater-selected) .map-neighbor-dot{display:block}
 
 .trace-group-choice{display:block;width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;margin:5px 0;line-height:1.5}
 #map-trace-receptions table{white-space:normal;table-layout:fixed}

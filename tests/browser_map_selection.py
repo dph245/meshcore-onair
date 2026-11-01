@@ -16,7 +16,7 @@ LINKS = dict(nodes=[[n['public_key'], n['name']] for n in NODES],
 
 
 
-def dense_neighbors(browser):
+def dense_neighbors(browser, viewports=((1280, 900), (390, 844), (844, 390))):
     # Synthetic identities/topology: counts from the field report, no production data.
     nodes = [dict(deepcopy(NODES[0]), public_key=f'{i:064x}', name=f'Node {i}',
                   node_type=2 if i < 250 else 1 + i % 4,
@@ -30,8 +30,15 @@ def dense_neighbors(browser):
         nodes[i].update(latitude=52.01, longitude=10.01)
     links = [[0, i, 3, 2, 1, 100, 4] for i in range(2, 39)]
     links += [[1, i, 3, 2, 1, 100, 4] for i in range(2, 211)]
-    for width, height in [(1280, 900), (390, 844), (844, 390)]:
+    for width, height in viewports:
         page = browser.new_page(viewport=dict(width=width, height=height), has_touch=width < 1000)
+        # Keep the request-count assertion independent of the 30-second poll;
+        # node refreshes are exercised explicitly below.
+        page.add_init_script('''
+            const originalSetInterval = window.setInterval;
+            window.setInterval = (callback, delay, ...args) => delay === 30000
+                ? 0 : originalSetInterval(callback, delay, ...args);
+        ''')
         errors, requests, calls = [], [], []
         page.on('pageerror', lambda error: errors.append(str(error)))
         route_page(page, requests)
@@ -46,6 +53,19 @@ def dense_neighbors(browser):
         page.locator('#tab-map').click()
         expect(page.locator('#node-map .map-marker')).to_have_count(1600)
         assert not calls
+        # The complete overview also uses points, including every node type.
+        for zoom in [7, 10, 11, 12, 14, 7]:
+            page.evaluate('(zoom) => nodeMap.setView([52.04,10.04], zoom, {animate:false})', zoom)
+            dots = page.locator('#node-map .map-neighbor-dot').evaluate_all(
+                "(els) => els.filter(e => getComputedStyle(e).display !== 'none').length")
+            assert dots == (1600 if zoom < 12 else 0), (zoom, dots)
+            labels = page.locator('#node-map .map-repeater-label').evaluate_all(
+                "(els) => els.filter(e => getComputedStyle(e).display !== 'none').length")
+            assert labels == (0 if zoom < 12 else sum(n['node_type'] == 2 for n in nodes)), (zoom, labels)
+            if zoom < 12:
+                size = page.locator('#node-map .map-neighbor-dot').first.evaluate(
+                    '(e) => e.getBoundingClientRect().width')
+                assert size == max(6, min(14, 8 + (zoom - 10) * .75)), (zoom, size)
         page.evaluate('window.originalMarkers = new Map([...mapMarkers].map(([k,v]) => [k,v.marker]))')
         for selected, count in [(0, 37), (1, 209), (0, 37), (1, 209)]:
             key = nodes[selected]['public_key']
@@ -83,7 +103,7 @@ def dense_neighbors(browser):
         }''', target)
         hit = page.locator('#point-touch-target')
         dot = hit.locator('.map-neighbor-dot')
-        assert dot.bounding_box()['width'] == 8
+        assert dot.bounding_box()['width'] == 8.75
         assert hit.bounding_box()['width'] == 36
         hit.hover()
         expect(page.locator('#node-map .leaflet-tooltip')).to_contain_text('Node 50')
@@ -100,8 +120,11 @@ def dense_neighbors(browser):
         for mode in ['none', 'all']:
             page.locator('#map-link-mode').select_option(mode)
             expect(page.locator('#node-map .map-marker')).to_have_count(1600)
-            assert page.locator('#node-map .map-neighbor-dot').evaluate_all(
-                "(els) => els.every(e => getComputedStyle(e).display === 'none')")
+            for zoom in [7, 11, 12, 14, 11]:
+                page.evaluate('(zoom) => nodeMap.setZoom(zoom, {animate:false})', zoom)
+                dots = page.locator('#node-map .map-neighbor-dot').evaluate_all(
+                    "(els) => els.filter(e => getComputedStyle(e).display !== 'none').length")
+                assert dots == (1599 if zoom < 12 else 0), (mode, zoom, dots)
         page.locator('#map-link-mode').select_option('selected')
         page.locator('#map-neighbors-reset').click()
         expect(page.locator('#node-map .map-marker')).to_have_count(1600)
@@ -111,7 +134,7 @@ def dense_neighbors(browser):
         page.locator('#node-map').screenshot(path=f'/tmp/onair-dense-{width}x{height}.png')
         assert not errors, errors
         page.close()
-    print('Dense selection: 1600 nodes, 37/209 neighbors, zoom 7–14, marker reuse, refresh and three viewports passed')
+    print(f'Dense selection: 1600 nodes, 37/209 neighbors, zoom 7–14, marker reuse, refresh and {len(viewports)} viewports passed', flush=True)
 
 
 def main():
