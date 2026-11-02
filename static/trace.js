@@ -7,6 +7,17 @@ function traceNode(node) {
     : `${node.hash}${node.ambiguous ? ' (mehrdeutig)' : ''}`;
 }
 
+function traceRouteLabel(history, index) {
+  const short = node => {
+    const label = Array.from((node.name || node.hash).replace(/\s+/g, ' '));
+    return label.length > 6 ? label.slice(0, 5).join('') + '…' : label.join('');
+  };
+  const route = history.route;
+  const ends = !route.length ? 'Leer' : route.length === 1 ? short(route[0])
+    : `${short(route[0])} → ${short(route.at(-1))}`;
+  return `${index + 1} · ${ends} · ${route.length} Hops`;
+}
+
 function renderTraces(items) {
   const container = document.getElementById('trace-results');
   const opened = new Set([...container.querySelectorAll('details[open]')].map(node => node.dataset.id));
@@ -41,6 +52,7 @@ function renderTraceHistory() {
   container.replaceChildren();
   const history = traceHistories.find(h => String(h.id) === document.getElementById('trace-route').value);
   if (!history) return;
+  container.append(text('p', `Route: ${history.route.map(traceNode).join(' → ') || 'Leer'} · ${history.scope} · ${history.point_count} Messgruppen`, 'trace-route-description'));
   if (history.point_count > history.points.length) {
     container.append(text('p', `Verlauf auf die neuesten ${history.points.length} von ${history.point_count} Messgruppen dieser Route begrenzt.`, 'muted'));
   }
@@ -96,7 +108,7 @@ function renderTraceHistory() {
 }
 
 async function loadTraces() {
-  if (paused || document.getElementById('panel-trace').hidden) return;
+  if (paused || document.getElementById('panel-trace').hidden || document.getElementById('trace-analysis')?.hidden) return;
   const version = ++traceRequest;
   traceController?.abort();
   const controller = traceController = new AbortController();
@@ -107,13 +119,14 @@ async function loadTraces() {
     const response = await fetch(`/api/traces?hours=${encodeURIComponent(hours)}`, {signal: controller.signal});
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
-    if (version !== traceRequest || paused || document.getElementById('panel-trace').hidden) return;
+    if (version !== traceRequest || paused || document.getElementById('panel-trace').hidden || document.getElementById('trace-analysis')?.hidden) return;
     renderTraces(result.items);
     const select = document.getElementById('trace-route');
     const selected = traceHistories.find(h => String(h.id) === select.value);
     traceHistories = result.histories;
-    const options = traceHistories.map(history => {
-      const option = text('option', `${history.route.map(traceNode).join(' → ') || 'Leere Route'} · ${history.scope} · ${history.point_count} Messgruppen`);
+    const options = traceHistories.map((history, index) => {
+      const option = text('option', traceRouteLabel(history, index));
+      option.title = `${history.route.map(traceNode).join(' → ') || 'Leere Route'} · ${history.scope} · ${history.point_count} Messgruppen`;
       option.value = String(history.id);
       return option;
     });
@@ -142,3 +155,16 @@ document.getElementById('trace-search').addEventListener('submit', event => { ev
 document.getElementById('trace-hours').addEventListener('change', loadTraces);
 document.getElementById('trace-route').addEventListener('change', renderTraceHistory);
 setInterval(loadTraces, 10000);
+
+function showTraceWorkspace() {
+  if (document.getElementById('trace-analysis').hidden) showTraceMap();
+  else loadTraces();
+}
+document.querySelectorAll('#trace-views button').forEach(button => button.addEventListener('click', () => {
+  const history = button.dataset.view === 'history';
+  document.getElementById('trace-analysis').hidden = !history;
+  document.getElementById('map-traces').hidden = history;
+  document.querySelectorAll('#trace-views button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+  if (!history) { ++traceRequest; traceController?.abort(); }
+  showTraceWorkspace();
+}));

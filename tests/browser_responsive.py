@@ -155,7 +155,13 @@ def main():
                 elif name == 'discovery':
                     tap(page, '#discovery-results summary')
                 elif name == 'trace':
+                    expect(page.locator('#trace-map')).to_be_visible()
+                    tap(page, '[data-view=history]')
                     expect(page.locator('.trace-chart')).to_be_visible()
+                    assert page.locator('#trace-route option').evaluate_all('(items) => items.every(e => e.textContent.length <= 34)')
+                    expect(page.locator('.trace-route-description')).to_contain_text(LONG)
+                    tap(page, '#trace-route')
+                    page.keyboard.press('Escape')
                     tap(page, '#trace-results summary')
                     page.locator('.trace-chart circle').first.tap()
                     expect(page.locator('#trace-history [role=status]')).to_contain_text('SNR')

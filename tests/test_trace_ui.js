@@ -10,10 +10,10 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = value; }
 }
 const elements = Object.fromEntries(['trace-results', 'trace-status', 'panel-trace', 'trace-hours',
-  'trace-search', 'trace-route', 'trace-history'].map(id => [id, new Element('div')]));
+  'trace-search', 'trace-route', 'trace-history', 'trace-analysis'].map(id => [id, new Element('div')]));
 elements['trace-hours'].value = '24';
 elements['panel-trace'].hidden = false;
-const document = {getElementById: id => elements[id], createElementNS: (_, tag) => new Element(tag)};
+const document = {querySelectorAll: () => [], getElementById: id => elements[id], createElementNS: (_, tag) => new Element(tag)};
 const text = (tag, value, className) => Object.assign(new Element(tag, value), {className});
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 await new AsyncFunction('document', 'text', 'setInterval', `${source}
@@ -29,11 +29,17 @@ const history = {id: 1, scope: 'Kein Scope', route: [hop], point_count: 3,
     {id: 1, time: 1000, tag: '1', snr_min: [-3], snr_max: [2]},
     {id: 2, time: 1100, tag: '2', snr_min: [null], snr_max: [null]},
     {id: 3, time: 1200, tag: '3', snr_min: [1], snr_max: [1]}]};
+const longRoute = {...history, route: Array.from({length: 60}, (_, i) => ({hash: 'abcdef0123456789', name: 'Sehr langer Repeatername '.repeat(20)}))};
+assert(traceRouteLabel(longRoute, 99).length <= 34, 'Long route and names stay compact in native popup');
+assert(traceRouteLabel(longRoute, 99).startsWith('100 · '), 'Number distinguishes similar route labels');
+assert(traceRouteLabel(longRoute, 99).endsWith('60 Hops'), 'Hop count remains visible');
+assert(traceRouteLabel({...history, route: []}, 0).includes('Leer'), 'Empty route supported');
 const data = {items: [item], histories: [history], scanned: 3, ignored: 0};
 let fetch = async () => { calls++; return {ok: true, json: async () => data}; };
 await loadTraces();
 const container = document.getElementById('trace-results');
 const chart = document.getElementById('trace-history');
+assert(flatten(chart).includes('<script>unsafe</script> [aa]'), 'Selected route remains fully readable outside dropdown');
 assert(flatten(container).includes('-3 bis 2 dB'), 'SNR range visible');
 assert(flatten(container).includes('<script>unsafe</script>'), 'Untrusted names rendered as text');
 assert(!all(container).some(n => n.tag === 'script'), 'No markup from names');
@@ -51,6 +57,11 @@ paused = false;
 document.getElementById('panel-trace').hidden = true;
 await loadTraces();
 assert(calls === 2, 'Hidden panel prevents fetching');
+document.getElementById('panel-trace').hidden = false;
+document.getElementById('trace-analysis').hidden = true;
+await loadTraces();
+assert(calls === 2, 'Map view prevents background history fetching');
+document.getElementById('trace-analysis').hidden = false;
 document.getElementById('panel-trace').hidden = false;
 let release;
 fetch = () => new Promise(resolve => { release = resolve; });

@@ -25,19 +25,19 @@ function traceMapSnrText(value) {
   return `${value < 0 ? '−' : '+'}${number} dB`;
 }
 
-// Historical observations use the existing Leaflet instance; no fetch on map movement.
+// Historical observations have their own map and view; no fetch on map movement.
+let traceMap;
 (() => {
-  let mode = 'paths', layer, cursor, query, version = 0, controller;
+  let layer, cursor, query, version = 0, controller;
   const selected = new Map();
   let activeGroup, receptionPage = 0;
   const el = id => document.getElementById(`map-trace-${id}`);
-  window.traceMapActive = () => mode === 'traces';
   const position = hop => hop.position && [hop.position.latitude, hop.position.longitude];
   function draw() {
-    if (!nodeMap) return;
-    if (!layer) layer = L.layerGroup().addTo(nodeMap);
+    if (!traceMap) return;
+    if (!layer) layer = L.layerGroup().addTo(traceMap);
     layer.clearLayers();
-    if (mode !== 'traces') return;
+    if (document.getElementById('panel-trace').hidden || document.getElementById('map-traces').hidden) return;
     const labels = [];
     [...selected.values()].forEach((item, index) => {
       const color = ['#3388ff', '#d97706'][index];
@@ -49,7 +49,7 @@ function traceMapSnrText(value) {
         const previous = i > 0 && position(item.hops[i - 1]);
         if (previous && hop.snr_min != null && item.hops[i - 1].snr_min != null) {
           L.polyline([previous, point], {color, weight: 3}).addTo(layer);
-          drawNeighborArrow(previous, point, .6, color, layer);
+          drawNeighborArrow(previous, point, .6, color, layer, traceMap);
         }
       });
       for (const section of traceMapSnrSegments(item.hops)) labels.push({section, item, color, index});
@@ -57,10 +57,10 @@ function traceMapSnrText(value) {
     drawLabels(labels);
   }
   function drawLabels(labels) {
-    const occupied = [], size = nodeMap.getSize();
+    const occupied = [], size = traceMap.getSize();
     for (const {section, item, color, index} of labels) {
       const from = position(section.from), to = position(section.to);
-      const a = nodeMap.latLngToContainerPoint(from), b = nodeMap.latLngToContainerPoint(to);
+      const a = traceMap.latLngToContainerPoint(from), b = traceMap.latLngToContainerPoint(to);
       const midpoint = L.point((a.x + b.x) / 2, (a.y + b.y) / 2);
       const box = text('div', '', 'trace-snr-label');
       box.style.borderColor = color;
@@ -73,7 +73,7 @@ function traceMapSnrText(value) {
         row.setAttribute('aria-label', `${sample.forward ? section.from.hash + ' → ' + section.to.hash : section.to.hash + ' → ' + section.from.hash}: ${traceMapSnrText(sample.snr)}, Hop ${sample.hop}`);
         box.append(row);
       }
-      const marker = L.marker(nodeMap.containerPointToLatLng(midpoint), {
+      const marker = L.marker(traceMap.containerPointToLatLng(midpoint), {
         icon: L.divIcon({html: box, className: 'trace-snr-icon', iconSize: [0, 0], iconAnchor: [0, 0]}),
         interactive: false, keyboard: false, zIndexOffset: 1000
       }).addTo(layer);
@@ -98,10 +98,10 @@ function traceMapSnrText(value) {
         if (best.overlap === 0) break;
       }
       occupied.push(best.rect);
-      const displayed = nodeMap.containerPointToLatLng(best.center);
+      const displayed = traceMap.containerPointToLatLng(best.center);
       marker.setLatLng(displayed);
       // A subtle leader preserves the association when collision avoidance shifts a label.
-      L.polyline([nodeMap.containerPointToLatLng(midpoint), displayed], {
+      L.polyline([traceMap.containerPointToLatLng(midpoint), displayed], {
         color, weight: 1, opacity: .65, interactive: false, className: 'trace-snr-leader'
       }).addTo(layer);
     }
@@ -137,7 +137,7 @@ function traceMapSnrText(value) {
       if (selected.size >= 2) { checkbox.checked = false; return; }
       selected.set(item.id, result); details();
       const points = [...selected.values()].flatMap(v => v.hops.map(position).filter(Boolean));
-      if (points.length) nodeMap.fitBounds(L.latLngBounds(points), {padding: [35, 35], maxZoom: 13});
+      if (points.length) traceMap.fitBounds(L.latLngBounds(points), {padding: [35, 35], maxZoom: 13, animate: false});
     } catch (error) {
       if (current === version && error.name !== 'AbortError') { checkbox.checked = false; el('status').textContent = `Details nicht verfügbar: ${error.message}`; }
     } finally { checkbox.disabled = false; }
@@ -191,7 +191,7 @@ function traceMapSnrText(value) {
       text('p', `Gruppenminimum und Observerzahl sind aggregiert. Karte und Messwerte zeigen einzelne Empfänge. Empfohlener Einzelempfang: #${item.representative_id} mit größter SNR-Abdeckung; bei Gleichstand neuester Empfang, dann höchste ID.`));
     const mapButton = text('button', 'Zur TRACE-Karte');
     mapButton.type = 'button';
-    mapButton.addEventListener('click', () => document.getElementById('node-map').scrollIntoView({block: 'center'}));
+    mapButton.addEventListener('click', () => document.getElementById('trace-map').scrollIntoView({block: 'center'}));
     summary.append(mapButton);
     // A second group can join the comparison; never silently replace either color.
     renderReceptions();
@@ -223,7 +223,10 @@ function traceMapSnrText(value) {
       // Keep the DOM bounded; selected comparison details survive page changes.
       el('list').replaceChildren(...result.items.map(item => {
         if (result.grouped) {
-          const button = text('button', groupLabel(item), 'trace-group-choice');
+          const button = text('button', '', 'trace-group-choice');
+          button.append(text('strong', `${new Date(item.first_seen * 1000).toLocaleString('de-DE')} · Tag ${item.tag}`),
+            text('span', item.hops.map(traceNode).join(' → ') || 'Leere Route'),
+            text('span', `${item.receptions} Empfänge · ${item.observers.length} Observer · ${item.observed_hops}/${item.hops.length} SNR · Min. ${item.weakest_snr ?? '—'} dB`, 'muted'));
           button.type = 'button'; button.dataset.id = item.id;
           button.setAttribute('aria-pressed', String(activeGroup?.id === item.id));
           button.addEventListener('click', () => chooseGroup(item));
@@ -242,28 +245,28 @@ function traceMapSnrText(value) {
       if (current === version && error.name !== 'AbortError') el('status').textContent = `Suche fehlgeschlagen: ${error.message}`;
     } finally { if (current === version) el('next').disabled = false; }
   }
-  document.querySelectorAll('#map-modes button').forEach(button => button.addEventListener('click', () => {
-    mode = button.dataset.mode;
-    document.querySelectorAll('#map-modes button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
-    document.getElementById('map-traces').hidden = mode !== 'traces';
-    for (const id of ['map-node-tools', 'map-status', 'map-neighbors-status', 'map-node-help']) document.getElementById(id).hidden = mode === 'traces';
-    if (mode === 'nodes') setMapLinkMode('none');
-    else if (mode === 'paths' && mapLinkMode === 'none') setMapLinkMode('selected');
-    drawMapNeighbors(); draw(); nodeMap?.invalidateSize();
-  }));
-  document.querySelectorAll('#map-modes button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
-  document.getElementById('map-link-mode').addEventListener('change', () => {
-    if (mode === 'traces') return;
-    mode = mapLinkMode === 'none' ? 'nodes' : 'paths';
-    document.querySelectorAll('#map-modes button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
-  });
   el('form').addEventListener('submit', event => { event.preventDefault(); search(); });
   el('next').addEventListener('click', () => search(true));
   el('period').addEventListener('change', () => {
     for (const field of ['start', 'end']) el(field).disabled = el('period').value !== 'custom';
   });
   el('start').disabled = el('end').disabled = true;
-  // Register after initMap has created the map, without polling or additional requests.
-  const originalInit = showNodeMap;
-  showNodeMap = function() { originalInit(); nodeMap.off('zoomend moveend resize', draw).on('zoomend moveend resize', draw); draw(); };
+  window.showTraceMap = function() {
+    if (!window.L) {
+      el('status').textContent = 'Kartenbibliothek konnte nicht geladen werden. Bitte Seite neu laden.';
+      return;
+    }
+    if (!traceMap) {
+      traceMap = L.map('trace-map').setView([52.1, 10.1], 7);
+      const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(traceMap);
+      tiles.on('tileerror', () => { document.getElementById('trace-tiles-status').hidden = false; });
+      traceMap.on('zoomend moveend resize', draw);
+      new ResizeObserver(() => {
+        if (!document.getElementById('panel-trace').hidden && !document.getElementById('map-traces').hidden) traceMap.invalidateSize({pan: false});
+      }).observe(traceMap.getContainer());
+    }
+    traceMap.invalidateSize({pan: false}); draw();
+  };
 })();

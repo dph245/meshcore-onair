@@ -398,8 +398,16 @@ auch beim Lesen alter Archivpakete. Ein Channel-Schlüssel ist nicht nötig.
 Unvollständige Inhalte und nicht unterstützte Flags werden gekennzeichnet.
 Format: [MeshCore TRACE-Implementierung](https://github.com/meshcore-dev/MeshCore/blob/main/src/Mesh.cpp).
 
-Der Tab **TRACE** wertet archivierte TRACE-Empfänge für eine Stunde, 24 Stunden
-oder sieben Tage aus und aktualisiert sich alle zehn Sekunden. Die Chronik
+Der Tab **TRACE** vereint **Messgruppen & Karte** sowie **Chronik & SNR-Verlauf**.
+Die Kartenansicht bietet Filter über die gesamte Breite, eine kompakte Gruppenliste
+und eine eigene historische Karte mit Empfangsdetails. Auf schmalen Bildschirmen
+stehen Liste und Karte untereinander. Auswahl und Kartenausschnitt bleiben beim
+Ansichts- und Tabwechsel erhalten; die normale Map hat einen eigenen Ausschnitt.
+Erst „Suchen“ lädt Kartenmessgruppen; Kartenbewegungen und Tabwechsel starten
+keine Archivsuche.
+
+Die Chronik wertet archivierte TRACE-Empfänge für eine Stunde, 24 Stunden
+oder sieben Tage aus und aktualisiert sich bei sichtbarer Chronik alle zehn Sekunden. Sie
 gruppiert gleiche Tags, Auth-Codes, Routen und Scopes in festen 60-Sekunden-Fenstern.
 Sie zeigt bekannte Node-Namen (mehrdeutige Präfixe bleiben markiert), beteiligte
 Observer, gemessene Hops sowie SNR-Minimum und -Maximum je Hop. Der niedrigste
@@ -418,7 +426,7 @@ liefert höchstens 100 Chronikgruppen und 100 Routenverläufe mit jeweils den
 neuesten 200 Messgruppen. Die Oberfläche zeigt erreichte Grenzen an.
 Die Auswertung unterstützt alte Archivpakete ohne Datenmigration.
 
-**Map → TRACEs** zeigt Messgruppen als Haupteinträge. Ein Klick öffnet das Ergebnis
+**TRACE → Messgruppen & Karte** zeigt Messgruppen als Haupteinträge. Ein Klick öffnet das Ergebnis
 oberhalb der Einzelpakete und wählt den Empfang mit größter tatsächlicher
 SNR-Abdeckung für die Karte. Bei Gleichstand gewinnt der neueste Empfang,
 danach die höchste ID. Gruppenminima sind ausdrücklich aggregiert; Kartenwerte
@@ -529,8 +537,8 @@ vier Wochen werden mit dem Grund angezeigt, bleiben aber entsprechend den bisher
 Kartenregeln nicht auswählbar. Weitere Treffer sind ohne neue Serverabfrage erreichbar.
 
 **Repeater / Nodes** blendet normale Links aus; **Pfade** aktiviert bei Bedarf den
-selektiven Linkmodus. **TRACEs**, der Vergleich zweier TRACE-Empfänge und deren
-SNR-Beschriftungen bleiben vom normalen Linkmodus unabhängig. Einzelheiten und
+selektiven Linkmodus. Die historische Karte im Reiter **TRACE**, der Vergleich
+zweier TRACE-Empfänge und deren SNR-Beschriftungen sind vom normalen Linkmodus unabhängig. Einzelheiten und
 Prüfergebnisse: [Kartenübersicht – Etappe 1](docs/map-selection-stage1.md) und
 [Marker und Beschriftungen – Etappe 1.1](docs/map-selection-stage1.1.md) sowie
 [Punktdarstellung – Etappe 1.2](docs/map-selection-stage1.2.md).

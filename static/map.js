@@ -93,14 +93,14 @@ function neighborDistance(link) {
     : '—';
 }
 
-function drawNeighborArrow(from, to, fraction, color, layer = neighborLayer) {
-  const a = nodeMap.project(from), b = nodeMap.project(to);
+function drawNeighborArrow(from, to, fraction, color, layer = neighborLayer, map = nodeMap) {
+  const a = map.project(from), b = map.project(to);
   const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
   if (length < 24) return;
   const ux = dx / length, uy = dy / length;
   const x = a.x + dx * fraction, y = a.y + dy * fraction;
   const points = [[x - ux * 9 - uy * 5, y - uy * 9 + ux * 5], [x, y],
-    [x - ux * 9 + uy * 5, y - uy * 9 - ux * 5]].map(point => nodeMap.unproject(point));
+    [x - ux * 9 + uy * 5, y - uy * 9 - ux * 5]].map(point => map.unproject(point));
   L.polyline(points, {color, weight: 3, opacity: 1, interactive: false}).addTo(layer);
 }
 
@@ -147,8 +147,7 @@ function openMapRepeater(identity, name = '') {
 }
 
 function mapLinksWanted() {
-  return !(globalThis.traceMapActive?.() || false) &&
-    (mapLinkMode === 'all' || (mapLinkMode === 'selected' && selectedMapRepeater !== null));
+  return mapLinkMode === 'all' || (mapLinkMode === 'selected' && selectedMapRepeater !== null);
 }
 
 function setMapLinkMode(mode) {
@@ -187,7 +186,6 @@ function renderMapRepeaterSearch() {
 function drawMapNeighbors() {
   if (!nodeMap) return;
   if (selectedMapRepeater && !mapMarkers.has(selectedMapRepeater)) selectedMapRepeater = null;
-  const traceMode = globalThis.traceMapActive?.() || false;
   const showLinks = mapLinksWanted();
   const focused = showLinks && mapLinkMode === 'selected' && selectedMapRepeater !== null;
   const visibleNodes = new Set(focused ? [selectedMapRepeater] : []);
@@ -230,7 +228,7 @@ function drawMapNeighbors() {
   }
   nodeMap.getContainer().classList.toggle('map-neighbor-focus', focused);
   for (const [key, view] of mapMarkers) {
-    const visible = !traceMode && (!focused || visibleNodes.has(key));
+    const visible = !focused || visibleNodes.has(key);
     // Removing the layer also removes its label, tooltip and popup.
     for (const layer of [view.marker, view.line]) {
       if (!layer) continue;
@@ -608,3 +606,18 @@ setInterval(() => {
 setInterval(() => {
   if (!document.getElementById('panel-map').hidden || !document.getElementById('panel-neighbors').hidden) loadNeighbors();
 }, 30000);
+
+let mapMode = 'paths';
+document.querySelectorAll('#map-modes button').forEach(button => button.addEventListener('click', () => {
+  mapMode = button.dataset.mode;
+  document.querySelectorAll('#map-modes button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+  if (mapMode === 'nodes') setMapLinkMode('none');
+  else if (mapLinkMode === 'none') setMapLinkMode('selected');
+  drawMapNeighbors();
+}));
+function updateMapMode() {
+  mapMode = mapLinkMode === 'none' ? 'nodes' : 'paths';
+  document.querySelectorAll('#map-modes button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mapMode)));
+}
+document.getElementById('map-link-mode').addEventListener('change', updateMapMode);
+updateMapMode();

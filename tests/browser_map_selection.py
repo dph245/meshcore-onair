@@ -214,11 +214,14 @@ def main():
             page.locator('[data-mode=paths]').click()
             expect(page.locator('#map-link-mode')).to_have_value('selected')
             assert page.evaluate('neighborLayer.getLayers().length') == 2
-            page.locator('[data-mode=traces]').click()
-            for mode in ['all', 'none', 'selected']:
-                page.locator('#map-link-mode').select_option(mode)
-                assert page.evaluate('neighborLayer.getLayers().length') == 0
-            page.locator('[data-mode=paths]').click()
+            page.evaluate('nodeMap.stop()')
+            center = page.evaluate('({lat:nodeMap.getCenter().lat, lng:nodeMap.getCenter().lng, zoom:nodeMap.getZoom()})')
+            page.locator('#tab-trace').click()
+            expect(page.locator('#trace-map')).to_be_visible()
+            assert page.evaluate('neighborLayer.getLayers().length') == 2
+            page.locator('#tab-map').click()
+            restored = page.evaluate('({lat:nodeMap.getCenter().lat, lng:nodeMap.getCenter().lng, zoom:nodeMap.getZoom()})')
+            assert restored == center, (center, restored)
             expect(page.locator('#node-map .map-repeater-selected')).to_have_count(1)
             # Explicit refresh must preserve selection and highlighting.
             page.evaluate('loadMapNodes()')

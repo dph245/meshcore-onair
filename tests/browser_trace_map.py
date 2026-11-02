@@ -36,8 +36,9 @@ def grouped_flow(browser):
             route.fulfill(json=item)
         page.route('**/api/map-traces/*', detail)
         page.goto('http://trace-groups.test/')
-        page.locator('#tab-map').click()
-        page.locator('[data-mode=traces]').click()
+        page.locator('#tab-trace').click()
+        assert page.evaluate('nodeMap === undefined'), 'TRACE opens independently of Map'
+        assert not calls, 'Opening TRACE does not search the archive'
         page.locator('#map-trace-form button').click()
         expect(page.locator('#map-trace-list button')).to_have_count(1)
         expect(page.locator('#map-trace-list button')).to_contain_text('10 Empfänge')
@@ -57,12 +58,12 @@ def grouped_flow(browser):
         page.locator('#map-trace-receptions input[data-id="10"]').uncheck()
         expect(page.locator('#map-trace-detail section')).to_have_count(1)
         expect(page.locator('#map-trace-detail h3')).to_contain_text('Blau · #4')
-        page.locator('[data-mode=paths]').click()
-        page.locator('[data-mode=traces]').click()
+        page.locator('#tab-map').click()
+        page.locator('#tab-trace').click()
         expect(page.locator('#map-trace-detail h3')).to_contain_text('#4')
         assert len(calls) == 1
         page.locator('#map-trace-summary button').click()
-        assert page.locator('#node-map').is_visible()
+        assert page.locator('#trace-map').is_visible()
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         page.locator('#map-trace-summary').scroll_into_view_if_needed()
         page.screenshot(path=f'/tmp/onair-trace-v2-{width}.png', full_page=True)
@@ -109,18 +110,19 @@ def main():
                     latitude=52+['aa','bb','cc'].index(token)*.1,
                     longitude=10+['aa','bb','cc'].index(token)*.1))) for i,token in enumerate(tokens)]))
         page.route('**/api/map-traces/*', detail)
+        page.route('**/api/traces?*', lambda route: route.fulfill(json=dict(items=[], histories=[], scanned=0)))
         page.goto('http://trace.test/')
         page.locator('#tab-map').click()
         page.wait_for_function('mapMarkers.size > 0')
         page.evaluate("setMapLinkMode('none'); selectMapRepeater([...mapMarkers.keys()][0])")
-        page.locator('[data-mode=traces]').click()
-        assert page.locator('#map-node-tools').is_hidden()
+        page.locator('#tab-trace').click()
+        assert page.locator('#panel-map').is_hidden()
         page.locator('#map-trace-form button').click()
         expect(page.locator('#map-trace-list input')).to_have_count(4)
         page.locator('#map-trace-list input').first.check()
         expect(page.locator('#map-trace-detail')).to_contain_text('Quelle: unbekannt')
         # Full route: 3 circles, 2 segments, 2 arrow polylines.
-        assert page.locator('#node-map .leaflet-overlay-pane path:not(.trace-snr-leader)').count() == 7
+        assert page.locator('#trace-map .leaflet-overlay-pane path:not(.trace-snr-leader)').count() == 7
         expect(page.locator('.trace-snr-label')).to_have_count(2)
         expect(page.locator('.trace-snr-value').nth(0)).to_have_text('→ +7,5 dB')
         expect(page.locator('.trace-snr-value').nth(1)).to_have_text('→ −10,5 dB')
@@ -128,16 +130,16 @@ def main():
         page.locator('#map-trace-list input').nth(1).check()
         expect(page.locator('#map-trace-detail')).to_contain_text('Historische Position unbekannt')
         # Unknown intermediate hop adds only 2 markers, never a bridge.
-        assert page.locator('#node-map .leaflet-overlay-pane path:not(.trace-snr-leader)').count() == 9
+        assert page.locator('#trace-map .leaflet-overlay-pane path:not(.trace-snr-leader)').count() == 9
         before = len(trace_requests)
-        page.evaluate('nodeMap.panBy([30, 20]); nodeMap.setZoom(10)')
+        page.evaluate('traceMap.panBy([30, 20]); traceMap.setZoom(10)')
         page.wait_for_timeout(300)
         assert len(trace_requests) == before
-        page.locator('[data-mode=paths]').click()
-        assert page.locator('#map-traces').is_hidden()
-        assert page.locator('#node-map .leaflet-overlay-pane path:not(.trace-snr-leader)').count() == 0
-        page.locator('[data-mode=traces]').click()
-        assert page.locator('#node-map .leaflet-overlay-pane path:not(.trace-snr-leader)').count() == 9
+        page.locator('#tab-map').click()
+        assert page.locator('#panel-trace').is_hidden()
+        assert page.locator('#trace-map').is_hidden()
+        page.locator('#tab-trace').click()
+        assert page.locator('#trace-map .leaflet-overlay-pane path:not(.trace-snr-leader)').count() == 9
         page.set_viewport_size({'width':390,'height':844})
         page.locator('#map-trace-detail').scroll_into_view_if_needed()
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
@@ -156,14 +158,14 @@ def main():
         assert page.locator('.trace-snr-label[data-trace-id="3"]').nth(1).inner_text().splitlines()[-2:] == ['→ −10,5 dB', '← −3,0 dB']
         assert page.locator('.trace-snr-label[data-trace-id="4"]').first.inner_text().splitlines()[-2:] == ['→ −1,0 dB', '← +3,0 dB']
         # Normal-link settings must never clear or redraw away TRACE comparison/SNR.
-        trace_count = page.locator('#node-map .leaflet-overlay-pane path').count()
+        trace_count = page.locator('#trace-map .leaflet-overlay-pane path').count()
         for mode in ['none', 'all', 'selected']:
-            page.locator('#map-link-mode').select_option(mode)
+            page.evaluate('(mode) => setMapLinkMode(mode)', mode)
             expect(page.locator('.trace-snr-label')).to_have_count(4)
             expect(page.locator('.trace-snr-value')).to_have_count(8)
-            assert page.locator('#node-map .leaflet-overlay-pane path').count() == trace_count
+            assert page.locator('#trace-map .leaflet-overlay-pane path').count() == trace_count
         # Dense sections at regional zoom: both routes retain every value on mobile.
-        page.evaluate('nodeMap.setView([52.1,10.1], 7, {animate:false})')
+        page.evaluate('traceMap.setView([52.1,10.1], 7, {animate:false})')
         page.wait_for_timeout(300)
         boxes = page.locator('.trace-snr-label').evaluate_all('(labels)=>labels.map(e=>{const r=e.getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height}})')
         for i, a in enumerate(boxes):
@@ -171,13 +173,23 @@ def main():
                 assert a['x']+a['w'] <= b['x'] or b['x']+b['w'] <= a['x'] or a['y']+a['h'] <= b['y'] or b['y']+b['h'] <= a['y'], (a,b)
         for theme in ['light','dark']:
             page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
-            page.locator('#node-map').screenshot(path=f'/tmp/onair-trace-snr-{theme}.png')
-        page.locator('[data-mode=paths]').click()
-        expect(page.locator('.trace-snr-label')).to_have_count(0)
-        page.locator('[data-mode=traces]').click()
+            page.locator('#trace-map').screenshot(path=f'/tmp/onair-trace-snr-{theme}.png')
+        page.locator('#tab-map').click()
+        expect(page.locator('#trace-map')).to_be_hidden()
+        page.locator('#tab-trace').click()
         expect(page.locator('.trace-snr-value')).to_have_count(8)
         page.locator('#map-trace-period').select_option('custom')
         assert page.locator('#map-trace-start').is_enabled()
+        assert not errors, errors
+        before = len(trace_requests)
+        page.locator('[data-view=history]').click()
+        expect(page.locator('#trace-analysis')).to_be_visible()
+        expect(page.locator('#trace-map')).to_be_hidden()
+        expect(page.locator('#trace-status')).to_contain_text('Keine auswertbaren')
+        page.locator('[data-view=map]').click()
+        expect(page.locator('.trace-snr-value')).to_have_count(8)
+        assert len(trace_requests) == before
+        assert page.locator('#panel-map #map-traces').count() == 0
         assert not errors, errors
         grouped_flow(browser)
         browser.close()

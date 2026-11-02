@@ -12,7 +12,7 @@ function selectTab(selected) {
   if (selected.id === 'tab-observers') loadObservers();
   if (selected.id === 'tab-repeaters') loadRepeaters();
   if (selected.id === 'tab-discovery') loadDiscovery();
-  if (selected.id === 'tab-trace') loadTraces();
+  if (selected.id === 'tab-trace') showTraceWorkspace();
   if (selected.id === 'tab-map') showNodeMap();
   if (selected.id === 'tab-neighbors') loadNeighbors();
   if (selected.id === 'tab-routes') loadRouteNodes();

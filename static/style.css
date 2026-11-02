@@ -342,3 +342,31 @@ main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
 #map-trace-summary p{overflow-wrap:anywhere}
 
 .trace-group-choice[aria-pressed=true]{border-color:var(--accent);box-shadow:inset 3px 0 var(--accent)}
+
+/* TRACE owns the historical map; filters and results no longer share the Map sidebar. */
+#trace-views{margin-bottom:16px;gap:8px}
+#trace-views button[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 -2px var(--accent)}
+.trace-workspace{display:grid;grid-template-columns:minmax(260px,1fr) minmax(0,2fr);gap:20px;align-items:start}
+.trace-group-list,.trace-inspector{min-width:0}
+.trace-group-list{max-height:78vh;overflow:auto;padding-right:4px}
+#trace-map{height:52vh;min-height:300px;background:var(--track);border:1px solid var(--control-border);border-radius:4px;isolation:isolate;color-scheme:light}
+#map-trace-form{padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:4px}
+#map-trace-form input{width:100%}
+#map-trace-form label{flex:1 1 140px}
+.trace-group-choice span{display:block}
+.trace-group-choice .muted{font-size:11px}
+#map-trace-detail{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+#map-trace-summary:empty,#map-trace-detail:empty,#map-trace-receptions:empty{display:none}
+@media(max-width:800px){
+  .trace-workspace{grid-template-columns:minmax(0,1fr);gap:12px}
+  .trace-group-list{max-height:38vh}
+  #trace-map{height:48vh;min-height:280px}
+  #map-trace-form{gap:8px}
+  #map-trace-form label{flex-basis:130px}
+}
+/* Connecting lines must not intercept taps on SNR measurement points. */
+.trace-chart line{pointer-events:none}
+
+/* Native select popups follow option text width, so labels are compact too. */
+#trace-route{width:100%;min-width:0;max-width:480px}
+.trace-route-description{overflow-wrap:anywhere;line-height:1.6}

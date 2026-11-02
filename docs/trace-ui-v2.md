@@ -1,5 +1,40 @@
 # TRACE-Ansicht 2.0 – Messvorgänge statt Einzelpakete
 
+## Zusammenführung im TRACE-Reiter (02.11.2026)
+
+Die nachfolgend beschriebene Gruppenansicht ist jetzt unter **TRACE → Messgruppen
+& Karte** erreichbar. Die Map bietet nur noch Nodes und Pfade. Filter stehen über
+Liste und Karte; kompakte Messgruppen stehen links, die historische Karte und
+Empfangsdetails rechts. Mobil folgen diese Bereiche untereinander, mit begrenzt
+hoher, separat scrollbarer Gruppenliste.
+
+**Chronik & SNR-Verlauf** ist die zweite Ansicht im selben TRACE-Reiter. Nur wenn
+sie sichtbar ist, läuft ihre automatische Aktualisierung. Die Kartenansicht lädt
+weiterhin ausschließlich auf „Suchen“ und erhält Filter, Gruppe und Vergleich beim
+Ansichtswechsel. Eine eigene Leaflet-Instanz erhält Zoom und Auswahl unabhängig
+von der normalen Map. Das Routen-Dropdown im SNR-Verlauf verwendet kurze
+Einträge mit Nummer, erstem/letztem Hop und Hop-Anzahl, damit auch die native
+Auswahlliste bei langen Routen schmal bleibt. Die vollständige gewählte Route
+mit Scope und Messgruppenzahl steht umbrechend unterhalb der Auswahl.
+Karte, SNR, historische Positionen, Zwei-Empfangs-Vergleich
+und API-Verträge behalten ihre bisherigen Bedeutungen. Die folgenden Abschnitte
+beschreiben den vorherigen Umbau und dessen damalige Validierung.
+
+Validierung der Zusammenführung: 148 Python-Tests und alle 17 JavaScript-
+UI-Testskripte bestanden. Der TRACE-Browsertest prüft Desktop, Mobil und
+Querformat, direkten Einstieg ohne initialisierte normale Map, Vergleich,
+Ansichtswechsel und ausbleibende Archivsuche beim Öffnen/Bewegen der Karte.
+Der Responsive-Test prüft alle 15 Reiter auf neun Bildschirmgrößen. Die normale
+Map besteht Auswahl-/Kontexterhalt auf vier Größen und den bestehenden Test
+mit 1600 Nodes auf drei Größen. Diagrammlinien fangen keine Touch-Ereignisse
+von SNR-Messpunkten mehr ab. Screenshots wurden auf Desktop und Mobil geprüft;
+git diff --check ohne Beanstandung. Tests verwenden simulierte APIs bzw.
+temporäre Datenbanken, ohne MQTT oder produktive Dienste. Die Python-Suite
+meldet bestehende ResourceWarnings zu SQLite-Verbindungen. Browser- und
+asynchrone Python-Tests benötigen wegen lokaler Sockets einen Lauf außerhalb
+der Sandbox. Keine Bereitstellung und kein Commit.
+
+
 ## Ergebnis und Umfang
 
 **Map → TRACEs** zeigt Messgruppen als Haupteinträge. Zehn Fortschrittsstände
