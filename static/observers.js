@@ -4,6 +4,7 @@ function observerLabel(packet, compact = false) {
   return packet.origin ? `${packet.origin} [${identity}]` : identity;
 }
 let observersLoading = false, observerData = null;
+let observerRendered, observerOptionsRendered, observerRenderedCount = 0;
 const observerEast = document.getElementById('observer-east');
 const observerWest = document.getElementById('observer-west');
 const observerFilter = document.getElementById('observer-filter');
@@ -15,13 +16,18 @@ function renderObservers() {
   const east = observerEast.value, west = observerWest.value;
   const result = document.getElementById('observers-results');
   const message = document.getElementById('observers-status');
-  result.replaceChildren();
   const unknown = observerData.observers.find(o => o.origin_id == null)?.count || 0;
   const suffix = ` · ${unknown} RX ohne Observer-ID im Archiv · Aktualisierung alle 5 Sekunden`;
+  const signature = JSON.stringify([observerData, east, west, observerFilter.value]);
+  const unchanged = signature === observerRendered;
+  const showCount = count => { message.textContent = `${count} Nodes / Hop-Kennungen · Stand: ${new Date().toLocaleTimeString('de-DE')}` + suffix; };
+  if (!unchanged) result.replaceChildren();
   if (!east || !west || east === west) {
+    observerRendered = signature;
     message.textContent = 'Bitte zwei unterschiedliche Observer für Observer A und B auswählen.' + suffix;
     return;
   }
+  if (unchanged) { showCount(observerRenderedCount); return; }
   const table = text('table', '');
   const head = text('thead', ''), headings = text('tr', '');
   for (const label of ['Node', 'Gesehen', `Observer A · ${observerEast.selectedOptions[0].textContent}`, `Observer B · ${observerWest.selectedOptions[0].textContent}`]) {
@@ -59,7 +65,9 @@ function renderObservers() {
     body.append(row);
   }
   table.append(body); result.append(table);
-  message.textContent = `${count} Nodes / Hop-Kennungen · Stand: ${new Date().toLocaleTimeString('de-DE')}` + suffix;
+  observerRendered = signature;
+  observerRenderedCount = count;
+  showCount(count);
 }
 async function loadObservers() {
   if (observersLoading || paused) return;
@@ -70,18 +78,22 @@ async function loadObservers() {
     const data = await response.json();
     if (paused) return;
     observerData = data;
-    for (const [side, select] of [['east', observerEast], ['west', observerWest]]) {
-      const selected = select.value || observerSelection[side] || '';
-      select.replaceChildren(text('option', 'Observer auswählen …'));
-      select.firstChild.value = '';
-      for (const observer of data.observers) {
-        if (!observer.origin_id) continue;
-        const option = text('option', observerLabel(observer, true));
-        option.title = observerLabel(observer);
-        option.value = observer.origin_id; select.append(option);
+    const optionsSignature = JSON.stringify(data.observers.map(o => [o.origin_id, o.origin]));
+    if (optionsSignature !== observerOptionsRendered) {
+      for (const [side, select] of [['east', observerEast], ['west', observerWest]]) {
+        const selected = select.value || observerSelection[side] || '';
+        select.replaceChildren(text('option', 'Observer auswählen …'));
+        select.firstChild.value = '';
+        for (const observer of data.observers) {
+          if (!observer.origin_id) continue;
+          const option = text('option', observerLabel(observer, true));
+          option.title = observerLabel(observer);
+          option.value = observer.origin_id; select.append(option);
+        }
+        select.value = selected;
+        if (select.selectedIndex < 0) select.value = '';
       }
-      select.value = selected;
-      if (select.selectedIndex < 0) select.value = '';
+      observerOptionsRendered = optionsSignature;
     }
     renderObservers();
   } catch (error) {

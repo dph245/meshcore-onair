@@ -107,8 +107,49 @@ def main():
         # Snapshot/reconnect clears stale cache entries, including detail rows.
         emit(page, [packet(600)], 'snapshot')
         check(page, "liveRows.size === 1 && liveRows.has('HASH600') && expanded.size === 0")
+        # Hidden tabs retain data without mutating the table, including snapshots.
+        click('#packets button.expand')
+        click('#tab-raw')
+        page.evaluate('window.createdRows = 0; window.tableMutations = 0')
+        emit(page, [packet(601), packet(602, hash_value='HASH600')])
+        send(page, removed=['HASH601'])
+        check(page, "groups.has('HASH600') && !groups.has('HASH601') && createdRows === 0 && tableMutations === 0")
+        click('#tab-live')
+        assert 'Test 602' in page.locator('#packets').inner_text()
+        assert page.locator('#packets tr.detail').count() == 1
+        html = page.locator('#packets').inner_html()
+        page.evaluate('render(true)')
+        assert page.locator('#packets').inner_html() == html
+        click('#tab-raw')
+        emit(page, [packet(700)], 'snapshot')
+        click('#pause')
+        emit(page, [packet(701)], 'snapshot')
+        click('#tab-live')
+        assert 'Test 700' in page.locator('#packets').inner_text()
+        assert 'Test 701' not in page.locator('#packets').inner_text()
+        check(page, "liveRows.size === 1 && !liveRows.has('HASH600')")
+        click('#pause')
+        assert 'Test 701' in page.locator('#packets').inner_text()
         emit(page, [], 'snapshot')
         check(page, "liveRows.size === 0 && !document.querySelector('#empty').hidden")
+        # Noise charts catch up on tab entry, preserve unrelated series and pause.
+        noise = page.evaluate("[0,1].map(i => ({origin_id:'observer-'+i, origin:'Observer '+i, noise_floor:-110-i, received_at:new Date().toISOString()}))")
+        send(page, status=dict(connected=True, noise_history=noise))
+        assert page.locator('#noise-charts .noise-observer').count() == 0
+        click('#tab-noise')
+        assert page.locator('#noise-charts .noise-observer').count() == 2
+        page.evaluate("window.noiseWest = document.querySelectorAll('.noise-observer')[1]")
+        noise = noise + [dict(noise[0], noise_floor=-109)]
+        send(page, status=dict(connected=True, noise_history=noise))
+        check(page, "noiseWest === document.querySelectorAll('.noise-observer')[1]")
+        assert page.locator('#noise-charts .noise-point').count() == 3
+        click('#pause')
+        send(page, status=dict(connected=True, noise_history=[]))
+        click('#tab-live')
+        click('#tab-noise')
+        assert page.locator('#noise-charts .noise-point').count() == 3
+        click('#pause')
+        assert page.locator('#noise-charts .noise-observer').count() == 0
         assert not errors, errors
         browser.close()
     print('Live rendering: stable nodes, status-only, order, details, eviction, filters, pause, snapshots and scroll passed')

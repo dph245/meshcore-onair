@@ -77,7 +77,11 @@ assert(snapshot.content.textContent.includes('Luftlinie: 12,3 km'), 'Popup shows
 renderMapNeighbors({items:[{...link, forward_count:99}]}); drawMapNeighbors();
 assert(getPopup() === snapshot && snapshot.content.textContent.includes('A → B: 6'), 'Refresh preserves popup and original text');
 assert(snapshot.position[0] === 2 && snapshot.position[1] === 3, 'Popup remains at clicked position');
+const savedLayers = [...lines];
+document.getElementById('map-neighbors-status').textContent = 'temporary error';
 drawMapNeighbors();
+assert(lines.every((line, i) => line === savedLayers[i]), 'Unchanged map state retains actual layers');
+assert(!document.getElementById('map-neighbors-status').textContent.includes('temporary error'), 'Unchanged state restores success status');
 assert(getPopup() === snapshot, 'Layout redraw also keeps popup');
 lines[0].events.click({latlng:[3,4]});
 assert(getPopup() !== snapshot && getPopup().content.textContent.includes('A → B: 99'), 'Next click opens fresh values');

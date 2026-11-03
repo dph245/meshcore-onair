@@ -7,6 +7,8 @@ function selectTab(selected) {
     document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
   }
   keepActiveTabVisible();
+  if (selected.id === 'tab-live') render(true, new Set());
+  if (selected.id === 'tab-noise') renderNoise((paused ? displayedStatus : status).noise_history || []);
   if (selected.id === 'tab-raw') renderRaw();
   if (selected.id === 'tab-channels' && !channelsReady) loadChannelMessages();
   if (selected.id === 'tab-observers') loadObservers();
@@ -319,14 +321,13 @@ function renderLiveGroup(group, filtered) {
   }
   return [...fragment.childNodes];
 }
-function render(force = false, changedIds = null) {
-  if (paused && !force) return;
-  if (!paused) {
-    displayedGroups = [...groups.values()];
-    displayedStatus = status;
-    renderNoise(status.noise_history || []);
-    renderRaw();
+let liveTableDirty = false;
+function renderLiveTable(changedIds) {
+  if (document.getElementById('panel-live').hidden) {
+    if (changedIds === null || changedIds.size) liveTableDirty = true;
+    return;
   }
+  if (liveTableDirty) { changedIds = null; liveTableDirty = false; }
   const query = liveFilter.value.trim().toLowerCase();
   updateLiveObservers(changedIds === null ? displayedGroups
     : displayedGroups.filter(group => changedIds.has(group.id)));
@@ -376,6 +377,16 @@ function render(force = false, changedIds = null) {
     : 'Noch keine RX-Pakete empfangen. Die Ansicht aktualisiert sich automatisch.';
   document.getElementById('live-filter-status').textContent = filtered
     ? `${liveRows.size} von ${displayedGroups.length} Paketgruppen · nur passende gespeicherte Empfänge${paused ? ' · Ansicht pausiert' : ''}` : '';
+}
+function render(force = false, changedIds = null) {
+  if (paused && !force) return;
+  if (!paused) {
+    displayedGroups = [...groups.values()];
+    displayedStatus = status;
+    renderNoise(status.noise_history || []);
+    renderRaw();
+  }
+  renderLiveTable(changedIds);
   document.getElementById('counts').textContent = `${displayedGroups.length} Paketgruppen · ${displayedStatus.received || 0} RX seit Start · ${displayedStatus.dropped || 0} bei Überlast verworfen`;
   if (displayedStatus.archive) {
     document.getElementById('counts').textContent += ` · ${displayedStatus.archive.saved} archiviert seit Start`;

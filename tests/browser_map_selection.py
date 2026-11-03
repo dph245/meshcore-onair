@@ -137,6 +137,55 @@ def dense_neighbors(browser, viewports=((1280, 900), (390, 844), (844, 390))):
     print(f'Dense selection: 1600 nodes, 37/209 neighbors, zoom 7–14, marker reuse, refresh and {len(viewports)} viewports passed', flush=True)
 
 
+def refresh_regression(page):
+    page.wait_for_function('!nodeMap._animatingZoom')
+    payload = deepcopy(NODES)
+    page.route('**/api/map-nodes', lambda route: route.fulfill(json=dict(
+        items=payload, repeaters=DIRECTORY, inactive=0, without_position=1)))
+    page.evaluate('''() => {
+      window.layoutCalls = 0; window.linkBuilds = 0;
+      const layout = layoutMapNodes, clear = neighborLayer.clearLayers.bind(neighborLayer);
+      layoutMapNodes = () => { layoutCalls++; return layout(); };
+      neighborLayer.clearLayers = () => { linkBuilds++; return clear(); };
+      window.savedIcons = [...mapMarkers.values()].map(view => view.marker.getElement());
+    }''')
+    page.evaluate('loadMapNodes()')
+    page.evaluate('loadMapNeighbors()')  # Equal 200 response also preserves layers.
+    assert page.evaluate('layoutCalls === 0 && linkBuilds === 0')
+    assert page.evaluate('savedIcons.every((icon, i) => icon === [...mapMarkers.values()][i].marker.getElement())')
+    payload[0]['last_seen'] += 1
+    page.evaluate('loadMapNodes()')
+    assert page.evaluate('layoutCalls === 0 && linkBuilds === 0'), 'Metadata does not rebuild geometry'
+    assert page.evaluate('savedIcons.every((icon, i) => icon === [...mapMarkers.values()][i].marker.getElement())')
+    payload[0]['name'] = 'Renamed repeater'
+    page.evaluate('loadMapNodes()')
+    assert page.evaluate('layoutCalls === 0 && linkBuilds === 1'), 'Renamed icon keeps selection without position layout'
+    assert 'Renamed repeater' in page.locator('#map-selected-repeater').inner_text()
+    # Coincident positions must still separate and return to their real position.
+    payload[1].update(latitude=payload[0]['latitude'], longitude=payload[0]['longitude'])
+    page.evaluate('loadMapNodes()')
+    assert page.evaluate('layoutCalls === 1 && linkBuilds === 2')
+    assert page.evaluate('''() => {
+      const views = [...mapMarkers.values()];
+      return !views[0].marker.getLatLng().equals(views[1].marker.getLatLng()) && views[0].line && views[1].line;
+    }''')
+    version = page.evaluate('mapLayoutVersion')
+    page.evaluate('nodeMap.setZoom(nodeMap.getZoom() + 1, {animate:false})')
+    assert page.evaluate('mapLayoutVersion') == version + 1, 'Registered zoom handler refreshes layout'
+    assert page.evaluate('linkBuilds === 3'), 'Zoom refreshes arrows'
+    payload[:] = deepcopy(NODES)
+    page.evaluate('loadMapNodes()')
+    assert page.evaluate('layoutCalls === 2 && linkBuilds === 4')
+    assert page.evaluate('[...mapMarkers.values()].every(view => !view.line)'), 'Obsolete offset lines removed'
+    removed = payload.pop()
+    page.evaluate('loadMapNodes()')
+    assert page.evaluate('mapMarkers.size === 3 && layoutCalls === 3 && linkBuilds === 5')
+    payload.append(removed)
+    page.evaluate('loadMapNodes()')
+    assert page.evaluate('mapMarkers.size === 4 && layoutCalls === 4 && linkBuilds === 6')
+    print('Map refresh: unchanged data, metadata, labels, offsets, zoom, removal and addition passed', flush=True)
+
+
 def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path='/usr/bin/chromium', headless=True,
@@ -176,12 +225,15 @@ def main():
             expect(page.locator('#node-map .map-marker')).to_have_count(3)
             page.wait_for_function('neighborLayer.getLayers().length === 5')
             assert len(link_calls) == 1
+            if width == 1280:
+                refresh_regression(page)
+
             assert page.evaluate('neighborLayer.getLayers().filter(l => l.options.bubblingMouseEvents === false).length') == 2
             # The 16,000 km link is retained, even though its second marker is offscreen.
             assert page.evaluate('neighborLayer.getLayers().some(l => l.getLatLngs().some(p => p.lat < 0))')
             page.evaluate('nodeMap.closePopup(); nodeMap.panBy([30,20], {animate:false}); nodeMap.setZoom(11, {animate:false})')
             assert page.evaluate('selectedMapRepeater') == KEYS[0]
-            assert len(link_calls) == 1
+            assert len(link_calls) == (2 if width == 1280 else 1)
             # Actual marker interaction replaces the selection; unrelated markers leave the layer.
             page.evaluate('(key) => nodeMap.setView(mapMarkers.get(key).marker.getLatLng(), 12, {animate:false})', KEYS[1])
             page.evaluate('(key) => mapMarkers.get(key).marker.getElement().click()', KEYS[1])
@@ -207,7 +259,7 @@ def main():
             page.locator('#map-repeater-results button').click()
             assert page.evaluate('selectedMapRepeater') == KEYS[3]
             assert page.evaluate('nodeMap.getCenter().lat') < 0
-            assert len(link_calls) == 1, 'Switches, search and zoom reuse links'
+            assert len(link_calls) == (2 if width == 1280 else 1), 'Switches, search and zoom reuse links'
             page.locator('[data-mode=nodes]').click()
             expect(page.locator('#map-link-mode')).to_have_value('none')
             assert page.evaluate('neighborLayer.getLayers().length') == 0

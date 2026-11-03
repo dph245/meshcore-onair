@@ -21,14 +21,16 @@ const item = {id: 1, first_seen: 1000, tag: '00000001', scope: 'Kein Scope', rec
   responses: [{name: '<script>unsafe</script>', public_key: 'abcd', node_type: 'Repeater',
     snr_min: -2.75, snr_max: 2, receptions: 2}]};
 const data = {items: [item], scanned: 3, ignored: 0};
-let fetch = async () => { calls++; return {ok: true, json: async () => data}; };
+let fetch = async () => { calls++; return {ok: true, json: async () => structuredClone(data)}; };
 await loadDiscovery();
 const container = document.getElementById('discovery-results');
 assert(flatten(container).includes('Suchanfrage nicht mitgehört'), 'Orphan replies visible');
 assert(flatten(container).includes('-2.75 bis 2 dB'), 'SNR range visible');
 assert(container.children[0].children.at(-1).children[0].children[0].textContent === '<script>unsafe</script>', 'Untrusted name stays text');
 container.children[0].open = true;
+const firstEntry = container.children[0];
 await loadDiscovery();
+assert(container.children[0] === firstEntry, 'Identical result preserves actual DOM node');
 assert(container.children[0].open, 'Open details survive refresh');
 paused = true;
 await loadDiscovery();
@@ -37,6 +39,8 @@ paused = false;
 document.getElementById('panel-discovery').hidden = true;
 await loadDiscovery();
 assert(calls === 2, 'Hidden panel prevents fetching');
+renderDiscovery([{...item, receptions: 4}]);
+assert(container.children[0] !== firstEntry && container.children[0].open, 'Changed result rebuilds while preserving expanded group');
 document.getElementById('panel-discovery').hidden = false;
 let release;
 fetch = () => new Promise(resolve => { release = resolve; });

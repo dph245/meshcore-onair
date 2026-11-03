@@ -26,8 +26,10 @@ globalThis.fetch = async (url, options) => {
 };
 await loadNeighborTable();
 assert(requests[0].url.includes('limit=100') && requests[0].url.includes('sort=count'), 'Table requests bounded server page');
+const firstTable = document.getElementById('map-neighbors-list').children[0];
 responseStatus = 304;
 await loadNeighborTable();
+assert(document.getElementById('map-neighbors-list').children[0] === firstTable, '304 never rebuilds table');
 assert(requests[1].options.headers['If-None-Match'] === '"v1"', 'Repeated query sends ETag');
 assert(document.getElementById('neighbors-status').textContent.includes('25 beobachtete'), '304 retains page and status');
 responseStatus = 200;
@@ -52,7 +54,8 @@ globalThis.fetch = async () => { throw Error('offline'); };
 const oldTable = document.getElementById('map-neighbors-list').children[0];
 await loadNeighborTable();
 assert(document.getElementById('map-neighbors-list').children[0] === oldTable, 'Network error preserves previous table');
-let calls = 0;
+let calls = 0, draws = 0;
+drawMapNeighbors = () => { draws++; mapNeighborStatus = 'links ready'; };
 globalThis.fetch = async (url, options) => {
   calls++;
   assert(url.endsWith('/map'), 'Map uses compact endpoint');
@@ -63,7 +66,16 @@ globalThis.fetch = async (url, options) => {
 await loadMapNeighbors();
 assert(calls === 0, 'Default without selection skips the map link request');
 mapLinkMode = 'all';
-await loadMapNeighbors(); await loadMapNeighbors();
+await loadMapNeighbors();
+const initialDraws = draws;
+await loadMapNeighbors();
+assert(initialDraws === 1 && draws === initialDraws, 'Map 304 never rebuilds links');
 assert(neighborTotal === 123, 'Map 304 preserves previous data');
+globalThis.fetch = async () => { throw Error('offline'); };
+await loadMapNeighbors();
+assert(document.getElementById('map-neighbors-status').textContent.includes('offline'), 'Map error reported');
+globalThis.fetch = async () => ({status:304});
+await loadMapNeighbors();
+assert(document.getElementById('map-neighbors-status').textContent === 'links ready' && draws === initialDraws, '304 recovers status after failure without rebuilding links');
 console.log('Neighbor fetch UI: query parameters, conditional requests, races and errors passed');
 `)();

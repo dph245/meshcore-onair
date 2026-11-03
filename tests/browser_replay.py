@@ -59,10 +59,12 @@ def main():
         frozen = page.locator('#meshlive-map canvas').evaluate('(c)=>c.toDataURL()')
         progress = page.locator('#meshlive-replay-progress').evaluate('(el)=>el.value')
         frames = page.evaluate('window.__meshFrames')
-        # Live still reaches the text view, while replay is frozen.
+        # Live data stays current while the hidden text table and replay are frozen.
+        live_html = page.locator('#packets').inner_html()
         emit(page, [packet(100)])
         emit(page, [packet(1)], 'snapshot')
-        assert 'Test 1' in page.locator('#packets').inner_text()
+        assert page.evaluate("groups.size === 1 && groups.get('HASH1').latest.number === 1")
+        assert page.locator('#packets').inner_html() == live_html
         page.clock.run_for(5000)
         assert page.locator('#meshlive-map canvas').evaluate('(c)=>c.toDataURL()') == frozen
         assert page.locator('#meshlive-replay-progress').evaluate('(el)=>el.value') == progress
@@ -72,6 +74,7 @@ def main():
         page.clock.run_for(300)
         assert page.locator('#meshlive-replay-progress').evaluate('(el)=>el.value') > progress
         click('#tab-live')
+        assert 'Test 1' in page.locator('#packets').inner_text()
         frames = page.evaluate('window.__meshFrames')
         page.clock.run_for(5000)
         assert page.evaluate('window.__meshFrames') == frames

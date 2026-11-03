@@ -1,7 +1,10 @@
 let discoveryRequest = 0;
 let discoveryController;
+let discoveryRendered;
 
 function renderDiscovery(items) {
+  const signature = JSON.stringify(items);
+  if (signature === discoveryRendered) return;
   const container = document.getElementById('discovery-results');
   const opened = new Set([...container.querySelectorAll('details[open]')].map(node => node.dataset.id));
   const entries = items.map(item => {
@@ -34,6 +37,7 @@ function renderDiscovery(items) {
     return entry;
   });
   container.replaceChildren(...entries);
+  discoveryRendered = signature;
 }
 
 async function loadDiscovery() {

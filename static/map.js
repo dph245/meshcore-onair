@@ -23,6 +23,7 @@ let neighborTableRequest = 0, neighborTableController, neighborTableCache;
 let neighborSearchTimer;
 let selectedMapRepeater = null;
 const mapMarkers = new Map();
+let mapLayoutVersion = 0, mapDrawState, mapNeighborStatus = '';
 const mapTypes = {1: ['Companion', 'companion'], 2: ['Repeater', 'repeater'],
   3: ['RoomServer', 'room']};
 const mapSymbolPaths = {
@@ -48,6 +49,7 @@ function mapNodeSymbol(style) {
 // Recompute pixel spacing at every zoom; stored coordinates remain untouched.
 function layoutMapNodes() {
   if (!nodeMap) return;
+  mapLayoutVersion++;
   const symbolSize = mapNodeSize();
   const positions = new Map();
   for (const [key, view] of mapMarkers) {
@@ -186,6 +188,11 @@ function renderMapRepeaterSearch() {
 function drawMapNeighbors() {
   if (!nodeMap) return;
   if (selectedMapRepeater && !mapMarkers.has(selectedMapRepeater)) selectedMapRepeater = null;
+  const state = [neighborSignature, selectedMapRepeater, mapLinkMode, mapLayoutVersion];
+  if (mapDrawState?.every((value, index) => value === state[index])) {
+    document.getElementById('map-neighbors-status').textContent = mapNeighborStatus;
+    return;
+  }
   const showLinks = mapLinksWanted();
   const focused = showLinks && mapLinkMode === 'selected' && selectedMapRepeater !== null;
   const visibleNodes = new Set(focused ? [selectedMapRepeater] : []);
@@ -240,9 +247,11 @@ function drawMapNeighbors() {
     element?.classList.toggle('map-repeater-related', focused && visibleNodes.has(key));
     view.marker.setZIndexOffset?.(key === selectedMapRepeater ? 1000 : 0);
   }
-  document.getElementById('map-neighbors-status').textContent = !showLinks
+  mapNeighborStatus = !showLinks
     ? 'Normale Links ausgeblendet' + (mapLinkMode === 'selected' ? ' · Repeater auswählen, um seine direkten Nachbarn zu sehen.' : '.')
     : `${focused ? 'Direkte Nachbarn' : 'Alle Links (Expertenmodus)'} · ${mapped} Verbindungen dargestellt · ${neighborTotal} beobachtete Verbindungen insgesamt`;
+  document.getElementById('map-neighbors-status').textContent = mapNeighborStatus;
+  mapDrawState = state;
 }
 
 function renderMapNeighbors(result) {
@@ -273,7 +282,10 @@ async function loadMapNeighbors(force = false) {
     const response = await fetch('/api/repeater-neighbors/map', {
       headers: mapNeighborEtag ? {'If-None-Match': mapNeighborEtag} : {}, cache: 'no-cache'
     });
-    if (response.status === 304) { drawMapNeighbors(); return; }
+    if (response.status === 304) {
+      document.getElementById('map-neighbors-status').textContent = mapNeighborStatus;
+      return;
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
     if (paused) return;
@@ -314,7 +326,7 @@ async function loadNeighborTable() {
     const result = response.status === 304 ? cached.result : await response.json();
     if (request !== neighborTableRequest || paused) return;
     neighborTableCache = {url, result, etag: response.headers.get('ETag') || cached?.etag};
-    renderNeighborTable(result);
+    if (response.status !== 304) renderNeighborTable(result);
     message.textContent = `${result.total_all} beobachtete Verbindungen · ${result.one_way_total} nur in einer Richtung beobachtet · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
   } catch (error) {
     if (request !== neighborTableRequest || error.name === 'AbortError') return;
@@ -497,26 +509,34 @@ async function loadMapNodes() {
     const result = await response.json();
     if (paused) return;
     const keys = new Set();
+    let geometryChanged = false, appearanceChanged = false;
     for (const item of result.items) {
       keys.add(item.public_key);
       let view = mapMarkers.get(item.public_key);
       const signature = JSON.stringify(item);
       if (view?.signature === signature) continue;
+      const appearance = JSON.stringify([item.name, item.node_type]);
+      const newAppearance = view?.appearance !== appearance;
+      geometryChanged ||= !view || view.position[0] !== item.latitude || view.position[1] !== item.longitude;
+      appearanceChanged ||= newAppearance;
       const [type, style] = mapTypes[item.node_type] || ['Weiterer Node', 'other'];
       const label = `${item.name || 'Ohne Namen'} [${item.public_key.slice(0, 6)}]`;
       const tooltipOptions = {direction: 'top', offset: [0, -18],
         className: item.node_type === 2 ? 'map-repeater-tooltip' : ''};
-      const icon = text('div', '', 'map-marker-content');
-      icon.append(mapNodeSymbol(style));
-      // Reuse MeshLive's dot styling; keep the existing 36px interactive marker.
-      icon.append(text('span', '', `meshlive-node-dot map-neighbor-dot ${style}`));
-      if (item.node_type === 2) {
-        const nodeLabel = text('span', '', 'map-repeater-label');
-        nodeLabel.append(text('span', item.name || 'Ohne Namen'),
-          text('span', `[${item.public_key.slice(0, 6)}]`));
-        icon.append(nodeLabel);
+      let markerIcon;
+      if (newAppearance) {
+        const icon = text('div', '', 'map-marker-content');
+        icon.append(mapNodeSymbol(style));
+        // Reuse MeshLive's dot styling; keep the existing 36px interactive marker.
+        icon.append(text('span', '', `meshlive-node-dot map-neighbor-dot ${style}`));
+        if (item.node_type === 2) {
+          const nodeLabel = text('span', '', 'map-repeater-label');
+          nodeLabel.append(text('span', item.name || 'Ohne Namen'),
+            text('span', `[${item.public_key.slice(0, 6)}]`));
+          icon.append(nodeLabel);
+        }
+        markerIcon = L.divIcon({html: icon, className: 'map-marker', iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18]});
       }
-      const markerIcon = L.divIcon({html: icon, className: 'map-marker', iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18]});
       if (!view) {
         const marker = L.marker([item.latitude, item.longitude], {icon: markerIcon,
           alt: `${type}: ${label}`, riseOnHover: true,
@@ -529,7 +549,8 @@ async function loadMapNodes() {
           if (view.nodeType === 2) selectMapRepeater(item.public_key);
         });
       } else {
-        view.marker.setLatLng([item.latitude, item.longitude]).setIcon(markerIcon);
+        if (newAppearance) view.marker.setIcon(markerIcon);
+        // Position changes (and coincident-node offsets) are applied by layoutMapNodes.
         if (view.nodeType !== item.node_type) {
           view.marker.unbindTooltip().bindTooltip(text('span', label), tooltipOptions);
         }
@@ -543,12 +564,14 @@ async function loadMapNodes() {
       view.label = label;
       view.nodeType = item.node_type;
       view.signature = signature;
+      view.appearance = appearance;
     }
     for (const [key, view] of mapMarkers) {
-      if (!keys.has(key)) { view.marker.remove(); view.line?.remove(); mapMarkers.delete(key); }
+      if (!keys.has(key)) { view.marker.remove(); view.line?.remove(); mapMarkers.delete(key); geometryChanged = true; }
     }
     mapRepeaterDirectory = result.repeaters || result.items.filter(item => item.node_type === 2);
-    layoutMapNodes();
+    if (geometryChanged) layoutMapNodes();
+    else if (appearanceChanged) { mapLayoutVersion++; drawMapNeighbors(); }
     // Do not replace a focused result button during the regular node refresh.
     if (!document.getElementById('map-repeater-results').contains(document.activeElement)) renderMapRepeaterSearch();
     message.textContent = `${mapMarkers.size} Nodes auf der Karte · ${result.without_position} ohne bekannte Position · ${result.inactive} seit mindestens 4 Wochen nicht gehört · Stand: ${new Date().toLocaleTimeString('de-DE')}`;

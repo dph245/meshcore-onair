@@ -13,7 +13,7 @@ function noiseGeometry(samples) {
   return {points, path, start, end, low, high, y};
 }
 
-let noiseRendered = '';
+const noiseViews = new Map();
 const noiseObserverMaxAge = 24 * 60 * 60 * 1000;
 function noiseObserverActive(sample, now = Date.now()) {
   return Date.parse(sample.status_at || sample.received_at) > now - noiseObserverMaxAge;
@@ -28,15 +28,22 @@ function noiseSeries(samples) {
   return [...series.values()];
 }
 function renderNoise(samples, now = Date.now()) {
+  if (document.getElementById('panel-noise').hidden) return;
   const activeSeries = noiseSeries(samples).filter(series =>
     noiseObserverActive(series[series.length - 1], now));
-  const signature = JSON.stringify(activeSeries);
-  if (signature === noiseRendered) return;
-  noiseRendered = signature;
   const results = document.getElementById('noise-charts');
-  results.replaceChildren();
+  const activeKeys = new Set(activeSeries.map(series => series[0].origin_id || null));
+  for (const [key, view] of noiseViews) {
+    if (!activeKeys.has(key)) { view.section.remove(); noiseViews.delete(key); }
+  }
   document.getElementById('noise-empty').hidden = activeSeries.length > 0;
-  for (const series of activeSeries) {
+  for (const [index, series] of activeSeries.entries()) {
+    const key = series[0].origin_id || null, signature = JSON.stringify(series);
+    const previous = noiseViews.get(key);
+    if (previous?.signature === signature) {
+      if (results.children[index] !== previous.section) results.insertBefore(previous.section, results.children[index] || null);
+      continue;
+    }
     const latest = series[series.length - 1];
     const label = observerLabel(latest, true);
     const section = text('section', '', 'noise-observer');
@@ -55,7 +62,9 @@ function renderNoise(samples, now = Date.now()) {
     renderNoiseChart(series, chart, tooltip);
     scroll.append(chart);
     section.append(scroll, tooltip);
-    results.append(section);
+    previous?.section.remove();
+    results.insertBefore(section, results.children[index] || null);
+    noiseViews.set(key, {section, signature});
   }
 }
 function renderNoiseChart(samples, chart, tooltip) {

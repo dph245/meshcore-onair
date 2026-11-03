@@ -1,6 +1,7 @@
 let traceRequest = 0;
 let traceController;
 let traceHistories = [];
+let traceItemsRendered, traceHistoriesRendered;
 
 function traceNode(node) {
   return node.name ? `${node.name} [${node.hash}]`
@@ -19,6 +20,8 @@ function traceRouteLabel(history, index) {
 }
 
 function renderTraces(items) {
+  const signature = JSON.stringify(items);
+  if (signature === traceItemsRendered) return;
   const container = document.getElementById('trace-results');
   const opened = new Set([...container.querySelectorAll('details[open]')].map(node => node.dataset.id));
   container.replaceChildren(...items.map(item => {
@@ -38,6 +41,7 @@ function renderTraces(items) {
     }
     return entry;
   }));
+  traceItemsRendered = signature;
 }
 
 function traceSvg(tag, attributes, value) {
@@ -121,22 +125,26 @@ async function loadTraces() {
     const result = await response.json();
     if (version !== traceRequest || paused || document.getElementById('panel-trace').hidden || document.getElementById('trace-analysis')?.hidden) return;
     renderTraces(result.items);
-    const select = document.getElementById('trace-route');
-    const selected = traceHistories.find(h => String(h.id) === select.value);
-    traceHistories = result.histories;
-    const options = traceHistories.map((history, index) => {
-      const option = text('option', traceRouteLabel(history, index));
-      option.title = `${history.route.map(traceNode).join(' → ') || 'Leere Route'} · ${history.scope} · ${history.point_count} Messgruppen`;
-      option.value = String(history.id);
-      return option;
-    });
-    select.replaceChildren(...options);
-    select.disabled = !options.length;
-    // Keep the route selection even when the first session leaves the time window.
-    const same = selected && traceHistories.find(h => h.scope === selected.scope
-      && h.route.map(n => n.hash).join(',') === selected.route.map(n => n.hash).join(','));
-    select.value = same ? String(same.id) : options[0]?.value || '';
-    renderTraceHistory();
+    const signature = JSON.stringify(result.histories);
+    if (signature !== traceHistoriesRendered) {
+      const select = document.getElementById('trace-route');
+      const selected = traceHistories.find(h => String(h.id) === select.value);
+      traceHistories = result.histories;
+      const options = traceHistories.map((history, index) => {
+        const option = text('option', traceRouteLabel(history, index));
+        option.title = `${history.route.map(traceNode).join(' → ') || 'Leere Route'} · ${history.scope} · ${history.point_count} Messgruppen`;
+        option.value = String(history.id);
+        return option;
+      });
+      select.replaceChildren(...options);
+      select.disabled = !options.length;
+      // Keep the route selection even when the first session leaves the time window.
+      const same = selected && traceHistories.find(h => h.scope === selected.scope
+        && h.route.map(n => n.hash).join(',') === selected.route.map(n => n.hash).join(','));
+      select.value = same ? String(same.id) : options[0]?.value || '';
+      renderTraceHistory();
+      traceHistoriesRendered = signature;
+    }
     status.textContent = result.items.length
       ? `${result.items.length} Messgruppen · ${result.scanned} TRACE-Empfänge im Zeitraum`
       : 'Keine auswertbaren TRACE-Messungen im gewählten Zeitraum.';

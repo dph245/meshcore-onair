@@ -53,6 +53,29 @@ def fixtures(page):
     page.route('**/api/**', api)
 
 
+def unchanged_results(page):
+    page.locator('#tab-observers').click()
+    page.wait_for_function('!observersLoading && observerData !== null')
+    page.locator('#observer-east').select_option(KEYS[2])
+    page.locator('#observer-west').select_option(KEYS[3])
+    page.evaluate("window.savedObserverTable = document.querySelector('#observers-results table'); window.savedObserverOption = document.querySelector('#observer-east option:nth-child(2)')")
+    page.evaluate('loadObservers()')
+    assert page.evaluate("savedObserverTable === document.querySelector('#observers-results table') && savedObserverOption === document.querySelector('#observer-east option:nth-child(2)')")
+    page.locator('#tab-discovery').click()
+    page.wait_for_selector('#discovery-results details')
+    page.evaluate("window.savedDiscovery = document.querySelector('#discovery-results details'); savedDiscovery.open = true")
+    page.evaluate('loadDiscovery()')
+    assert page.evaluate("savedDiscovery === document.querySelector('#discovery-results details') && savedDiscovery.open")
+    page.locator('#tab-trace').click()
+    page.locator('#trace-views [data-view=history]').click()
+    page.wait_for_selector('#trace-history svg')
+    page.evaluate("window.savedTrace = document.querySelector('#trace-results details'); savedTrace.open = true; window.savedChart = document.querySelector('#trace-history svg'); window.savedRoute = document.querySelector('#trace-route option')")
+    page.evaluate('loadTraces()')
+    assert page.evaluate("savedTrace === document.querySelector('#trace-results details') && savedTrace.open && savedChart === document.querySelector('#trace-history svg') && savedRoute === document.querySelector('#trace-route option')")
+    page.locator('#tab-live').click()
+    print('Unchanged Observer A/B, Discovery and TRACE: actual DOM nodes and states retained', flush=True)
+
+
 def layout(page, name):
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), name
     assert page.evaluate('document.querySelector("main").scrollWidth <= document.querySelector("main").clientWidth'), (name, 'main overflow')
@@ -183,6 +206,8 @@ def main():
                 page.set_viewport_size(dict(width=w, height=h))
                 page.wait_for_timeout(100)
                 layout(page, (w, h, 'rotation'))
+            if width == 1440:
+                unchanged_results(page)
             assert not errors, errors
             print(f'{width}x{height}: all {len(tabs)} tabs, populated details, forms, navigation and overflow passed', flush=True)
             page.close()
