@@ -201,7 +201,125 @@ function receptionPath(packet) {
     : 'Im Paket aufgezeichnete Repeater in Empfangsreihenfolge.';
   return container;
 }
-function render(force = false) {
+// Each entry owns the summary row and, when expanded, its adjacent detail row.
+const liveRows = new Map();
+function renderLiveGroup(group, filtered) {
+  const fragment = document.createDocumentFragment();
+  const p = group.latest, d = p.decoded, open = expanded.has(group.id);
+  const receptions = receptionsBySnr(group.receptions);
+  const row = text('tr', '', 'packet');
+  const time = text('td', '');
+  const toggle = text('button', `${open ? '▾' : '▸'} ${p.time}`, 'expand');
+  toggle.setAttribute('aria-expanded', String(open));
+  toggle.setAttribute('aria-label', `Paket ${p.observer_hash || p.number}: Details`);
+  toggle.onclick = () => { open ? expanded.delete(group.id) : expanded.add(group.id); render(true, new Set([group.id])); };
+  time.append(toggle); row.append(time);
+  for (const value of [d.payload_name, d.route_name]) row.append(text('td', value));
+  row.append(text('td', scopeLabel(d)));
+  const content = text('td', '', 'message');
+  if (d.payload_name === 'GRP_TXT') {
+    if (d.group_text != null) {
+      content.append(text('div', d.group_channel, 'muted'));
+      content.append(text('div', d.group_text));
+    } else {
+      content.append(text('span', d.group_text_status || 'Nicht entschlüsselbar', 'muted'));
+    }
+  } else if (d.payload_name === 'ADVERT') {
+    const advert = d.advert;
+    if (advert) {
+      content.append(text('div', `${advert.name || 'Ohne Namen'} · ${advert.node_type_name}`));
+      if (advert.latitude != null) {
+        content.append(text('div', `${advert.latitude.toFixed(6)}, ${advert.longitude.toFixed(6)}`, 'muted'));
+      }
+    }
+    if (d.advert_status) content.append(text('div', d.advert_status, 'muted'));
+  } else if (d.payload_summary) {
+    content.append(text('div', d.payload_summary));
+    if (d.trace) {
+      const {route, snrs} = d.trace;
+      content.append(text('div', `Route: ${route.join(' → ') || 'Leer'}`, 'muted'));
+      content.append(text('div', `Hops: ${snrs.length}/${route.length} mit SNR-Messung`, 'muted'));
+      const hopSnrs = route.map((_, index) =>
+        `Hop ${index + 1}: ${index < snrs.length ? `${snrs[index]} dB` : 'ausstehend'}`);
+      content.append(text('div', `SNR: ${hopSnrs.join(' · ') || 'Noch keine'}`, 'muted'));
+    }
+    if (d.payload_status) content.append(text('div', d.payload_status, 'muted'));
+  }
+  row.append(content);
+  const pathCell = text('td', '', 'live-path');
+  pathCell.append(text('div', `Last Hop: ${receptionLastHop(p)}`), receptionPath(p));
+  row.append(pathCell);
+  const rssiCell = text('td', '');
+  rssiCell.append(text('div', measurement(p.rssi, 'dBm'), 'live-reception-line'));
+  const snrCell = text('td', '');
+  const latestSnr = text('div', '', 'live-reception-line');
+  latestSnr.append(snrMeasurement(p.snr));
+  snrCell.append(latestSnr);
+  const hopCount = text('td', d.hop_count);
+  hopCount.title = d.payload_type === 9 ? 'Anzahl SNR-Messwerte' : [2, 3].includes(d.route_type) ? 'Noch ausstehende Repeater-Hops' : 'Aufgezeichnete Repeater-Hops';
+  row.append(rssiCell, snrCell, hopCount);
+  const repeats = text('td', '');
+  const hashLabel = text('div', `${p.observer_hash?.slice(0, 6) || 'ohne Hash'} · ${group.count} ${group.count === 1 ? 'Empfang' : 'Empfänge'}`, 'live-reception-line');
+  hashLabel.title = `${p.observer_hash || 'ohne Hash'} · Empfangsbeobachtungen über alle Observer, keine Anzahl von Weiterleitungen`;
+  if (group.count === 1) {
+    const observer = text('span', ` via Observer ${observerLabel(p, true)}`, 'muted');
+    observer.title = observerLabel(p);
+    hashLabel.append(observer);
+  }
+  repeats.append(hashLabel);
+  if (filtered) {
+    repeats.append(text('div', `${group.receptions.length} passende gespeicherte Empfänge`, 'muted live-reception-line'));
+    for (const cell of [rssiCell, snrCell]) cell.append(text('div', '', 'live-reception-line'));
+  }
+  if (group.count > 1) {
+    const hopList = text('div', '', 'muted');
+    hopList.title = 'Empfänge nach SNR absteigend (maximal 50); Messwerte in den RSSI- und SNR-Spalten';
+    for (const reception of receptions) {
+      const hop = text('div', `${receptionLastHop(reception)} via Observer ${observerLabel(reception, true)}`, 'live-reception-line');
+      rssiCell.append(text('div', measurement(reception.rssi, 'dBm'), 'live-reception-line'));
+      const snr = text('div', '', 'live-reception-line');
+      snr.append(snrMeasurement(reception.snr));
+      snrCell.append(snr);
+      hop.title = observerLabel(reception);
+      hopList.append(hop);
+    }
+    repeats.append(hopList);
+  }
+  row.append(repeats);
+  fragment.append(row);
+  if (open) {
+    const detail = text('tr', '', 'detail'), cell = text('td', ''); cell.colSpan = 10;
+    cell.append(text('div', `${group.count} Empfänge in dieser Gruppe · ${group.receptions.length} ${filtered ? 'passende gespeichert' : 'gespeichert'} · zuerst lokal: ${group.first_seen}`, 'muted'));
+    for (const reception of receptions) {
+      const decoded = reception.decoded, block = text('section', '', 'reception');
+      const receptionSummary = text('div', `#${reception.number} · ${reception.time} · ${decoded.route_name} · ${measurement(reception.rssi, 'dBm')} · `);
+      receptionSummary.append(snrMeasurement(reception.snr));
+      block.append(receptionSummary);
+      const observer = text('div', `Observer: ${observerLabel(reception, true)}`);
+      observer.title = observerLabel(reception);
+      block.append(observer);
+      const path = receptionPath(reception);
+      block.append(path);
+      if ([2, 3].includes(decoded.route_type) && decoded.payload_type !== 9) block.append(text('div', path.title, 'muted'));
+      block.append(text('div', `Scope: ${scopeLabel(decoded)}`));
+      appendPayloadDetails(block, decoded);
+      if (decoded.advert) {
+        const a = decoded.advert;
+        block.append(text('div', `Advert: ${a.name || 'Ohne Namen'} · ${a.node_type_name}`));
+        if (a.latitude != null) block.append(text('div', `Position: ${a.latitude.toFixed(6)}, ${a.longitude.toFixed(6)}`));
+        block.append(text('pre', `Public Key: ${a.public_key}\nAdvert-Zeit: ${new Date(a.timestamp * 1000).toISOString()} (Unix: ${a.timestamp})\nFlags: ${a.flags == null ? '—' : '0x' + a.flags.toString(16).padStart(2, '0')} · Feature 1: ${a.feature_1 ?? '—'} · Feature 2: ${a.feature_2 ?? '—'}\nSignatur (${a.signature_status}): ${a.signature}`));
+      }
+      if (decoded.advert_status) block.append(text('div', decoded.advert_status, 'muted'));
+      const pathSize = decoded.payload_type === 9 ? 'SNR-Pfad: 1 Byte je Messwert' : `Hashgröße: ${decoded.hash_size} Byte`;
+      block.append(text('div', `Transport-Code: ${decoded.transport_code || '—'} · ${pathSize} · Länge: ${measurement(reception.length, 'B')}`));
+      block.append(text('pre', `Raw: ${reception.raw_hex}\nPayload: ${decoded.payload_hex}\nHeader: 0x${decoded.header.toString(16).padStart(2, '0')} · Payload-Typ: ${decoded.payload_type} · Version: ${decoded.payload_ver} · Path-Length: 0x${decoded.path_len_raw.toString(16).padStart(2, '0')}\nHop-Hashes: ${decoded.hops.join(' → ') || '—'}\nLokal empfangen: ${reception.received_at}`));
+      cell.append(block);
+    }
+    detail.append(cell); fragment.append(detail);
+  }
+  return [...fragment.childNodes];
+}
+function render(force = false, changedIds = null) {
   if (paused && !force) return;
   if (!paused) {
     displayedGroups = [...groups.values()];
@@ -210,132 +328,54 @@ function render(force = false) {
     renderRaw();
   }
   const query = liveFilter.value.trim().toLowerCase();
-  updateLiveObservers(displayedGroups);
+  updateLiveObservers(changedIds === null ? displayedGroups
+    : displayedGroups.filter(group => changedIds.has(group.id)));
   const observerId = liveObserver.value;
   const filtered = Boolean(query || observerId);
-  const fragment = document.createDocumentFragment();
-  const sorted = filteredLiveGroups(displayedGroups, query, observerId);
-  for (const group of sorted) {
-    const p = group.latest, d = p.decoded, open = expanded.has(group.id);
-    const receptions = receptionsBySnr(group.receptions);
-    const row = text('tr', '', 'packet');
-    const time = text('td', '');
-    const toggle = text('button', `${open ? '▾' : '▸'} ${p.time}`, 'expand');
-    toggle.setAttribute('aria-expanded', String(open));
-    toggle.setAttribute('aria-label', `Paket ${p.observer_hash || p.number}: Details`);
-    toggle.onclick = () => { open ? expanded.delete(group.id) : expanded.add(group.id); render(true); };
-    time.append(toggle); row.append(time);
-    for (const value of [d.payload_name, d.route_name]) row.append(text('td', value));
-    row.append(text('td', scopeLabel(d)));
-    const content = text('td', '', 'message');
-    if (d.payload_name === 'GRP_TXT') {
-      if (d.group_text != null) {
-        content.append(text('div', d.group_channel, 'muted'));
-        content.append(text('div', d.group_text));
-      } else {
-        content.append(text('span', d.group_text_status || 'Nicht entschlüsselbar', 'muted'));
+  if (changedIds === null || changedIds.size) {
+    const panel = document.getElementById('panel-live');
+    const scroller = body.closest('.live-table-scroll');
+    const top = panel.scrollTop, left = scroller.scrollLeft;
+    const sorted = filteredLiveGroups(displayedGroups, query, observerId);
+    if (changedIds === null) {
+      const fragment = document.createDocumentFragment();
+      liveRows.clear();
+      for (const group of sorted) {
+        const rows = renderLiveGroup(group, filtered);
+        liveRows.set(group.id, rows);
+        fragment.append(...rows);
       }
-    } else if (d.payload_name === 'ADVERT') {
-      const advert = d.advert;
-      if (advert) {
-        content.append(text('div', `${advert.name || 'Ohne Namen'} · ${advert.node_type_name}`));
-        if (advert.latitude != null) {
-          content.append(text('div', `${advert.latitude.toFixed(6)}, ${advert.longitude.toFixed(6)}`, 'muted'));
+      body.replaceChildren(fragment);
+    } else {
+      // Remove replaced/evicted groups first, including any expanded details.
+      for (const id of changedIds) {
+        for (const row of liveRows.get(id) || []) row.remove();
+        liveRows.delete(id);
+      }
+      // Unchanged rows keep their nodes and relative order. Insert only changed
+      // groups before their next visible neighbor in the existing sort order.
+      let next = null;
+      for (let index = sorted.length - 1; index >= 0; index--) {
+        const group = sorted[index];
+        let rows = liveRows.get(group.id);
+        if (!rows) {
+          rows = renderLiveGroup(group, filtered);
+          liveRows.set(group.id, rows);
+          for (const row of rows) body.insertBefore(row, next);
         }
+        next = rows[0];
       }
-      if (d.advert_status) content.append(text('div', d.advert_status, 'muted'));
-    } else if (d.payload_summary) {
-      content.append(text('div', d.payload_summary));
-      if (d.trace) {
-        const {route, snrs} = d.trace;
-        content.append(text('div', `Route: ${route.join(' → ') || 'Leer'}`, 'muted'));
-        content.append(text('div', `Hops: ${snrs.length}/${route.length} mit SNR-Messung`, 'muted'));
-        const hopSnrs = route.map((_, index) =>
-          `Hop ${index + 1}: ${index < snrs.length ? `${snrs[index]} dB` : 'ausstehend'}`);
-        content.append(text('div', `SNR: ${hopSnrs.join(' · ') || 'Noch keine'}`, 'muted'));
-      }
-      if (d.payload_status) content.append(text('div', d.payload_status, 'muted'));
     }
-    row.append(content);
-    const pathCell = text('td', '', 'live-path');
-    pathCell.append(text('div', `Last Hop: ${receptionLastHop(p)}`), receptionPath(p));
-    row.append(pathCell);
-    const rssiCell = text('td', '');
-    rssiCell.append(text('div', measurement(p.rssi, 'dBm'), 'live-reception-line'));
-    const snrCell = text('td', '');
-    const latestSnr = text('div', '', 'live-reception-line');
-    latestSnr.append(snrMeasurement(p.snr));
-    snrCell.append(latestSnr);
-    const hopCount = text('td', d.hop_count);
-    hopCount.title = d.payload_type === 9 ? 'Anzahl SNR-Messwerte' : [2, 3].includes(d.route_type) ? 'Noch ausstehende Repeater-Hops' : 'Aufgezeichnete Repeater-Hops';
-    row.append(rssiCell, snrCell, hopCount);
-    const repeats = text('td', '');
-    const hashLabel = text('div', `${p.observer_hash?.slice(0, 6) || 'ohne Hash'} · ${group.count} ${group.count === 1 ? 'Empfang' : 'Empfänge'}`, 'live-reception-line');
-    hashLabel.title = `${p.observer_hash || 'ohne Hash'} · Empfangsbeobachtungen über alle Observer, keine Anzahl von Weiterleitungen`;
-    if (group.count === 1) {
-      const observer = text('span', ` via Observer ${observerLabel(p, true)}`, 'muted');
-      observer.title = observerLabel(p);
-      hashLabel.append(observer);
-    }
-    repeats.append(hashLabel);
-    if (filtered) {
-      repeats.append(text('div', `${group.receptions.length} passende gespeicherte Empfänge`, 'muted live-reception-line'));
-      for (const cell of [rssiCell, snrCell]) cell.append(text('div', '', 'live-reception-line'));
-    }
-    if (group.count > 1) {
-      const hopList = text('div', '', 'muted');
-      hopList.title = 'Empfänge nach SNR absteigend (maximal 50); Messwerte in den RSSI- und SNR-Spalten';
-      for (const reception of receptions) {
-        const hop = text('div', `${receptionLastHop(reception)} via Observer ${observerLabel(reception, true)}`, 'live-reception-line');
-        rssiCell.append(text('div', measurement(reception.rssi, 'dBm'), 'live-reception-line'));
-        const snr = text('div', '', 'live-reception-line');
-        snr.append(snrMeasurement(reception.snr));
-        snrCell.append(snr);
-        hop.title = observerLabel(reception);
-        hopList.append(hop);
-      }
-      repeats.append(hopList);
-    }
-    row.append(repeats);
-    fragment.append(row);
-    if (open) {
-      const detail = text('tr', '', 'detail'), cell = text('td', ''); cell.colSpan = 10;
-      cell.append(text('div', `${group.count} Empfänge in dieser Gruppe · ${group.receptions.length} ${filtered ? 'passende gespeichert' : 'gespeichert'} · zuerst lokal: ${group.first_seen}`, 'muted'));
-      for (const reception of receptions) {
-        const decoded = reception.decoded, block = text('section', '', 'reception');
-        const receptionSummary = text('div', `#${reception.number} · ${reception.time} · ${decoded.route_name} · ${measurement(reception.rssi, 'dBm')} · `);
-        receptionSummary.append(snrMeasurement(reception.snr));
-        block.append(receptionSummary);
-        const observer = text('div', `Observer: ${observerLabel(reception, true)}`);
-        observer.title = observerLabel(reception);
-        block.append(observer);
-        const path = receptionPath(reception);
-        block.append(path);
-        if ([2, 3].includes(decoded.route_type) && decoded.payload_type !== 9) block.append(text('div', path.title, 'muted'));
-        block.append(text('div', `Scope: ${scopeLabel(decoded)}`));
-        appendPayloadDetails(block, decoded);
-        if (decoded.advert) {
-          const a = decoded.advert;
-          block.append(text('div', `Advert: ${a.name || 'Ohne Namen'} · ${a.node_type_name}`));
-          if (a.latitude != null) block.append(text('div', `Position: ${a.latitude.toFixed(6)}, ${a.longitude.toFixed(6)}`));
-          block.append(text('pre', `Public Key: ${a.public_key}\nAdvert-Zeit: ${new Date(a.timestamp * 1000).toISOString()} (Unix: ${a.timestamp})\nFlags: ${a.flags == null ? '—' : '0x' + a.flags.toString(16).padStart(2, '0')} · Feature 1: ${a.feature_1 ?? '—'} · Feature 2: ${a.feature_2 ?? '—'}\nSignatur (${a.signature_status}): ${a.signature}`));
-        }
-        if (decoded.advert_status) block.append(text('div', decoded.advert_status, 'muted'));
-        const pathSize = decoded.payload_type === 9 ? 'SNR-Pfad: 1 Byte je Messwert' : `Hashgröße: ${decoded.hash_size} Byte`;
-        block.append(text('div', `Transport-Code: ${decoded.transport_code || '—'} · ${pathSize} · Länge: ${measurement(reception.length, 'B')}`));
-        block.append(text('pre', `Raw: ${reception.raw_hex}\nPayload: ${decoded.payload_hex}\nHeader: 0x${decoded.header.toString(16).padStart(2, '0')} · Payload-Typ: ${decoded.payload_type} · Version: ${decoded.payload_ver} · Path-Length: 0x${decoded.path_len_raw.toString(16).padStart(2, '0')}\nHop-Hashes: ${decoded.hops.join(' → ') || '—'}\nLokal empfangen: ${reception.received_at}`));
-        cell.append(block);
-      }
-      detail.append(cell); fragment.append(detail);
-    }
+    // Keep both scroll axes stable, including when rows above the viewport change.
+    panel.scrollTop = top;
+    scroller.scrollLeft = left;
   }
-  body.replaceChildren(fragment);
-  document.getElementById('empty').hidden = sorted.length > 0;
+  document.getElementById('empty').hidden = liveRows.size > 0;
   document.getElementById('empty').textContent = filtered
     ? 'Keine passenden Empfänge im Live-Puffer. Filter ändern oder zurücksetzen.'
     : 'Noch keine RX-Pakete empfangen. Die Ansicht aktualisiert sich automatisch.';
   document.getElementById('live-filter-status').textContent = filtered
-    ? `${sorted.length} von ${displayedGroups.length} Paketgruppen · nur passende gespeicherte Empfänge${paused ? ' · Ansicht pausiert' : ''}` : '';
+    ? `${liveRows.size} von ${displayedGroups.length} Paketgruppen · nur passende gespeicherte Empfänge${paused ? ' · Ansicht pausiert' : ''}` : '';
   document.getElementById('counts').textContent = `${displayedGroups.length} Paketgruppen · ${displayedStatus.received || 0} RX seit Start · ${displayedStatus.dropped || 0} bei Überlast verworfen`;
   if (displayedStatus.archive) {
     document.getElementById('counts').textContent += ` · ${displayedStatus.archive.saved} archiviert seit Start`;
@@ -381,7 +421,9 @@ function connect() {
     for (const group of data.groups || []) groups.set(group.id, group);
     for (const id of expanded) if (!groups.has(id)) expanded.delete(id);
     status = data.status || status;
-    connection(); render();
+    const changedIds = data.type === 'snapshot' ? null
+      : new Set([...(data.removed || []), ...(data.groups || []).map(group => group.id)]);
+    connection(); render(false, changedIds);
     window.MeshLive?.receive(data);
   };
   socket.onclose = () => { connection(); setTimeout(connect, 2000); };
