@@ -145,7 +145,8 @@ async def lifespan(app):
     client = None
     pump = None
     try:
-        client = create_client(accept_packet, status_sink=dashboard.accept_status)
+        client = create_client(accept_packet, status_sink=dashboard.accept_status,
+                               rf_neighbor_sink=archive.accept_rf_neighbors)
         original_connect, original_disconnect = client.on_connect, client.on_disconnect
 
         def connected(*args):

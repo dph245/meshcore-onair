@@ -9,7 +9,9 @@ from queue import Queue, Empty, Full
 import sqlite3
 from threading import Thread, Event, Lock
 import time
+import uuid
 from datetime import datetime
+from onair_rf_neighbors import topic_identity, parse_report
 from onair_repeaters import (record_repeater, repeater_summary, repeater_token,
                              record_repeater_observer, attach_observer_signals)
 from onair_scopes import scope_label
@@ -36,6 +38,10 @@ class Archive:
         self.error = None
         self.dropped = 0
         self.saved = 0
+        self.rf_neighbor_queue = Queue(maxsize=128)
+        self.rf_neighbor_saved = 0
+        self.rf_neighbor_dropped = 0
+        self.rf_neighbor_error = None
         self.names = {}
         self._neighbors_lock = Lock()
         self._neighbors_json = None
@@ -162,9 +168,34 @@ class Archive:
                     for (raw,) in db.execute('SELECT packet_json FROM packets WHERE repeater_token IS NOT NULL ORDER BY id'):
                         record_repeater_observer(db, json.loads(raw))
                     db.execute('PRAGMA user_version=14')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 15:
+                    db.execute('''CREATE TABLE IF NOT EXISTS rf_neighbor_messages (
+                        id INTEGER PRIMARY KEY, reception_id TEXT NOT NULL UNIQUE,
+                        topic TEXT NOT NULL, received_at TEXT NOT NULL,
+                        payload BLOB NOT NULL, qos INTEGER NOT NULL,
+                        retain INTEGER NOT NULL, dup INTEGER NOT NULL, mid INTEGER,
+                        parse_error TEXT)''')
+                    db.execute('''CREATE TABLE IF NOT EXISTS rf_neighbor_reports (
+                        message_id INTEGER PRIMARY KEY REFERENCES rf_neighbor_messages(id),
+                        iata TEXT NOT NULL, observer_key TEXT NOT NULL,
+                        origin TEXT, origin_id TEXT, source_timestamp TEXT, reported_at REAL,
+                        self_scopes TEXT, self_default_scope TEXT,
+                        total_neighbors INTEGER, queried_neighbors INTEGER, truncated INTEGER)''')
+                    db.execute('''CREATE TABLE IF NOT EXISTS rf_neighbor_entries (
+                        message_id INTEGER NOT NULL REFERENCES rf_neighbor_reports(message_id),
+                        position INTEGER NOT NULL, pubkey TEXT NOT NULL, snr REAL,
+                        heard_secs_ago INTEGER, heard_at REAL, scopes TEXT, status TEXT,
+                        PRIMARY KEY(message_id,position))''')
+                    db.execute('CREATE INDEX IF NOT EXISTS rf_neighbor_received ON rf_neighbor_messages(received_at,id)')
+                    db.execute('CREATE INDEX IF NOT EXISTS rf_neighbor_observer_time ON rf_neighbor_reports(observer_key,reported_at,message_id)')
+                    db.execute('CREATE INDEX IF NOT EXISTS rf_neighbor_pubkey ON rf_neighbor_entries(pubkey,message_id)')
+                    db.execute('PRAGMA user_version=15')
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
+        self.rf_neighbor_worker = Thread(target=self._run_rf_neighbors,
+                                         name='onair-rf-neighbors', daemon=True)
+        self.rf_neighbor_worker.start()
 
     def connect(self):
         # Connections are owned by their calling thread and explicitly closed below.
@@ -251,6 +282,79 @@ class Archive:
 
     def accept_noise(self, sample):
         self._enqueue({'noise_sample': dict(sample)})
+
+    def accept_rf_neighbors(self, message):
+        # Callback does no JSON parsing or SQLite work. Each delivery is an event;
+        # only retries of this same queued event share a reception_id.
+        item = dict(message, reception_id=uuid.uuid4().hex)
+        try:
+            self.rf_neighbor_queue.put_nowait(item)
+        except Full:
+            self.rf_neighbor_dropped += 1
+            logging.error('RF-Nachbarschaftsarchiv voll: Empfang verworfen (%s)',
+                          self.rf_neighbor_dropped)
+
+    def _write_rf_neighbors(self, db, message):
+        parsed = None
+        error = None
+        try:
+            iata, observer_key = topic_identity(message['topic'])
+            parsed = parse_report(message['payload'], observer_key)
+        except Exception as exc:
+            # Raw data remains usable even after malformed JSON or a future
+            # incompatible schema. No payload content is emitted to logs.
+            error = type(exc).__name__
+        with db:
+            row = db.execute('''INSERT INTO rf_neighbor_messages
+                (reception_id,topic,received_at,payload,qos,retain,dup,mid,parse_error)
+                VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(reception_id) DO NOTHING''',
+                (message['reception_id'], message['topic'], message['received_at'],
+                 message['payload'], message['qos'], message['retain'], message['dup'],
+                 message['mid'], error))
+            if not row.rowcount:
+                return  # Retry after an already successful commit.
+            message_id = row.lastrowid
+            if parsed is not None:
+                report, entries = parsed
+                db.execute('''INSERT INTO rf_neighbor_reports
+                    (message_id,iata,observer_key,origin,origin_id,source_timestamp,reported_at,
+                     self_scopes,self_default_scope,total_neighbors,queried_neighbors,truncated)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    (message_id, iata, observer_key, report['origin'], report['origin_id'],
+                     report['source_timestamp'], report['reported_at'], report['self_scopes'],
+                     report['self_default_scope'], report['total_neighbors'],
+                     report['queried_neighbors'], report['truncated']))
+                db.executemany('''INSERT INTO rf_neighbor_entries
+                    (message_id,position,pubkey,snr,heard_secs_ago,heard_at,scopes,status)
+                    VALUES(?,?,?,?,?,?,?,?)''',
+                    [(message_id, n, e['pubkey'], e['snr'], e['heard_secs_ago'],
+                      e['heard_at'], e['scopes'], e['status']) for n, e in enumerate(entries)])
+        self.rf_neighbor_saved += 1
+        if error:
+            logging.warning('RF-Nachbarschaftsmeldung nur als Rohdaten archiviert (%s)', error)
+
+    def _run_rf_neighbors(self):
+        # Separate queue/connection/transactions: parser failures, overload and
+        # retry waits never occupy the existing RX/status writer.
+        pending = None
+        with self.connect() as db:
+            db.execute('PRAGMA foreign_keys=ON')
+            while pending is not None or not self.stopping.is_set() or not self.rf_neighbor_queue.empty():
+                if pending is None:
+                    try:
+                        pending = self.rf_neighbor_queue.get(timeout=0.1)
+                    except Empty:
+                        continue
+                try:
+                    self._write_rf_neighbors(db, pending)
+                except sqlite3.Error as exc:
+                    self.rf_neighbor_error = str(exc)
+                    logging.exception('RF-Nachbarschaftsarchiv konnte nicht geschrieben werden')
+                    if self.stopping.wait(self.interval):
+                        return
+                    continue
+                pending = None
+                self.rf_neighbor_error = None
 
     def _enqueue(self, item):
         try:
@@ -559,8 +663,11 @@ class Archive:
     def close(self):
         self.stopping.set()
         self.worker.join()
+        self.rf_neighbor_worker.join()
         if self.error:
             raise RuntimeError(f'Archiv nicht vollständig gespeichert: {self.error}')
+        if self.rf_neighbor_error:
+            raise RuntimeError(f'RF-Nachbarschaftsarchiv nicht vollständig gespeichert: {self.rf_neighbor_error}')
 
     def search_nodes(self, q='', after=None, limit=50):
         clauses, args = [], []

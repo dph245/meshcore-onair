@@ -324,6 +324,73 @@ erster/letzter ADVERT-Empfangszeit in lokaler Zeit. Diese Zeiten sind kein Onlin
 Neue Einträge sind nach dem nächsten Datenbank-Commit suchbar. Die Suche ist auch
 über `GET /api/nodes?q=…` verfügbar; `next_after` dient als `after` für die Folgeseite.
 
+## MQTT-RF-Nachbarschaftsberichte (Phase 1)
+
+OnAir erfasst im Terminal- und Webbetrieb das belegte Gessaman-Topic
+`meshcore/{IATA}/{DEVICE_PUBLIC_KEY}/neighbors`: genau vier Segmente, drei
+ASCII-Buchstaben/Ziffern für IATA und 64 Hexzeichen für den Public Key.
+Das Standardabonnement `meshcore/#` schließt diese Meldungen ein. Ein engeres
+`ONAIR_MQTT_TOPIC` muss sie ebenfalls abdecken. MeshRank- und individuelle
+Topic-Templates werden in dieser Phase nicht automatisch erkannt.
+
+Referenz ist [Gessamans Firmware-Quellstand
+`c2c4cb59`](https://github.com/agessaman/MeshCore/tree/c2c4cb59e34c9d305a23bfc5d30f16c6fc3e30b2),
+insbesondere `MQTTTopicRouter.h`, `MQTTPayloadBuilder.cpp` und
+`examples/simple_repeater/MyMesh.cpp`. `set mqtt.neighbors on` aktiviert dort
+die periodische Nachbarerkennung samt Scope-Abfragen; das Standardintervall
+beträgt 24 Stunden. OnAir löst selbst keine RF-Abfragen aus.
+
+Schema 15 ergänzt ausschließlich neue Tabellen:
+
+- `rf_neighbor_messages`: vollständiges Original-Topic, lokale UTC-Empfangszeit
+  als ISO-8601, unveränderte Payload-Bytes als BLOB sowie MQTT-QoS, Retain,
+  DUP und Message-ID (`mid`). Eine interne Empfangskennung verhindert doppelte
+  Inserts bei Schreibwiederholungen. Jede erneute MQTT-Zustellung bleibt dagegen
+  ein eigener Empfang, auch bei identischem Payload oder Retained-Reconnect.
+- `rf_neighbor_reports`: je Empfang ein Snapshot mit Topic-Observer-Public-Key,
+  IATA, `origin`, `origin_id`, Original-Zeitstempel und dessen Unix-Zeit in UTC,
+  eigenen Scopes/Default-Scope sowie `total_neighbors`, `queried_neighbors`
+  und `truncated`. Public Keys werden nur in den strukturierten Daten auf
+  Kleinbuchstaben normalisiert. Eine abweichende `origin_id` wird als fehlerhaft
+  behandelt, damit keine Observer-Identitäten vermischt werden.
+- `rf_neighbor_entries`: Nachbar-Public-Key, SNR in dB, `heard_secs_ago`, daraus
+  berechnetes `heard_at`, Scope-String und Antwortstatus je Snapshot und Position.
+  Indizes auf Observer/Berichtszeit und Nachbar-Public-Key ermöglichen spätere
+  historische Vergleiche. Die bisherige Flood-Pfad-Nachbarschaft bleibt separat.
+
+Fehlende oder explizit null gesetzte optionale Werte bleiben unbekannt (`NULL`).
+Insbesondere bedeutet fehlendes `truncated` nicht `false`. Ein gekürzter Bericht
+oder ein fehlender Nachbar löscht keine früheren Beobachtungen. Scope-Strings
+bleiben unverändert, einschließlich `*`, Reihenfolge und leerem String. Ein leerer
+String bei `timeout` oder `send_failed` belegt keine Scope-Abwesenheit. Statuswerte
+werden als gemeldete Strings gespeichert, auch bei zukünftigen Erweiterungen.
+
+`heard_secs_ago: null` bedeutet unbekannt; `0` bleibt ein gültiges Alter.
+`heard_at` wird ausschließlich aus Berichtszeit minus Alter berechnet. Fehlt
+die Berichtszeit, bleibt `heard_at` unbekannt, auch bei einer Live-Zustellung.
+Damit verjüngt ein Retained-Reconnect keinen Nachbarn. Zeitstempel mit Offset
+werden nach UTC umgerechnet; offsetlose Observer-Zeitstempel gelten wie im
+Statuspfad als UTC. SNR und Hörzeit müssen nicht dieselbe RF-Messung beschreiben:
+die Firmware kann bei einer Scope-Antwort nur den Hörzeitstempel aktualisieren.
+
+Die Übergabe vor der JSON-Decodierung verwendet eine eigene Warteschlange
+(128 wartende Meldungen plus ein aktiver Empfang) und einen eigenen Schreibthread
+mit separater SQLite-Verbindung. Der RX-/Status-Writer und dessen Zähler bleiben
+unverändert. SQLite serialisiert weiterhin die kurzen Schreibtransaktionen in
+derselben WAL-Datenbank. Ungültige Payloads, ungültiges UTF-8, unpassende Feldtypen
+oder ungültige Zeitangaben bleiben vollständig als Rohdaten mit `parse_error`
+erhalten; es entsteht dann kein strukturierter Snapshot. Unbekannte zusätzliche
+JSON-Felder bleiben im Original-Payload erhalten. Queue-Überläufe und Schreibfehler
+werden protokolliert; intern stehen `rf_neighbor_saved`, `rf_neighbor_dropped`
+und `rf_neighbor_error` bereit. Schreibfehler werden separat erneut versucht,
+beim sauberen Beenden werden wartende Empfänge geschrieben und verbleibende
+Schreibfehler gemeldet. Noch gepufferte Meldungen können bei Prozessabbruch oder
+Stromausfall verloren gehen. Archivierte Berichte werden nicht automatisch gelöscht.
+
+Diese Phase ergänzt keine UI und keine HTTP-Endpunkte. Die neuen Tests in
+`tests/test_rf_neighbors.py` verwenden synthetische, am Firmware-Builder
+ausgerichtete Payloads und ausschließlich temporäre Testdatenbanken.
+
 ## Aufbau und Prüfung
 
 ### Öffentlicher Betrieb: lesende Schnittstellen

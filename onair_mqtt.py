@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import os
 import ssl
@@ -13,6 +14,7 @@ from onair_channels import decode_group_text
 from onair_advert import decode_advert
 from onair_scopes import scope_label
 from onair_payload import decode_payload_details
+from onair_rf_neighbors import topic_identity
 
 
 # ============================================================
@@ -547,6 +549,19 @@ def on_disconnect(
 
 
 def on_message(client, userdata, msg):
+    # Only the firmware's complete standard topic layout selects this path.
+    # Preserve bytes before attempting any UTF-8 or JSON interpretation.
+    if msg.topic.endswith('/neighbors') and topic_identity(msg.topic) is not None:
+        received_at = datetime.now(timezone.utc).isoformat()
+        sink = userdata.get('rf_neighbor_sink') if isinstance(userdata, dict) else None
+        if sink is not None:
+            try:
+                sink(dict(topic=msg.topic, received_at=received_at, payload=bytes(msg.payload),
+                          qos=getattr(msg, 'qos', 0), retain=bool(getattr(msg, 'retain', False)),
+                          dup=bool(getattr(msg, 'dup', False)), mid=getattr(msg, 'mid', None)))
+            except Exception:
+                logging.exception('RF-Nachbarschaftsmeldung konnte nicht übergeben werden')
+        return
     try:
         payload_text = msg.payload.decode("utf-8")
         data = json.loads(payload_text)
@@ -578,7 +593,7 @@ def on_message(client, userdata, msg):
 # Start
 # ============================================================
 
-def create_client(packet_sink=None, status_sink=None):
+def create_client(packet_sink=None, status_sink=None, rf_neighbor_sink=None):
     if MQTT_TLS not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
         raise ValueError("ONAIR_MQTT_TLS muss true oder false sein")
     use_tls = MQTT_TLS in {"1", "true", "yes", "on"}
@@ -590,7 +605,8 @@ def create_client(packet_sink=None, status_sink=None):
     client = mqtt.Client(
         mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"meshcore-onair-{uuid.uuid4().hex[:10]}",
-        userdata={"packet_sink": packet_sink, "status_sink": status_sink},
+        userdata={"packet_sink": packet_sink, "status_sink": status_sink,
+                  "rf_neighbor_sink": rf_neighbor_sink},
     )
 
     if MQTT_USERNAME:
@@ -616,7 +632,8 @@ def main():
         sample = noise_sample(data)
         if sample is not None:
             archive.accept_noise(sample)
-    client = create_client(archive.accept, status_sink=accept_status)
+    client = create_client(archive.accept, status_sink=accept_status,
+                           rf_neighbor_sink=archive.accept_rf_neighbors)
     print(
         f"Connecting to MQTT broker "
         f"{BROKER_HOST}:{BROKER_PORT} ..."
