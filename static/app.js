@@ -17,6 +17,7 @@ function selectTab(selected) {
   if (selected.id === 'tab-trace') showTraceWorkspace();
   if (selected.id === 'tab-map') showNodeMap();
   if (selected.id === 'tab-neighbors') loadNeighbors();
+  window.RFNeighbors?.select(selected.id === 'tab-rf-neighbors');
   if (selected.id === 'tab-routes') loadRouteNodes();
   window.MeshLive?.select(selected.id === 'tab-meshlive');
 }

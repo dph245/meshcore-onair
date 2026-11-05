@@ -391,6 +391,73 @@ Diese Phase ergänzt keine UI und keine HTTP-Endpunkte. Die neuen Tests in
 `tests/test_rf_neighbors.py` verwenden synthetische, am Firmware-Builder
 ausgerichtete Payloads und ausschließlich temporäre Testdatenbanken.
 
+## RF-Nachbarn (Sprint 2)
+
+Der neue Tab **RF-Nachbarn** liest die in Phase 1 archivierten, ausgewerteten
+Observer-Reports. Observer mit Reports stehen zur Auswahl; Gerätenamen werden
+ausschließlich über vollständige Public Keys aus `nodes` und ergänzend
+`manual_nodes` zugeordnet. Beim Observer dient der gemeldete `origin` als
+Namensersatz. Unbekannte Namen werden ausdrücklich gekennzeichnet.
+
+Der erste Aufruf lädt den neuesten Report des ausgewählten Observers, sortiert
+nach **Erhebungszeit** absteigend, bei Gleichstand nach Empfangs-ID. Alte Retained-
+Zustellungen verdrängen dadurch keine jüngere Erhebung. Reports ohne Erhebungszeit
+folgen am Ende, untereinander nach Empfangs-ID. Erhebung und lokaler MQTT-Empfang
+werden getrennt in der Browserzeitzone angezeigt. Die Historienauswahl zeigt
+zunächst 20 Reports; **Ältere Reports laden** ergänzt die nächsten 20. Ein Wechsel
+des Observers setzt die Historie zurück. **Aktualisieren** lädt die Observerliste
+und den neuesten Report erneut. Beim Tabwechsel bleibt eine bereits geladene
+Auswahl erhalten. Es gibt weder Polling noch RF-Abfragen aus OnAir; laufende
+HTTP-Anfragen werden beim Verlassen des Tabs abgebrochen und verspätete Antworten
+verworfen. Andere Live-Ansichten und die globale Live-Pause bleiben unabhängig.
+
+Angezeigt werden erkannte und abgefragte Nachbarn, enthaltene Einträge,
+`truncated`, eigene Scopes und Default-Scope sowie je Nachbar voller Public Key,
+Name, SNR, Scopes, Scope-Abfragestatus, letzter Hörzeitpunkt und Höralter bei der
+Erhebung. Fehlende Werte heißen **Unbekannt**, Nullwerte wie 0 dB und 0 Sekunden
+bleiben sichtbar. Ein Timeout bedeutet eine ausgebliebene Scope-Antwort im
+Zeitfenster, nicht automatisch eine Funkstörung. Leere Scope-Strings und fehlende
+Einträge in gekürzten Reports werden nicht als Scope-Abwesenheit oder
+Verschwinden eines Nachbarn interpretiert. Historische Scopes bleiben im Report
+gespeichert; die Namensauflösung verwendet die aktuell bekannten Gerätenamen.
+Breite Nachbartabellen scrollen auf Mobilgeräten innerhalb der Ansicht.
+
+Die neuen GET-Endpunkte sind:
+
+- `/api/rf-neighbors/observers?limit=500` – Observer mit Reports; maximal 500,
+  `more` kennzeichnet weitere Observer.
+- `/api/rf-neighbors/reports?observer=<64-Hex-Key>&limit=20&before=<Report-ID>` –
+  Historie je Observer mit `next_before`, maximal 100 Reports je Anfrage. Der
+  Cursor verwendet Erhebungszeit plus Empfangs-ID, auch bei gleichen oder
+  unbekannten Erhebungszeiten. Ein fremder/fehlender Cursor liefert HTTP 404.
+- `/api/rf-neighbors/reports/<Report-ID>?observer=<64-Hex-Key>` – Snapshot und
+  bis zu 1000 Nachbareinträge. `entries_more` kennzeichnet eine zusätzliche
+  Anzeigegrenze unabhängig von Firmware-`truncated`. Ein fehlender Report oder
+  eine nicht passende Observer-ID liefert HTTP 404.
+
+Alle neuen Datenbankzugriffe öffnen ausschließlich vorhandene Dateien mit
+SQLite `mode=ro`, `query_only=ON`, konsistentem Lesesnapshot und einem
+Abfragezeitbudget. Nicht lesbare Datenbanken oder fehlende Tabellen liefern
+HTTP 503; die Endpunkte erzeugen und migrieren keine Datenbank. Weder Schema 15
+noch MQTT-Empfang und Archivwriter wurden für Sprint 2 verändert.
+
+Offline-Validierung: fünf neue Python-API-/Datenbanktests (u. a. Schreibsperre,
+keine Migration, Namensauflösung, Zeitreihenfolge, Cursor und Anzeigegrenzen),
+Deno-UI-Tests (u. a. unbekannte Werte, Textsicherheit, Historie, versteckte Tabs,
+verspätete Antworten und Fehlerzustände) sowie Chromium mit simuliertem HTTP und
+WebSocket bei 1440×900, 390×844 und 844×390 in beiden Themes. Die Prüfungen verwenden
+temporäre Datenbanken bzw. synthetische Daten, keine produktiven Dienste.
+
+Ergebnis vom 05.11.2026: **170 Python-Tests und alle 18 Deno-UI-Skripte bestanden**,
+ebenso der neue RF-Browsertest und die bestehende TRACE-Kartenregression.
+Live-/Discovery-Wechsel wurden im RF-Browsertest mitgeprüft. Aus bestehenden
+Python-Tests erscheinen weiterhin SQLite-`ResourceWarning`s. Chromium und die
+ASGI-/Thread-Regression liefen wegen Sandbox-Beschränkungen außerhalb der
+Sandbox, weiterhin vollständig offline. Ein zusätzlicher ausschließlich
+lesender Abgleich der neuen Abfragen mit dem produktiven Archiv lieferte
+WF-Ost (`747400`, ein Nachbareintrag) und WF-Rodeland (`777300`, vier Einträge).
+Keine produktiven Dienste wurden neu gestartet und keine Migration ausgeführt.
+
 ## Aufbau und Prüfung
 
 ### Öffentlicher Betrieb: lesende Schnittstellen

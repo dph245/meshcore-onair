@@ -19,6 +19,7 @@ from onair_neighbors import MAX_LINK_DISTANCE_KM
 from onair_routes import route_nodes, plan_routes
 from fastapi.responses import Response
 from onair_assets import VersionedStaticFiles, index_response
+import onair_rf_neighbor_view as rf_neighbor_view
 
 from onair_mqtt import BROKER_HOST, BROKER_PORT, create_client, noise_sample
 
@@ -205,6 +206,33 @@ def list_channels():
 def discovery(hours: int = Query(24, ge=1, le=168),
               limit: int = Query(100, ge=1, le=100)):
     return app.state.archive.discovery(hours, limit)
+
+
+def rf_neighbor_query(query, *args):
+    try:
+        result = query(app.state.archive.path, *args)
+    except sqlite3.Error:
+        raise HTTPException(503, 'RF-Nachbarschaftsarchiv momentan nicht lesbar') from None
+    if result is None:
+        raise HTTPException(404, 'RF-Nachbarschaftsreport nicht gefunden')
+    return result
+
+
+@app.get('/api/rf-neighbors/observers')
+def rf_neighbor_observers(limit: int = Query(500, ge=1, le=500)):
+    return rf_neighbor_query(rf_neighbor_view.observers, limit)
+
+
+@app.get('/api/rf-neighbors/reports')
+def rf_neighbor_reports(observer: str = Query(..., pattern=r'^[0-9A-Fa-f]{64}$'),
+                        before: int | None = Query(None, ge=1),
+                        limit: int = Query(20, ge=1, le=100)):
+    return rf_neighbor_query(rf_neighbor_view.history, observer, before, limit)
+
+
+@app.get('/api/rf-neighbors/reports/{message_id}')
+def rf_neighbor_report(message_id: int, observer: str = Query(..., pattern=r'^[0-9A-Fa-f]{64}$')):
+    return rf_neighbor_query(rf_neighbor_view.detail, observer, message_id)
 
 
 @app.get("/api/observer-comparison")

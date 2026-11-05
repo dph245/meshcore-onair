@@ -157,6 +157,12 @@ body:has(#panel-meshlive:not([hidden]))>main{flex:1;min-height:0}
   #panel-meshlive .map-sidebar:not(.meshlive-expanded) #meshlive-status[data-error="true"]{display:block}
 }
 
+.rf-neighbor-table{white-space:normal;min-width:760px;table-layout:fixed}
+.rf-neighbor-table td{vertical-align:top;overflow-wrap:anywhere;line-height:1.6}
+.rf-neighbor-table th:first-child{width:28%}
+.rf-neighbor-table th:nth-child(2){width:10%}
+#rf-neighbor-results .reception{overflow-wrap:anywhere}
+
 /* Shared responsive shell. Wide data scrolls locally, not with the page. */
 main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
 .archive, .noise-widget, .toolbar, header{overflow-wrap:anywhere}
