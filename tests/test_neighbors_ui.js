@@ -12,6 +12,7 @@ globalThis.document = {
 };
 globalThis.text = (_, value) => Object.assign(new Element(), {textContent: value});
 globalThis.setInterval = () => {};
+globalThis.window = {openDistanceAnalysis(link) { this.lastAnalysis = link; }};
 const lines = [];
 let activePopup;
 globalThis.L = {
@@ -20,13 +21,22 @@ globalThis.L = {
     setContent(content) { this.content = content; return this; },
     openOn() { activePopup = this; return this; },
   }),
-  layerGroup: () => ({addTo() { return this; }, clearLayers() { lines.length = 0; }}),
+  layerGroup: () => ({addTo() { return this; },
+    clearLayers() { throw Error('Connections must be reconciled individually'); },
+    removeLayer(layer) {
+      const index = lines.indexOf(layer);
+      if (index < 0) throw Error('Removing a connection layer that is not present');
+      lines.splice(index, 1); return this;
+    }}),
   polyline: (positions, options) => ({
-    events: {},
+    positions, options, events: {}, geometryUpdates: 0,
+    setLatLngs(points) { this.positions = points; this.geometryUpdates++; return this; },
+    setStyle(style) { Object.assign(this.options, style); return this; },
+    setTooltipContent(content) { this.tooltip = content; return this; },
     on(event, handler) { this.events[event] = handler; return this; },
     closeTooltip() {},
     bindTooltip() { return this; }, bindPopup(info) { this.info = info; return this; },
-    addTo() { lines.push({positions, options, info: this.info, events:this.events}); return this; }
+    addTo() { lines.push(this); return this; }
   }),
 };
 const source = await Deno.readTextFile('static/map.js');
@@ -50,13 +60,15 @@ const a = {id:'aabb', name:'<A>', resolved:true}, b = {id:'ccdd', name:'B', reso
 const link = {source:a, target:b, count:8, forward_count:6, reverse_count:2, last_seen:123, distance_km:12.34};
 const layers = new Set();
 const classes = new Set();
+let zoom = 10;
 nodeMap = {
-  project: p => ({x:p[0]*100, y:p[1]*100}), unproject: p => p,
+  getZoom: () => zoom,
+  project: p => ({x:p[0]*100*2**(zoom-10), y:p[1]*100*2**(zoom-10)}), unproject: p => p,
   hasLayer: layer => layers.has(layer),
   getContainer: () => ({classList:{toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); }}}),
 };
 function marker(position) {
-  const layer = {getLatLng: () => position,
+  const layer = {position, getLatLng() { return this.position; },
     addTo() { layers.add(this); return this; }, remove() { layers.delete(this); }};
   return layer.addTo(nodeMap);
 }
@@ -74,7 +86,23 @@ lines[0].events.click({latlng:[2,3]});
 const snapshot = getPopup();
 assert(snapshot.content.textContent.includes('A → B: 6'), 'Clicked popup shows initial counts');
 assert(snapshot.content.textContent.includes('Luftlinie: 12,3 km'), 'Popup shows geographic distance');
+const initialLine = lines[0], initialArrows = lines.slice(1), initialTooltip = lines[0].tooltip;
+const initialInfo = mapConnectionViews.values().next().value.info;
+zoom++;
+mapLayoutVersion++; drawMapNeighbors();
+assert(lines[0] === initialLine && initialArrows.every((arrow, i) => lines[i+1] === arrow), 'Zoom retains line and arrow objects');
+assert(initialLine.geometryUpdates === 0 && initialArrows.every(arrow => arrow.geometryUpdates === 1), 'Zoom updates only pixel-dependent arrows');
+assert(initialLine.tooltip === initialTooltip && mapConnectionViews.values().next().value.info === initialInfo, 'Zoom retains tooltip and detail content');
+mapMarkers.get(b.id).marker.position = [4,5];
+mapLayoutVersion++; drawMapNeighbors();
+assert(initialLine.geometryUpdates === 1 && initialLine.positions[1][0] === 4, 'Moved endpoint updates retained line');
+assert(initialArrows.every(arrow => arrow.geometryUpdates === 2), 'Moved endpoint updates retained arrows');
+mapLayoutVersion++; drawMapNeighbors();
+assert(initialLine.geometryUpdates === 1 && initialArrows.every(arrow => arrow.geometryUpdates === 2), 'Unchanged geometry avoids setters even with invalidated layout');
+mapMarkers.get(b.id).marker.position = [3,4];
+zoom = 10; mapLayoutVersion++; drawMapNeighbors();
 renderMapNeighbors({items:[{...link, forward_count:99}]}); drawMapNeighbors();
+assert(lines[0] === initialLine && initialLine.tooltip.textContent.includes('A → B: 99'), 'Metadata refresh retains line and updates tooltip');
 assert(getPopup() === snapshot && snapshot.content.textContent.includes('A → B: 6'), 'Refresh preserves popup and original text');
 assert(snapshot.position[0] === 2 && snapshot.position[1] === 3, 'Popup remains at clicked position');
 const savedLayers = [...lines];
@@ -85,6 +113,10 @@ assert(!document.getElementById('map-neighbors-status').textContent.includes('te
 assert(getPopup() === snapshot, 'Layout redraw also keeps popup');
 lines[0].events.click({latlng:[3,4]});
 assert(getPopup() !== snapshot && getPopup().content.textContent.includes('A → B: 99'), 'Next click opens fresh values');
+getPopup().content.children[2].events.click();
+assert(window.lastAnalysis.forward_count === 99, 'DX button uses updated connection metadata');
+snapshot.content.children[2].events.click();
+assert(window.lastAnalysis.forward_count === 6, 'Existing popup keeps its original DX snapshot');
 const c = {id:'eeff', name:'C', resolved:true};
 mapMarkers.set(c.id, {marker:marker([5,6]), line:marker([5,6])});
 renderMapNeighbors({items:[link, {...link, source:b, target:c}]});
@@ -110,6 +142,22 @@ assert(lines.length === 3 && lines[0].positions[0][0] === 3, 'Target selection i
 selectMapRepeater(b.id);
 assert([...mapMarkers.values()].every(view => layers.has(view.marker)), 'Switching selection restores newly involved neighbors');
 assert(lines.length === 6, 'Both incoming and outgoing connections retained');
+const retainedAB = mapConnectionViews.get(JSON.stringify([a.id,b.id]));
+const retainedBC = mapConnectionViews.get(JSON.stringify([b.id,c.id]));
+const unchangedBC = [retainedBC.line, retainedBC.forward, retainedBC.reverse];
+const removedReverse = retainedAB.reverse;
+renderMapNeighbors({items:[{...link, reverse_count:0, count:32}, {...link, source:b, target:c}]}); drawMapNeighbors();
+assert(lines.length === 5 && lines.includes(retainedAB.line) && lines.includes(retainedAB.forward) && !lines.includes(removedReverse), 'Direction change removes only obsolete reverse arrow');
+assert(unchangedBC.every(layer => lines.includes(layer)), 'Unchanged neighboring connection retains every layer');
+assert(retainedAB.line.options.color === '#d97706' && retainedAB.forward.options.color === '#d97706', 'Retained line and arrow adopt one-way color');
+assert(retainedAB.line.options.weight === 1 + Math.log2(33), 'Retained line updates count-dependent width');
+renderMapNeighbors({items:[link, {...link, source:b, target:c}]}); drawMapNeighbors();
+assert(lines.length === 6 && lines.includes(retainedAB.line) && retainedAB.reverse !== removedReverse, 'Returning reverse direction adds only missing arrow');
+const survivingAB = [retainedAB.line, retainedAB.forward, retainedAB.reverse];
+renderMapNeighbors({items:[link]}); drawMapNeighbors();
+assert(lines.length === 3 && survivingAB.every(layer => lines.includes(layer)) && mapConnectionViews.size === 1, 'Topology removal drops only the obsolete connection and its cache');
+renderMapNeighbors({items:[link, {...link, source:b, target:c}]}); drawMapNeighbors();
+assert(lines.length === 6 && survivingAB.every(layer => lines.includes(layer)) && unchangedBC.every(layer => !lines.includes(layer)), 'Topology addition creates only new connection layers');
 selectMapRepeater(null);
 assert(lines.length === 0 && document.getElementById('map-neighbors-reset').disabled, 'Reset clears lines');
 selectMapRepeater(a.id);
@@ -125,6 +173,15 @@ renderMapNeighbors({items:[{...link, forward_count:0, reverse_count:8}]}); drawM
 assert(lines.length === 2 && lines[0].options.color === '#d97706', 'One orange arrow for reverse-only link');
 assert(lines[1].positions[1][0] < lines[1].positions[0][0], 'Reverse arrow points toward A');
 assert(neighborDirection({...link, forward_count:0}).includes('B → A'), 'Reverse direction label');
+const shortLine = lines[0];
+mapMarkers.get(b.id).marker.position = [1.01,2.01];
+mapLayoutVersion++; drawMapNeighbors();
+assert(lines.length === 1 && lines[0] === shortLine, 'Short link loses arrow but retains connection');
+zoom = 15; mapLayoutVersion++; drawMapNeighbors();
+assert(lines.length === 2 && lines[0] === shortLine, 'Zoom crossing 24px threshold restores direction arrow');
+zoom = 10; mapMarkers.get(b.id).marker.position = [3,4];
+mapLayoutVersion++; drawMapNeighbors();
+assert(sameMapPosition([1,2], {lat:1,lng:2}) && !sameMapPosition([1,2], {lat:1,lng:3}), 'Position equality supports stored coordinates and Leaflet LatLng');
 renderMapNeighbors({nodes:[[a.id,a.name],[b.id,b.name]], links:[[0,1,8,6,2,123,12.34]], total:200});
 assert(neighborLinks.length === 1 && neighborLinks[0].target.name === 'B', 'Compact map response resolves node references');
 assert(neighborTotal === 200, 'Map retains total including unmapped connections');
@@ -136,6 +193,6 @@ assert(document.getElementById('map-neighbors-next').disabled && neighborPage ==
 renderNeighborTable({items:[], page:0, total:0});
 assert(document.getElementById('map-neighbors-prev').disabled && document.getElementById('map-neighbors-next').disabled, 'Empty results disable pagination');
 setMapLinkMode('none');
-console.log('Neighbor UI: resolution, labels, pagination, search, sorting and toggle passed');
+console.log('Neighbor UI: incremental layers, zoom, endpoints, directions, popup snapshots, DX, selection and table passed');
 `)(lines, () => activePopup);
 if (lines.length) throw Error('Toggle must clear connections');

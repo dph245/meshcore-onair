@@ -14,6 +14,11 @@ LINKS = dict(nodes=[[n['public_key'], n['name']] for n in NODES],
              links=[[0, 1, 10, 7, 3, 100, 4], [1, 2, 8, 8, 0, 101, 3],
                     [0, 3, 2, 0, 2, 102, 16000]], total=3)
 
+MANUAL_REFRESH = '''
+    const originalSetInterval = window.setInterval;
+    window.setInterval = (callback, delay, ...args) => [5000, 30000].includes(delay)
+        ? 0 : originalSetInterval(callback, delay, ...args);
+'''
 
 
 def dense_neighbors(browser, viewports=((1280, 900), (390, 844), (844, 390))):
@@ -32,13 +37,8 @@ def dense_neighbors(browser, viewports=((1280, 900), (390, 844), (844, 390))):
     links += [[1, i, 3, 2, 1, 100, 4] for i in range(2, 211)]
     for width, height in viewports:
         page = browser.new_page(viewport=dict(width=width, height=height), has_touch=width < 1000)
-        # Keep the request-count assertion independent of the 30-second poll;
-        # node refreshes are exercised explicitly below.
-        page.add_init_script('''
-            const originalSetInterval = window.setInterval;
-            window.setInterval = (callback, delay, ...args) => delay === 30000
-                ? 0 : originalSetInterval(callback, delay, ...args);
-        ''')
+        # Refresh explicitly so timers cannot race identity/request assertions.
+        page.add_init_script(MANUAL_REFRESH)
         errors, requests, calls = [], [], []
         page.on('pageerror', lambda error: errors.append(str(error)))
         route_page(page, requests)
@@ -134,6 +134,7 @@ def dense_neighbors(browser, viewports=((1280, 900), (390, 844), (844, 390))):
         page.locator('#node-map').screenshot(path=f'/tmp/onair-dense-{width}x{height}.png')
         assert not errors, errors
         page.close()
+        print(f'Dense map {width}x{height}: passed', flush=True)
     print(f'Dense selection: 1600 nodes, 37/209 neighbors, zoom 7–14, marker reuse, refresh and {len(viewports)} viewports passed', flush=True)
 
 
@@ -144,45 +145,73 @@ def refresh_regression(page):
         items=payload, repeaters=DIRECTORY, inactive=0, without_position=1)))
     page.evaluate('''() => {
       window.layoutCalls = 0; window.linkBuilds = 0;
+      window.linkAdds = 0; window.linkRemoves = 0; window.markerMoves = 0;
       const layout = layoutMapNodes, clear = neighborLayer.clearLayers.bind(neighborLayer);
       layoutMapNodes = () => { layoutCalls++; return layout(); };
       neighborLayer.clearLayers = () => { linkBuilds++; return clear(); };
+      const add = neighborLayer.addLayer.bind(neighborLayer), remove = neighborLayer.removeLayer.bind(neighborLayer);
+      neighborLayer.addLayer = layer => { linkAdds++; return add(layer); };
+      neighborLayer.removeLayer = layer => { linkRemoves++; return remove(layer); };
+      for (const view of mapMarkers.values()) {
+        const set = view.marker.setLatLng.bind(view.marker);
+        view.marker.setLatLng = position => { markerMoves++; return set(position); };
+      }
       window.savedIcons = [...mapMarkers.values()].map(view => view.marker.getElement());
+      window.savedConnections = neighborLayer.getLayers().map(layer => [layer, layer.getElement()]);
+      window.connectionsRetained = () => savedConnections.every(([layer, element]) =>
+        neighborLayer.hasLayer(layer) && layer.getElement() === element);
     }''')
     page.evaluate('loadMapNodes()')
     page.evaluate('loadMapNeighbors()')  # Equal 200 response also preserves layers.
     assert page.evaluate('layoutCalls === 0 && linkBuilds === 0')
     assert page.evaluate('savedIcons.every((icon, i) => icon === [...mapMarkers.values()][i].marker.getElement())')
+    # Real zoom events retain Leaflet layers, SVG paths, tooltips and detail content.
+    page.evaluate('''() => {
+      window.connectionContent = [...mapConnectionViews.values()].map(view =>
+        [view, view.line.getTooltip(), view.info, view.forward?.getLatLngs()[0]]);
+      nodeMap.setZoom(nodeMap.getZoom() + 1, {animate:false});
+    }''')
+    page.wait_for_function('!nodeMap._animatingZoom')
+    assert page.evaluate('connectionsRetained() && linkAdds === 0 && linkRemoves === 0 && markerMoves === 0')
+    assert page.evaluate('''connectionContent.every(([view, tooltip, info, arrow]) =>
+      view.line.getTooltip() === tooltip && view.info === info &&
+      (!arrow || !view.forward.getLatLngs()[0].equals(arrow)))'''), 'Only pixel-dependent arrow geometry changes'
+    page.evaluate('nodeMap.panBy([30,20], {animate:false})')
+    assert page.evaluate('connectionsRetained() && linkAdds === 0 && linkRemoves === 0 && markerMoves === 0')
     payload[0]['last_seen'] += 1
     page.evaluate('loadMapNodes()')
     assert page.evaluate('layoutCalls === 0 && linkBuilds === 0'), 'Metadata does not rebuild geometry'
     assert page.evaluate('savedIcons.every((icon, i) => icon === [...mapMarkers.values()][i].marker.getElement())')
     payload[0]['name'] = 'Renamed repeater'
     page.evaluate('loadMapNodes()')
-    assert page.evaluate('layoutCalls === 0 && linkBuilds === 1'), 'Renamed icon keeps selection without position layout'
+    assert page.evaluate('layoutCalls === 0 && linkBuilds === 0 && connectionsRetained()'), 'Renamed icon keeps selection and connection layers'
     assert 'Renamed repeater' in page.locator('#map-selected-repeater').inner_text()
     # Coincident positions must still separate and return to their real position.
     payload[1].update(latitude=payload[0]['latitude'], longitude=payload[0]['longitude'])
     page.evaluate('loadMapNodes()')
-    assert page.evaluate('layoutCalls === 1 && linkBuilds === 2')
+    assert page.evaluate('layoutCalls === 1 && linkBuilds === 0 && connectionsRetained()')
     assert page.evaluate('''() => {
       const views = [...mapMarkers.values()];
       return !views[0].marker.getLatLng().equals(views[1].marker.getLatLng()) && views[0].line && views[1].line;
     }''')
     version = page.evaluate('mapLayoutVersion')
+    moves = page.evaluate('markerMoves')
     page.evaluate('nodeMap.setZoom(nodeMap.getZoom() + 1, {animate:false})')
     assert page.evaluate('mapLayoutVersion') == version + 1, 'Registered zoom handler refreshes layout'
-    assert page.evaluate('linkBuilds === 3'), 'Zoom refreshes arrows'
+    assert page.evaluate('markerMoves') == moves + 2, 'Only the two coincident markers move on zoom'
+    assert page.evaluate('linkBuilds === 0 && linkAdds === 0 && linkRemoves === 0 && connectionsRetained()'), 'Zoom retains lines and arrows with coincident endpoints'
     payload[:] = deepcopy(NODES)
     page.evaluate('loadMapNodes()')
-    assert page.evaluate('layoutCalls === 2 && linkBuilds === 4')
+    assert page.evaluate('layoutCalls === 2 && linkBuilds === 0 && connectionsRetained()')
     assert page.evaluate('[...mapMarkers.values()].every(view => !view.line)'), 'Obsolete offset lines removed'
     removed = payload.pop()
     page.evaluate('loadMapNodes()')
-    assert page.evaluate('mapMarkers.size === 3 && layoutCalls === 3 && linkBuilds === 5')
+    assert page.evaluate('mapMarkers.size === 3 && layoutCalls === 3 && linkBuilds === 0 && linkRemoves === 2 && linkAdds === 0'), page.evaluate('({nodes:mapMarkers.size, layoutCalls, linkBuilds, linkRemoves, linkAdds})')
+    assert page.evaluate('''savedConnections.slice(0,3).every(([layer, element]) =>
+      neighborLayer.hasLayer(layer) && layer.getElement() === element)'''), 'Unrelated link and arrows survive node removal'
     payload.append(removed)
     page.evaluate('loadMapNodes()')
-    assert page.evaluate('mapMarkers.size === 4 && layoutCalls === 4 && linkBuilds === 6')
+    assert page.evaluate('mapMarkers.size === 4 && layoutCalls === 4 && linkBuilds === 0 && linkRemoves === 2 && linkAdds === 2')
     print('Map refresh: unchanged data, metadata, labels, offsets, zoom, removal and addition passed', flush=True)
 
 
@@ -192,6 +221,9 @@ def main():
                                      args=['--no-sandbox', '--disable-dev-shm-usage'])
         for width, height in [(1280, 900), (390, 844), (320, 568), (844, 390)]:
             page = browser.new_page(viewport=dict(width=width, height=height), has_touch=width < 1000)
+            # In particular, do not overwrite the synthetic search directory
+            # while Playwright scrolls to/clicks the pagination button.
+            page.add_init_script(MANUAL_REFRESH)
             errors, requests = [], []
             page.on('pageerror', lambda error: errors.append(str(error)))
             route_page(page, requests)
@@ -254,10 +286,12 @@ def main():
             search.fill('ampleben')
             expect(page.locator('#map-repeater-results button')).to_have_count(1)
             page.locator('#map-repeater-results button').click()
+            page.wait_for_function('!nodeMap._animatingZoom && !(nodeMap._panAnim && nodeMap._panAnim._inProgress)')
             search.fill(KEYS[3])
             expect(page.locator('#map-repeater-results button')).to_have_count(1)
             page.locator('#map-repeater-results button').click()
             assert page.evaluate('selectedMapRepeater') == KEYS[3]
+            page.wait_for_function('nodeMap.getCenter().lat < 0 && !nodeMap._animatingZoom')
             assert page.evaluate('nodeMap.getCenter().lat') < 0
             assert len(link_calls) == (2 if width == 1280 else 1), 'Switches, search and zoom reuse links'
             page.locator('[data-mode=nodes]').click()
@@ -295,6 +329,7 @@ def main():
             page.screenshot(path=f'/tmp/onair-map-selection-{width}x{height}.png', full_page=True)
             assert not errors, errors
             page.close()
+            print(f'Selective map {width}x{height}: passed', flush=True)
         dense_neighbors(browser)
         browser.close()
     print('Selective map links: four desktop/mobile sizes, modes, collisions, search, far links, context and request counts passed')

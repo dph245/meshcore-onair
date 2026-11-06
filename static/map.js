@@ -23,6 +23,7 @@ let neighborTableRequest = 0, neighborTableController, neighborTableCache;
 let neighborSearchTimer;
 let selectedMapRepeater = null;
 const mapMarkers = new Map();
+const mapConnectionViews = new Map();
 let mapLayoutVersion = 0, mapDrawState, mapNeighborStatus = '';
 const mapTypes = {1: ['Companion', 'companion'], 2: ['Repeater', 'repeater'],
   3: ['RoomServer', 'room']};
@@ -46,6 +47,10 @@ function mapNodeSymbol(style) {
   return badge;
 }
 
+function sameMapPosition(a, b) {
+  return (a.lat ?? a[0]) === (b.lat ?? b[0]) && (a.lng ?? a[1]) === (b.lng ?? b[1]);
+}
+
 // Recompute pixel spacing at every zoom; stored coordinates remain untouched.
 function layoutMapNodes() {
   if (!nodeMap) return;
@@ -64,13 +69,18 @@ function layoutMapNodes() {
     group.forEach(({view}, index) => {
       const offset = group.length > 1 ? L.point(symbolSize + 4, (index - (group.length - 1) / 2) * (symbolSize + 10)) : L.point(0, 0);
       const displayed = group.length > 1 ? nodeMap.unproject(center.add(offset)) : origin;
-      view.marker.setLatLng(displayed);
+      if (!sameMapPosition(view.marker.getLatLng(), displayed)) view.marker.setLatLng(displayed);
       if (group.length > 1) {
         if (!view.line) {
           view.line = L.polyline([origin, displayed], {
             className: 'map-position-link', weight: 1.5, opacity: 0.8, interactive: false
           });
-        } else view.line.setLatLngs([origin, displayed]);
+        } else {
+          const points = view.line.getLatLngs();
+          if (!sameMapPosition(points[0], origin) || !sameMapPosition(points[1], displayed)) {
+            view.line.setLatLngs([origin, displayed]);
+          }
+        }
       } else if (view.line) {
         view.line.remove();
         view.line = null;
@@ -95,15 +105,38 @@ function neighborDistance(link) {
     : '—';
 }
 
-function drawNeighborArrow(from, to, fraction, color, layer = neighborLayer, map = nodeMap) {
+function neighborArrowPoints(from, to, fraction, map) {
   const a = map.project(from), b = map.project(to);
   const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
-  if (length < 24) return;
+  if (length < 24) return null;
   const ux = dx / length, uy = dy / length;
   const x = a.x + dx * fraction, y = a.y + dy * fraction;
-  const points = [[x - ux * 9 - uy * 5, y - uy * 9 + ux * 5], [x, y],
+  return [[x - ux * 9 - uy * 5, y - uy * 9 + ux * 5], [x, y],
     [x - ux * 9 + uy * 5, y - uy * 9 - ux * 5]].map(point => map.unproject(point));
-  L.polyline(points, {color, weight: 3, opacity: 1, interactive: false}).addTo(layer);
+}
+
+function drawNeighborArrow(from, to, fraction, color, layer = neighborLayer, map = nodeMap) {
+  const points = neighborArrowPoints(from, to, fraction, map);
+  if (points) L.polyline(points, {color, weight: 3, opacity: 1, interactive: false}).addTo(layer);
+}
+
+function updateMapArrow(view, direction, from, to, enabled, color, geometryChanged, styleChanged) {
+  if (!enabled) {
+    if (view[direction]) neighborLayer.removeLayer(view[direction]);
+    view[direction] = null;
+    return;
+  }
+  if (geometryChanged || !view[direction]) {
+    const points = neighborArrowPoints(from, to, 0.65, nodeMap);
+    if (!points) {
+      if (view[direction]) neighborLayer.removeLayer(view[direction]);
+      view[direction] = null;
+      return;
+    }
+    if (view[direction]) view[direction].setLatLngs(points);
+    else view[direction] = L.polyline(points, {color, weight: 3, opacity: 1, interactive: false}).addTo(neighborLayer);
+  }
+  if (styleChanged) view[direction].setStyle({color});
 }
 
 function selectMapRepeater(identity) {
@@ -202,7 +235,7 @@ function drawMapNeighbors() {
   document.getElementById('map-selected-repeater').textContent = selectedMapRepeater
     ? `Ausgewählt: ${mapMarkers.get(selectedMapRepeater).label || selectedMapRepeater}` : 'Kein Repeater ausgewählt';
   if (!neighborLayer) neighborLayer = L.layerGroup().addTo(nodeMap);
-  neighborLayer.clearLayers();
+  const wanted = new Set();
   let mapped = 0;
   const links = !showLinks ? [] : focused ? (neighborLinksByNode.get(selectedMapRepeater) || []) : neighborLinks;
   for (const link of links) {
@@ -211,28 +244,53 @@ function drawMapNeighbors() {
     mapped++;
     visibleNodes.add(link.source.id);
     visibleNodes.add(link.target.id);
-    const label = `A: ${neighborLabel(link.source)} · B: ${neighborLabel(link.target)} · A → B: ${link.forward_count} · B → A: ${link.reverse_count} · Luftlinie: ${neighborDistance(link)}`;
-    const info = text('div', label);
-    info.append(text('div', `${neighborDirection(link)} · ${link.count} Empfänge insgesamt`));
-    info.append(text('div', `Zuletzt beobachtet: ${new Date(link.last_seen * 1000).toLocaleString('de-DE')}`));
-    const analyze = text('button', 'DX-Analyse');
-    analyze.type = 'button';
-    analyze.addEventListener('click', () => window.openDistanceAnalysis?.(link));
-    info.append(analyze);
-    const color = link.forward_count && link.reverse_count ? '#3388ff' : '#d97706';
+    const key = JSON.stringify([link.source.id, link.target.id]);
+    wanted.add(key);
     const start = a.marker.getLatLng(), end = b.marker.getLatLng();
-    const line = L.polyline([start, end], {
-      color, weight: Math.min(8, 1 + Math.log2(1 + link.count)), opacity: 0.65,
-      bubblingMouseEvents: false
-    }).bindTooltip(text('span', label)).addTo(neighborLayer);
-    line.on('click', event => {
-      line.closeTooltip();
-      // Keep the clicked values as a snapshot, independent of redrawn layers.
-      // Leaflet closes this popup on another map/marker click as usual.
-      L.popup().setLatLng(event.latlng).setContent(info).openOn(nodeMap);
-    });
-    if (link.forward_count) drawNeighborArrow(start, end, 0.65, color);
-    if (link.reverse_count) drawNeighborArrow(end, start, 0.65, color);
+    const endpoints = JSON.stringify([start.lat ?? start[0], start.lng ?? start[1], end.lat ?? end[0], end.lng ?? end[1]]);
+    const color = link.forward_count && link.reverse_count ? '#3388ff' : '#d97706';
+    let view = mapConnectionViews.get(key);
+    if (!view) {
+      const line = L.polyline([start, end], {
+        color, weight: Math.min(8, 1 + Math.log2(1 + link.count)), opacity: 0.65,
+        bubblingMouseEvents: false
+      }).bindTooltip(text('span', '')).addTo(neighborLayer);
+      view = {line};
+      mapConnectionViews.set(key, view);
+      line.on('click', event => {
+        line.closeTooltip();
+        // Each click keeps its own content snapshot across subsequent updates.
+        L.popup().setLatLng(event.latlng).setContent(view.info).openOn(nodeMap);
+      });
+    } else if (view.endpoints !== endpoints) view.line.setLatLngs([start, end]);
+    const signature = JSON.stringify(link);
+    if (view.signature !== signature) {
+      const label = `A: ${neighborLabel(link.source)} · B: ${neighborLabel(link.target)} · A → B: ${link.forward_count} · B → A: ${link.reverse_count} · Luftlinie: ${neighborDistance(link)}`;
+      const info = text('div', label);
+      info.append(text('div', `${neighborDirection(link)} · ${link.count} Empfänge insgesamt`));
+      info.append(text('div', `Zuletzt beobachtet: ${new Date(link.last_seen * 1000).toLocaleString('de-DE')}`));
+      const analyze = text('button', 'DX-Analyse');
+      analyze.type = 'button';
+      analyze.addEventListener('click', () => window.openDistanceAnalysis?.(link));
+      info.append(analyze);
+      view.info = info;
+      view.line.setTooltipContent(text('span', label));
+      view.line.setStyle({color, weight: Math.min(8, 1 + Math.log2(1 + link.count))});
+      view.signature = signature;
+    }
+    const geometryChanged = view.endpoints !== endpoints || view.zoom !== nodeMap.getZoom();
+    updateMapArrow(view, 'forward', start, end, link.forward_count, color, geometryChanged, view.color !== color);
+    updateMapArrow(view, 'reverse', end, start, link.reverse_count, color, geometryChanged, view.color !== color);
+    view.endpoints = endpoints;
+    view.zoom = nodeMap.getZoom();
+    view.color = color;
+  }
+  for (const [key, view] of mapConnectionViews) {
+    if (wanted.has(key)) continue;
+    for (const layer of [view.line, view.forward, view.reverse]) {
+      if (layer) neighborLayer.removeLayer(layer);
+    }
+    mapConnectionViews.delete(key);
   }
   nodeMap.getContainer().classList.toggle('map-neighbor-focus', focused);
   for (const [key, view] of mapMarkers) {
