@@ -2,6 +2,11 @@
 
 Lokaler, kompakter MQTT-Netzmonitor für den MeshCore Observer.
 
+Die gemeinsame historische Positionsquelle für DX und TRACE ist über
+`ONAIR_POSITION_MODE=legacy|compare|normalized` wählbar (Vorgabe: `legacy`).
+Schema 16 erstellt vor der Migration vorhandener Archive eine SQLite-Sicherung.
+[Datenmodell, Vergleichsbetrieb, Wiederaufbau und lokaler Benchmark](docs/positions-history.md).
+
 ## Start
 
 Python 3.10 oder neuer, im Projektverzeichnis:

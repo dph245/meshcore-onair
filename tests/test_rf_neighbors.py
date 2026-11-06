@@ -204,7 +204,7 @@ class ArchiveTests(unittest.TestCase):
         upgraded = Archive(self.path)
         upgraded.close()
         with contextlib.closing(sqlite3.connect(self.path)) as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 15)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 16)
             self.assertEqual(db.execute('SELECT * FROM packets').fetchall(), original)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM rf_neighbor_messages').fetchone()[0], 0)
 

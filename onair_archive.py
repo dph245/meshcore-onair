@@ -22,6 +22,9 @@ from onair_observers import record_observer, observer_comparison
 from onair_neighbors import (record_path, record_path_pairs, rebuild_path_pairs,
                              neighbor_summary, neighbor_page, neighbor_map)
 from onair_distance import INDEX_SQL, analyze as analyze_distance, response as distance_response
+from onair_positions import (MODES as POSITION_MODES, backup_before_migration,
+                             migrate as migrate_positions, maintain as maintain_positions,
+                             evaluate as evaluate_positions)
 
 
 def database_path():
@@ -29,10 +32,14 @@ def database_path():
 
 
 class Archive:
-    def __init__(self, path=None, interval=5):
+    def __init__(self, path=None, interval=5, position_mode=None):
         self.path = Path(path) if path is not None else database_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.interval = interval
+        self.position_mode = position_mode or os.environ.get('ONAIR_POSITION_MODE', 'legacy')
+        if self.position_mode not in POSITION_MODES:
+            raise ValueError('ONAIR_POSITION_MODE muss legacy, compare oder normalized sein')
+        self.position_failure = None
         self.queue = Queue(maxsize=10000)
         self.stopping = Event()
         self.error = None
@@ -50,6 +57,7 @@ class Archive:
         self._neighbors_expires = 0
         self._distance_lock = Lock()
         self._distance_cache = OrderedDict()
+        self.position_backup = backup_before_migration(self.path)
         with self.connect() as db:
             db.execute('PRAGMA journal_mode=WAL')
             db.executescript('''
@@ -190,6 +198,8 @@ class Archive:
                     db.execute('CREATE INDEX IF NOT EXISTS rf_neighbor_observer_time ON rf_neighbor_reports(observer_key,reported_at,message_id)')
                     db.execute('CREATE INDEX IF NOT EXISTS rf_neighbor_pubkey ON rf_neighbor_entries(pubkey,message_id)')
                     db.execute('PRAGMA user_version=15')
+                if db.execute('PRAGMA user_version').fetchone()[0] < 16:
+                    migrate_positions(db)
             self._load_names(db)
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
@@ -263,9 +273,15 @@ class Archive:
         from onair_distance import Positions
         # Shared lock bounds concurrent historical work; cache independent of map motion.
         with self._distance_lock, self.connect() as db:
+            db.execute('BEGIN')
             if db.execute("SELECT 1 FROM packets WHERE id=? AND kind='TRACE'", (identity,)).fetchone() is None:
                 return None
             now = time.monotonic()
+            if self.position_mode != 'legacy':
+                mode = 'legacy' if self.position_failure else self.position_mode
+                end = time.time() + 1
+                return evaluate_positions(db, mode, lambda factory:
+                    detail(db, identity, factory(db, 0, end)), self._position_failed)
             cache = getattr(self, '_trace_positions', None)
             if cache is None or now - cache[0] > 60:
                 deadline = now + 10
@@ -276,6 +292,10 @@ class Archive:
                     db.set_progress_handler(None, 0)
                 self._trace_positions = (time.monotonic(), positions)
             return detail(db, identity, self._trace_positions[1])
+
+    def _position_failed(self, exc):
+        # Latch comparison failures until restart; never cache a normalized mismatch.
+        self.position_failure = str(exc)
 
     def accept(self, packet):
         self._enqueue(packet.to_dict())
@@ -388,6 +408,7 @@ class Archive:
                 self._record_node(db, p)
                 self._record_advert_path(db, p)
             record_path_pairs(db, batch)
+            maintain_positions(db)
             names = dict(db.execute('SELECT public_key, name FROM nodes'))
         self.saved += sum('noise_sample' not in p for p in batch)
         self.names = names
@@ -500,14 +521,17 @@ class Archive:
 
     def distance_analysis(self, start, end, minimum=200, source='', target='', offset=0):
         pair = tuple(sorted((source, target)))
-        key = (start, end, minimum, pair)
+        key = (start, end, minimum, pair, self.position_mode, self.position_failure)
         # Keep expensive requests out of the existing neighbor snapshot lock.
         with self._distance_lock:
             cached = self._distance_cache.get(key)
             if cached is None or time.monotonic() >= cached[0]:
                 with self.connect() as db, db:
                     db.execute('BEGIN')
-                    result = analyze_distance(db, start, end, minimum, source, target)
+                    mode = 'legacy' if self.position_failure else self.position_mode
+                    result = evaluate_positions(db, mode, lambda factory:
+                        analyze_distance(db, start, end, minimum, source, target,
+                                         positions_factory=factory), self._position_failed)
                 cached = (time.monotonic() + 120, result)
                 self._distance_cache[key] = cached
                 while len(self._distance_cache) > 2:

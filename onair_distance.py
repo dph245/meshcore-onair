@@ -115,7 +115,7 @@ def bins(start, end):
     return result
 
 
-def analyze(db, start, end, minimum=200, source='', target=''):
+def analyze(db, start, end, minimum=200, source='', target='', *, positions_factory=None):
     pair_filter = tuple(sorted((source, target))) if source or target else None
     if pair_filter and (source == target or not all(re.fullmatch('[0-9a-f]{64}', k) for k in pair_filter)):
         raise ValueError('Zwei unterschiedliche vollständige Repeater-IDs angeben.')
@@ -125,7 +125,7 @@ def analyze(db, start, end, minimum=200, source='', target=''):
     tokens = {t for row in db.execute('SELECT source,target FROM repeater_pairs') for t in row}
     resolved = resolve_path_tokens(db, nodes, tokens)
     ambiguous_tokens = {token for token, node in resolved.items() if node['ambiguous']}
-    positions = Positions(db, start, end, pair_filter or ())
+    positions = (positions_factory or Positions)(db, start, end, pair_filter or ())
     pair_cache = {}
     candidates = {}
     ambiguous_paths = 0

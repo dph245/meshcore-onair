@@ -15,6 +15,7 @@ services:
       ONAIR_MQTT_PASSWORD: ${ONAIR_MQTT_PASSWORD:-}
       ONAIR_MQTT_CA_CERTS: ${ONAIR_MQTT_CA_CERTS:-}
       ONAIR_SHOW_TX: "${ONAIR_SHOW_TX:-false}"
+      ONAIR_POSITION_MODE: "${ONAIR_POSITION_MODE:-legacy}"
       ONAIR_DB_PATH: /data/onair.sqlite3
     volumes:
       - ./data:/data

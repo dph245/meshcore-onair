@@ -4,6 +4,7 @@ __pycache__/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
+data/positions-benchmark-*/
 tests/*
 !tests/node_fixtures.py
 !tests/test_onair.py
@@ -51,6 +52,7 @@ tests/*
 
 !tests/browser_landscape.py
 !tests/test_distance.py
+!tests/test_positions.py
 !tests/browser_distance.py
 
 !tests/test_trace_map.py

@@ -1,0 +1,112 @@
+{
+  "source": "/home/oliver/src/meshcore-onair/data/dx-advert-index-bench-20261106-183529/snapshot.sqlite3",
+  "working": "/home/oliver/src/meshcore-onair/data/positions-benchmark-20261106-normalized/working.sqlite3",
+  "sqlite": "3.46.1",
+  "runs": {
+    "legacy": [
+      {
+        "seconds": 2.0144028430004255,
+        "positions_seconds": 1.3232385529991006,
+        "sha256": "4d55f780adc2075bff067d7152c2e92ec655bd839f9f6e0a4beb8d145edbe83c"
+      },
+      {
+        "seconds": 1.88612471200031,
+        "positions_seconds": 1.3727357079987996,
+        "sha256": "4d55f780adc2075bff067d7152c2e92ec655bd839f9f6e0a4beb8d145edbe83c"
+      },
+      {
+        "seconds": 1.8420381230025669,
+        "positions_seconds": 1.3310466509974503,
+        "sha256": "4d55f780adc2075bff067d7152c2e92ec655bd839f9f6e0a4beb8d145edbe83c"
+      }
+    ],
+    "normalized": [
+      {
+        "seconds": 0.5061390629998641,
+        "positions_seconds": 0.008489240000926657,
+        "sha256": "4d55f780adc2075bff067d7152c2e92ec655bd839f9f6e0a4beb8d145edbe83c"
+      },
+      {
+        "seconds": 0.4963848679981311,
+        "positions_seconds": 0.008310942001116928,
+        "sha256": "4d55f780adc2075bff067d7152c2e92ec655bd839f9f6e0a4beb8d145edbe83c"
+      },
+      {
+        "seconds": 0.5017278249979427,
+        "positions_seconds": 0.008635449998109834,
+        "sha256": "4d55f780adc2075bff067d7152c2e92ec655bd839f9f6e0a4beb8d145edbe83c"
+      }
+    ]
+  },
+  "timezone": "Europe/Berlin",
+  "copy_seconds": 8.857105421000597,
+  "backup": "/home/oliver/src/meshcore-onair/data/positions-benchmark-20261106-normalized/working.pre-position-v16-ea551fcf8c3445f0a75218539f8713df.sqlite3",
+  "backup_seconds": 7.521076731998619,
+  "migration_and_backfill_seconds": 12.608648010998877,
+  "backfill_seconds": 1.5051767750010185,
+  "raw_before": {
+    "rows": 1963042,
+    "sha256": "c240fe7798fce08593f0f7e79e803460450ed2c6b1f661d1b2703a234bd8062a"
+  },
+  "raw_after": {
+    "rows": 1963042,
+    "sha256": "c240fe7798fce08593f0f7e79e803460450ed2c6b1f661d1b2703a234bd8062a"
+  },
+  "generation": 2,
+  "table_rows": {
+    "position_identity": 2342,
+    "position_generation": 2,
+    "position_active": 1,
+    "position_state": 6142,
+    "position_head": 4684
+  },
+  "active_rows": {
+    "position_state": 3071,
+    "position_head": 2342
+  },
+  "storage_bytes": {
+    "packets_advert_key_received": 16175104,
+    "position_active": 4096,
+    "position_generation": 4096,
+    "position_head": 143360,
+    "position_identity": 176128,
+    "position_state": 303104,
+    "position_state_window": 151552,
+    "sqlite_autoindex_position_identity_1": 192512
+  },
+  "start": 1793726160.0,
+  "end": 1793985360.0,
+  "minimum_km": 200,
+  "dx_sha256": "4d55f780adc2075bff067d7152c2e92ec655bd839f9f6e0a4beb8d145edbe83c",
+  "links": 74,
+  "candidate_receptions": 2819,
+  "packets": 370,
+  "medians_seconds": {
+    "legacy": 1.88612471200031,
+    "normalized": 0.5017278249979427
+  },
+  "position_medians_seconds": {
+    "legacy": 1.3310466509974503,
+    "normalized": 0.008489240000926657
+  },
+  "trace": {
+    "receptions": 6652,
+    "sha256": "09e49d2aa2f05e3049ebdfcd793cdba277afa991f0c2955d3ab741c30b451276"
+  },
+  "validation": {
+    "python_tests": 196,
+    "python_seconds": 16.88,
+    "javascript_scripts": 18,
+    "offline_browser_tests": [
+      "browser_distance.py",
+      "browser_trace_map.py"
+    ],
+    "sqlite_quick_check": "ok",
+    "foreign_key_check": [],
+    "final_compare_sha256": "4d55f780adc2075bff067d7152c2e92ec655bd839f9f6e0a4beb8d145edbe83c",
+    "compose_config": "passed",
+    "git_diff_check": "passed",
+    "production_access": false,
+    "commits": false
+  }
+}
