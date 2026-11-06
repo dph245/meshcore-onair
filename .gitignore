@@ -58,4 +58,5 @@ tests/*
 !tests/test_trace_map_ui.js
 
 !tests/browser_map_selection.py
+!tests/browser_map_history.py
 !tests/browser_live_render.py

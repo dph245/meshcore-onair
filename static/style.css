@@ -314,6 +314,8 @@ main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
 .map-selection-tools button{min-height:44px}
 #map-selected-repeater{flex:1 1 220px;align-self:center;overflow-wrap:anywhere}
 .map-search-feedback{flex-basis:100%;min-width:0}
+#node-map .map-historical .map-node-symbol,#node-map .map-historical .map-repeater-label{color:#66727c;border-style:dashed}
+#node-map .map-historical .map-neighbor-dot{background:#66727c;border-style:dashed}
 .map-search-feedback:has(#map-repeater-search-status:empty){display:none}
 #map-repeater-results{display:flex;flex-direction:column;max-height:180px;overflow:auto;gap:4px}
 .map-repeater-result{text-align:left;white-space:normal;overflow-wrap:anywhere;flex-shrink:0}

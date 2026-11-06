@@ -27,7 +27,8 @@ class MeshLiveTests(unittest.TestCase):
                 # Bootstrap must work without the large reception archive.
                 db.execute('DROP TABLE packets')
             before = archive.map_nodes()
-            self.assertEqual(len(before['items']), 1)
+            self.assertEqual(len(before['items']), 2)
+            self.assertEqual(sum(item['historical'] for item in before['items']), 1)
             result = archive.mesh_live_nodes()
             self.assertEqual(len(result['nodes']), 3)
             self.assertEqual(set(result['tokens']), {'abcd33', 'abcd44', 'eeff'})

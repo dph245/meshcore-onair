@@ -317,7 +317,10 @@ Die Datenbank samt WAL/SHM-Dateien wird von Git ignoriert. Bestehende Live-Paket
 der Zeit vor der Umstellung werden nicht nachträglich importiert.
 
 Im Bereich **Nodes** nach Namen oder einem Teil des Public Keys suchen, ohne
-Beachtung der Groß-/Kleinschreibung. Eine leere Suche zeigt alle gespeicherten Nodes,
+Beachtung der Groß-/Kleinschreibung. Mit `*` wird der Text vor dem ersten Stern
+als Public-Key-Anfang gesucht: `f4*` findet nur Keys, die mit `f4` beginnen.
+Ohne `*` bleibt die Suche nach Vorkommen im Namen oder Public Key erhalten.
+Eine leere Suche zeigt alle gespeicherten Nodes,
 sortiert nach Public Key, mit jeweils 50 Treffern pro Seite. Jeder Node erscheint
 einmal mit seinem aktuellen gespeicherten Namen, vollständigem Public Key und
 erster/letzter ADVERT-Empfangszeit in lokaler Zeit. Diese Zeiten sind kein Online-Status.
@@ -811,9 +814,14 @@ erreichbar bleiben. Verbindungslinien zeigen ihren tatsächlichen Standort;
 die Koordinaten in den Details bleiben unverändert. Beim Zoomen und bei
 Aktualisierungen wird die Anordnung automatisch angepasst.
 
-`/api/map-nodes` liefert die innerhalb der letzten 28 Tage gehörten Nodes mit
-Position ungleich 0/0 ohne Seitengrenze. `inactive` zählt ausgeblendete alte Nodes,
-`without_position` die übrigen Nodes ohne nutzbare Position. Gültig
+`/api/map-nodes` liefert die innerhalb der letzten 28 Tage gehörten Nodes sowie
+ältere Repeater mit bekannter Position, ohne Seitengrenze und ohne Position 0/0.
+Ältere Repeater bleiben suchbar und anklickbar; `historical: true` kennzeichnet
+ihren letzten bekannten Standort. Die Karte zeigt sie grau mit gestricheltem Rand
+und dem Hinweis „Historischer Standort“. Das bedeutet keine aktuelle Erreichbarkeit.
+`inactive` zählt alle seit mindestens 28 Tagen nicht per ADVERT gehörten Nodes,
+auch die weiterhin dargestellten historischen Repeater; `without_position` zählt
+die berücksichtigten Nodes ohne nutzbare Position. Gültig
 signierte ADVERTs bestimmen Typ und Position; ältere Positionsmeldungen
 überschreiben keine neueren. ADVERTs ohne Koordinaten lassen die letzte bekannte
 Position bestehen. Beim ersten Start werden die zusätzlichen Node-Felder aus

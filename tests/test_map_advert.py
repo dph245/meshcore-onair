@@ -80,9 +80,39 @@ class MapAdvertTests(unittest.TestCase):
                            (prefix.ljust(64, '0'), name, stamp, lat, lon))
         with patch('onair_archive.time.time', return_value=now):
             result = archive.map_nodes()
-        self.assertEqual(len(result['items']), 1)
+        self.assertEqual(len(result['items']), 2)
         self.assertEqual(len(result['repeaters']), 3)
         by_name = {item['name']: item for item in result['repeaters']}
         self.assertIsNone(by_name['Bridge']['unavailable'])
         self.assertIn('Kartenposition', by_name['Ampleben']['unavailable'])
-        self.assertIn('4 Wochen', by_name['Früher']['unavailable'])
+        self.assertIsNone(by_name['Früher']['unavailable'])
+        self.assertTrue(by_name['Früher']['historical'])
+        mapped = {item['name']: item for item in result['items']}
+        self.assertTrue(mapped['Früher']['historical'])
+        self.assertFalse(mapped['Bridge']['historical'])
+
+    def test_historical_repeaters_keep_only_real_positions_and_existing_age_boundary(self):
+        archive = Archive(self.path)
+        archive.close()
+        now = 1790600000
+        cutoff = now - 28 * 86400
+        candidates = [('FZ-ZGORA-OS17', 2, 51.93545, 15.52704, cutoff),
+                      ('Ohne Position', 2, None, None, cutoff - 1),
+                      ('Nullposition', 2, 0, 0, cutoff - 1),
+                      ('Alter Companion', 1, 52, 10, cutoff - 1),
+                      ('Aktueller Companion', 1, 52, 10, cutoff + 1)]
+        with archive.connect() as db, db:
+            for i, (name, kind, lat, lon, stamp) in enumerate(candidates):
+                db.execute('INSERT INTO nodes(public_key,name,node_type,advert_time,first_seen,last_seen,latitude,longitude) VALUES(?,?,?,0,0,?,?,?)',
+                           (f'{i:064x}', name, kind, stamp, lat, lon))
+        with patch('onair_archive.time.time', return_value=now):
+            result = archive.map_nodes()
+        self.assertEqual([item['name'] for item in result['items']],
+                         ['FZ-ZGORA-OS17', 'Aktueller Companion'])
+        self.assertEqual(result['inactive'], 4)
+        self.assertEqual(result['without_position'], 2)
+        historical = result['items'][0]
+        self.assertTrue(historical['historical'])
+        self.assertEqual((historical['latitude'], historical['longitude']), (51.93545, 15.52704))
+        self.assertEqual(historical['last_seen'], cutoff)
+        self.assertTrue(all(item['unavailable'] for item in result['repeaters'][1:]))

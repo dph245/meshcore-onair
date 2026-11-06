@@ -106,7 +106,7 @@ def main():
         # Reusing an initialized map also restores path mode and neighbor links.
         page.locator('#tab-map').click()
         page.locator('#map-link-mode').select_option('none')
-        page.locator('#map-modes [data-mode="traces"]').click()
+        page.locator('#map-modes [data-mode="nodes"]').click()
         page.locator('#tab-dx').click()
         page.locator('#distance-detail .distance-node').last.click()
         page.wait_for_function('(key) => selectedMapRepeater === key', arg=B)
@@ -163,6 +163,8 @@ def main():
         before = len(analysis)
         page.locator('#tab-neighbors').click()
         page.locator('#tab-neighbors').focus()
+        page.keyboard.press('ArrowRight')
+        expect(page.locator('#tab-rf-neighbors')).to_be_focused()
         page.keyboard.press('ArrowRight')
         expect(page.locator('#tab-dx')).to_be_focused()
         expect(page.locator('#panel-dx')).to_be_visible()

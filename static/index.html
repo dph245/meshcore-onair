@@ -142,7 +142,7 @@
 <p id="map-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden. Bitte Internetverbindung prüfen.</p>
 <p id="map-neighbors-status" role="status">Noch keine Verbindungen geladen.</p>
 <section id="map-node-help" class="map-help"><h3>Hinweise zur Karte · Blau: beide Richtungen · Orange: eine Richtung beobachtet</h3>
-<p class="muted">Letzte bekannte Positionen aus gültig signierten ADVERTs · Details mit Maus, Klick oder Touch · Aktualisierung alle 5 Sekunden. Nodes an identischer Position werden auseinandergezogen; Linien markieren den tatsächlichen Standort.</p>
+<p class="muted">Letzte bekannte Positionen aus gültig signierten ADVERTs · Details mit Maus, Klick oder Touch · Aktualisierung alle 5 Sekunden. Historische Repeater (seit mindestens 4 Wochen kein ADVERT) bleiben suchbar und anklickbar; grau und gestrichelt bedeutet historischer Standort, aktuelle Erreichbarkeit unbekannt. Nodes an identischer Position werden auseinandergezogen; Linien markieren den tatsächlichen Standort.</p>
 <p class="muted">Pfeile zeigen die beobachtete Weiterleitungsrichtung. Blau: beide Richtungen, Orange: nur eine Richtung beobachtet. Dickere Linien bedeuten mehr Beobachtungen; keine Aussage über aktuelle Erreichbarkeit oder Funkqualität. Nur eindeutig zugeordnete Repeater mit sichtbarer Position werden verbunden. Alle Verbindungen mit Suche und Häufigkeiten im Tab „Nachbarn“.</p>
 </section>
 </aside>
@@ -260,9 +260,10 @@
 <section id="panel-nodes" class="archive" role="tabpanel" aria-labelledby="tab-nodes" tabindex="0" hidden>
 <h2>Nodes</h2>
 <form id="nodes-search">
-<label>Name oder Public Key <input name="q" placeholder="Name oder Teil des Public Keys" maxlength="200"></label>
+<label>Name oder Public Key <input name="q" placeholder="Name, Key-Teil oder f4* für Key-Anfang" maxlength="200" aria-describedby="nodes-search-hint"></label>
 <button>Suchen</button>
 </form>
+<p id="nodes-search-hint" class="muted">Mit * nach dem Public-Key-Anfang suchen (z. B. f4*). Ohne * wird nach Vorkommen im Namen oder Public Key gesucht.</p>
 <p id="nodes-status" role="status">Gespeicherte Nodes aus gültig signierten ADVERTs · leere Suche zeigt alle Nodes.</p>
 <div id="nodes-results"></div>
 <button id="nodes-more" type="button" hidden>Weitere Nodes laden</button>

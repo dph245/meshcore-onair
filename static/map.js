@@ -173,7 +173,8 @@ function renderMapRepeaterSearch() {
     const button = text('button', '', 'map-repeater-result');
     button.type = 'button';
     button.append(text('strong', item.name || 'Ohne Namen'), text('span', item.public_key));
-    // The directory includes inactive/unlocated candidates so collisions never disappear from search.
+    if (item.historical) button.append(text('span', 'Historischer Standort · seit mindestens 4 Wochen kein ADVERT empfangen'));
+    // Unlocated candidates remain visible so collisions never disappear from search.
     const available = mapMarkers.has(item.public_key);
     button.disabled = !available;
     if (!available) button.append(text('span', item.unavailable || 'Derzeit nicht auf der Karte verfügbar'));
@@ -488,6 +489,7 @@ function mapNodeInfo(item) {
   const info = text('div', '', 'map-node-info');
   const type = mapTypes[item.node_type]?.[0] || (item.node_type === 4 ? 'Sensor' : 'Unbekannt');
   info.append(text('strong', `${item.name || 'Ohne Namen'} [${item.public_key.slice(0, 6)}]`));
+  if (item.historical) info.append(text('div', 'Historischer Standort · seit mindestens 4 Wochen kein ADVERT empfangen. Aktuelle Erreichbarkeit unbekannt.'));
   for (const value of [type, `Public Key: ${item.public_key}`,
     `Position: ${item.latitude.toFixed(6)}, ${item.longitude.toFixed(6)}`,
     `Position vom: ${new Date(item.position_time * 1000).toLocaleString('de-DE')}`,
@@ -515,12 +517,12 @@ async function loadMapNodes() {
       let view = mapMarkers.get(item.public_key);
       const signature = JSON.stringify(item);
       if (view?.signature === signature) continue;
-      const appearance = JSON.stringify([item.name, item.node_type]);
+      const appearance = JSON.stringify([item.name, item.node_type, !!item.historical]);
       const newAppearance = view?.appearance !== appearance;
       geometryChanged ||= !view || view.position[0] !== item.latitude || view.position[1] !== item.longitude;
       appearanceChanged ||= newAppearance;
       const [type, style] = mapTypes[item.node_type] || ['Weiterer Node', 'other'];
-      const label = `${item.name || 'Ohne Namen'} [${item.public_key.slice(0, 6)}]`;
+      const label = `${item.name || 'Ohne Namen'} [${item.public_key.slice(0, 6)}]${item.historical ? ' · Historischer Standort' : ''}`;
       const tooltipOptions = {direction: 'top', offset: [0, -18],
         className: item.node_type === 2 ? 'map-repeater-tooltip' : ''};
       let markerIcon;
@@ -535,7 +537,7 @@ async function loadMapNodes() {
             text('span', `[${item.public_key.slice(0, 6)}]`));
           icon.append(nodeLabel);
         }
-        markerIcon = L.divIcon({html: icon, className: 'map-marker', iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18]});
+        markerIcon = L.divIcon({html: icon, className: `map-marker${item.historical ? ' map-historical' : ''}`, iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18]});
       }
       if (!view) {
         const marker = L.marker([item.latitude, item.longitude], {icon: markerIcon,
@@ -574,7 +576,8 @@ async function loadMapNodes() {
     else if (appearanceChanged) { mapLayoutVersion++; drawMapNeighbors(); }
     // Do not replace a focused result button during the regular node refresh.
     if (!document.getElementById('map-repeater-results').contains(document.activeElement)) renderMapRepeaterSearch();
-    message.textContent = `${mapMarkers.size} Nodes auf der Karte · ${result.without_position} ohne bekannte Position · ${result.inactive} seit mindestens 4 Wochen nicht gehört · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
+    const historical = result.items.filter(item => item.historical).length;
+    message.textContent = `${mapMarkers.size} Nodes auf der Karte · davon ${historical} historische Repeater · ${result.without_position} ohne bekannte Position · ${result.inactive} insgesamt seit mindestens 4 Wochen nicht gehört · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
     applyPendingMapRepeater(true);
   } catch (error) {
     message.textContent = `Nodes konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; vorhandene Marker bleiben stehen.`;

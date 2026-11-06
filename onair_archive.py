@@ -460,13 +460,17 @@ class Archive:
         items = []
         without_position = inactive = 0
         for row in rows:
-            if row['last_seen'] <= cutoff:
+            historical = row['last_seen'] <= cutoff
+            if historical:
                 inactive += 1
-            elif (row['latitude'] is None or row['longitude'] is None or
+            if historical and row['node_type'] != 2:
+                continue
+            if (row['latitude'] is None or row['longitude'] is None or
                   (row['latitude'] == 0 and row['longitude'] == 0)):
                 without_position += 1
             else:
                 item = dict(row)
+                item['historical'] = historical
                 raw = item.pop('reception')
                 item['advert_path'] = reception = json.loads(raw) if raw else None
                 if reception and reception['hops'] is not None:
@@ -483,8 +487,8 @@ class Archive:
         visible = {item['public_key'] for item in items}
         repeaters = [dict(public_key=row['public_key'], name=row['name'],
                           unavailable=None if row['public_key'] in visible else
-                          'Seit mindestens 4 Wochen nicht gehört' if row['last_seen'] <= cutoff else
-                          'Keine bekannte Kartenposition')
+                          'Keine bekannte Kartenposition',
+                          historical=row['last_seen'] <= cutoff)
                      for row in rows if row['node_type'] == 2]
         return {'items': items, 'repeaters': repeaters,
                 'without_position': without_position, 'inactive': inactive}
@@ -671,7 +675,10 @@ class Archive:
 
     def search_nodes(self, q='', after=None, limit=50):
         clauses, args = [], []
-        if q:
+        if '*' in q:
+            clauses.append('instr(casefold(public_key), ?) = 1')
+            args.append(q.split('*', 1)[0].casefold())
+        elif q:
             clauses.append('(instr(casefold(COALESCE(name, \'\')), ?) > 0 OR instr(casefold(public_key), ?) > 0)')
             args.extend([q.casefold(), q.casefold()])
         if after is not None:
