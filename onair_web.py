@@ -1,5 +1,6 @@
 """Local, subscribe-only dashboard. Run one Uvicorn worker."""
 import asyncio
+import json
 import sqlite3
 from collections import OrderedDict, deque
 from threading import Lock
@@ -27,6 +28,15 @@ MAX_RAW_PACKETS = 500
 MAX_GROUPS = 500
 MAX_RECEPTIONS = 50
 STATIC = Path(__file__).parent / "static"
+
+
+def _encode_websocket_message(message) -> str | Exception:
+    try:
+        # Match Starlette's send_json text frames.
+        return json.dumps(message, separators=(",", ":"), ensure_ascii=False)
+    except (TypeError, ValueError, RecursionError, OverflowError) as error:
+        # Leave encoding failures with the affected senders, without retaining the message.
+        return error.with_traceback(None)
 
 
 class PacketStore:
@@ -69,6 +79,7 @@ class Dashboard:
         self.store = PacketStore()
         self.incoming = Queue(maxsize=2048)
         self.listeners = set()
+        self._websocket_snapshot = None
         self.dropped = 0
         self.connected = False
         self.noise_floor = None
@@ -101,6 +112,35 @@ class Dashboard:
                 "dropped": self.dropped, "max_groups": MAX_GROUPS,
                 "max_receptions": MAX_RECEPTIONS}
 
+    def snapshot_payload(self, status):
+        # Status includes the store's monotonically increasing reception count.
+        if self._websocket_snapshot is None or self._websocket_snapshot[0] != status:
+            payload = _encode_websocket_message({**self.store.snapshot(), "status": status})
+            self._websocket_snapshot = (status, payload)
+        return self._websocket_snapshot[1]
+
+    def remove_listener(self, queue):
+        self.listeners.discard(queue)
+        if not self.listeners:
+            self._websocket_snapshot = None
+
+    def _broadcast(self, changed, removed, status, raw_packets):
+        if self._websocket_snapshot is not None and self._websocket_snapshot[0] != status:
+            self._websocket_snapshot = None
+        update = None
+        for queue in self.listeners:
+            if queue.full():
+                while not queue.empty():
+                    queue.get_nowait()
+                queue.put_nowait(self.snapshot_payload(status))
+            else:
+                if update is None:
+                    update = _encode_websocket_message({
+                        "type": "update", "groups": list(changed.values()),
+                        "removed": removed, "status": status, "raw_packets": raw_packets,
+                    })
+                queue.put_nowait(update)
+
     async def pump(self):
         previous_status = None
         while True:
@@ -118,15 +158,7 @@ class Dashboard:
                     changed.pop(evicted, None)
             status = self.status()
             if changed or status != previous_status:
-                event = {"type": "update", "groups": list(changed.values()),
-                         "removed": removed, "status": status, "raw_packets": raw_packets}
-                for queue in tuple(self.listeners):
-                    if queue.full():
-                        while not queue.empty():
-                            queue.get_nowait()
-                        queue.put_nowait({**self.store.snapshot(), "status": status})
-                    else:
-                        queue.put_nowait(event)
+                self._broadcast(changed, removed, status, raw_packets)
                 previous_status = status
             await asyncio.sleep(0.25)
 
@@ -380,12 +412,16 @@ async def websocket(websocket: WebSocket):
     await websocket.accept()
     dashboard = websocket.app.state.dashboard
     queue = asyncio.Queue(maxsize=8)
+    queue.put_nowait(dashboard.snapshot_payload(dashboard.status()))
     dashboard.listeners.add(queue)
-    queue.put_nowait({**dashboard.store.snapshot(), "status": dashboard.status()})
 
     async def send():
         while True:
-            await asyncio.wait_for(websocket.send_json(await queue.get()), timeout=10)
+            payload = await queue.get()
+            if isinstance(payload, Exception):
+                raise type(payload)(*payload.args)
+            await asyncio.wait_for(websocket.send_text(payload), timeout=10)
+            del payload  # An idle sender should not keep its last frame alive.
 
     async def monitor_client():
         # Observe disconnects, but never parse or dispatch client data.
@@ -405,7 +441,7 @@ async def websocket(websocket: WebSocket):
     except (WebSocketDisconnect, TimeoutError, OSError):
         pass
     finally:
-        dashboard.listeners.discard(queue)
+        dashboard.remove_listener(queue)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

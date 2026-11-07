@@ -288,6 +288,27 @@ class StoreTests(unittest.TestCase):
 
 
 class WebTests(unittest.IsolatedAsyncioTestCase):
+    async def open_stream(self, dashboard, before_send=None):
+        incoming, outgoing = asyncio.Queue(), asyncio.Queue()
+        incoming.put_nowait({'type': 'websocket.connect'})
+
+        async def send(message):
+            if before_send is not None and message['type'] == 'websocket.send':
+                await before_send(message['text'])
+            outgoing.put_nowait(message)
+
+        scope = {'type': 'websocket', 'app': SimpleNamespace(state=SimpleNamespace(dashboard=dashboard))}
+        task = asyncio.create_task(web.websocket(web.WebSocket(scope, incoming.get, send)))
+
+        async def cleanup():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        self.addAsyncCleanup(cleanup)
+        self.assertEqual(await asyncio.wait_for(outgoing.get(), 2),
+                         {'type': 'websocket.accept', 'subprotocol': None, 'headers': []})
+        return incoming, outgoing, task
+
     async def test_websocket_rejects_client_data_without_side_effects(self):
         client = Mock()
         with tempfile.TemporaryDirectory() as folder, patch.object(web, 'create_client', return_value=client), patch.object(web, 'Archive', side_effect=lambda: __import__('onair_archive').Archive(folder + '/test.sqlite3')):
@@ -346,7 +367,7 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(listener.get(), 2)
             for count in (1, 2):
                 dashboard.accept_status({'stats': {'noise_floor': -113}})
-                event = await asyncio.wait_for(listener.get(), 2)
+                event = json.loads(await asyncio.wait_for(listener.get(), 2))
                 self.assertEqual(len(event['status']['noise_history']), count)
                 self.assertEqual(event['status']['noise_history'][-1]['noise_floor'], -113)
                 self.assertEqual(event['groups'], [])
@@ -402,9 +423,120 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
-        event = listener.get_nowait()
+        event = json.loads(listener.get_nowait())
         self.assertEqual(event['type'], 'snapshot')
         self.assertEqual(len(event['groups']), 1)
+
+    async def test_fanout_preserves_text_order_and_queue_snapshots_under_backpressure(self):
+        dashboard = web.Dashboard()
+        release_slow = asyncio.Event()
+        blocked = asyncio.Queue()
+
+        async def slow_send(text):
+            if json.loads(text)['status']['received'] == 1:
+                blocked.put_nowait(text)
+                await release_slow.wait()
+
+        async def next_text(outgoing):
+            frame = await asyncio.wait_for(outgoing.get(), 2)
+            self.assertEqual(frame['type'], 'websocket.send')
+            return frame['text']
+
+        def legacy_json(message):
+            return json.dumps(message, separators=(',', ':'), ensure_ascii=False)
+
+        with patch.object(web, 'MAX_GROUPS', 1):
+            _, fast, _ = await self.open_stream(dashboard)
+            _, other_fast, _ = await self.open_stream(dashboard)
+            _, slow, _ = await self.open_stream(dashboard, slow_send)
+            slow_incoming, other_slow, slow_task = await self.open_stream(dashboard, slow_send)
+            initial = await next_text(fast)
+            self.assertEqual(initial, legacy_json({**dashboard.store.snapshot(), 'status': dashboard.status()}))
+            for outgoing in (other_fast, slow, other_slow):
+                self.assertIs(await next_text(outgoing), initial)
+
+            pump = asyncio.create_task(dashboard.pump())
+            try:
+                # First tick has only status. Subsequent ticks mutate the same group in place.
+                self.assertIs(await next_text(fast), await next_text(other_fast))
+                self.assertIs(await next_text(slow), await next_text(other_slow))
+                updates = []
+                for count in range(1, 13):
+                    item = packet(hash='AABB' if count < 12 else 'CCDD', origin='Funk 🔊')
+                    dashboard.accept_packet(item)
+                    text = await next_text(fast)
+                    self.assertIs(await next_text(other_fast), text)
+                    self.assertEqual(text, legacy_json({
+                        'type': 'update', 'groups': list(dashboard.store.groups.values()),
+                        'removed': ['AABB'] if count == 12 else [], 'status': dashboard.status(),
+                        'raw_packets': [item.raw_text],
+                    }))
+                    updates.append(text)
+                    if count == 1:
+                        for _ in range(2):
+                            self.assertIs(await asyncio.wait_for(blocked.get(), 2), text)
+                    if count == 10:
+                        # Both blocked queues overflow here. A new connection sees the same snapshot.
+                        _, late, _ = await self.open_stream(dashboard)
+                        fallback = await next_text(late)
+                        self.assertEqual(fallback, legacy_json({**dashboard.store.snapshot(),
+                                                               'status': dashboard.status()}))
+
+                # Disconnect one slow peer while its send is blocked.
+                slow_incoming.put_nowait({'type': 'websocket.disconnect', 'code': 1000})
+                self.assertEqual((await asyncio.wait_for(other_slow.get(), 2))['code'], 1000)
+                await asyncio.wait_for(slow_task, 2)
+                self.assertEqual(len(dashboard.listeners), 4)
+
+                release_slow.set()
+                for expected in (updates[0], fallback, updates[10], updates[11]):
+                    self.assertIs(await next_text(slow), expected)
+                self.assertTrue(slow.empty())
+            finally:
+                pump.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pump
+
+    async def test_encoding_failure_cleans_up_sender_without_stopping_pump(self):
+        dashboard = web.Dashboard()
+        _, outgoing, task = await self.open_stream(dashboard)
+        await asyncio.wait_for(outgoing.get(), 2)  # Initial snapshot.
+        status = dashboard.status()
+        with patch.object(dashboard, 'status', return_value={**status, 'archive': object()}):
+            pump = asyncio.create_task(dashboard.pump())
+            try:
+                self.assertEqual((await asyncio.wait_for(outgoing.get(), 2))['code'], 1000)
+                with self.assertRaisesRegex(TypeError, 'not JSON serializable'):
+                    await asyncio.wait_for(task, 2)
+                self.assertFalse(dashboard.listeners)
+                self.assertFalse(pump.done())
+            finally:
+                pump.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pump
+
+    async def test_websocket_send_timeout_cleans_up_listener(self):
+        dashboard = web.Dashboard()
+        cancelled = asyncio.Event()
+
+        async def blocked_send(_):
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.set()
+
+        def short_timeout(send, timeout):
+            self.assertEqual(timeout, 10)
+            return asyncio.wait_for(send, 0.01)
+
+        with patch.object(web, 'asyncio', Mock(wraps=asyncio, wait_for=short_timeout,
+                                               FIRST_COMPLETED=asyncio.FIRST_COMPLETED)):
+            _, outgoing, task = await self.open_stream(dashboard, blocked_send)
+            self.assertEqual((await asyncio.wait_for(outgoing.get(), 2))['code'], 1000)
+            await asyncio.wait_for(task, 2)
+            self.assertTrue(cancelled.is_set())
+            self.assertFalse(dashboard.listeners)
+            self.assertIsNone(dashboard._websocket_snapshot)
 
 
 if __name__ == '__main__':

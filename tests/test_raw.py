@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import io
+import json
 import unittest
 from unittest.mock import patch
 
@@ -36,7 +37,7 @@ class RawTests(unittest.IsolatedAsyncioTestCase):
         dashboard.accept_packet(second)
         task = asyncio.create_task(dashboard.pump())
         try:
-            event = await asyncio.wait_for(listener.get(), 2)
+            event = json.loads(await asyncio.wait_for(listener.get(), 2))
             self.assertEqual(len(event['groups']), 1)
             self.assertEqual(len(event['raw_packets']), 2)
             self.assertEqual(''.join(event['raw_packets']), output.getvalue())
@@ -45,7 +46,7 @@ class RawTests(unittest.IsolatedAsyncioTestCase):
             third = packet()
             dashboard.accept_packet(third)
             await asyncio.sleep(0.3)
-            snapshot = listener.get_nowait()
+            snapshot = json.loads(listener.get_nowait())
             self.assertEqual(snapshot['type'], 'snapshot')
             self.assertEqual(snapshot['raw_packets'], event['raw_packets'] + [mqtt.format_packet(third)])
         finally:
