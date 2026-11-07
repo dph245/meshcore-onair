@@ -1,6 +1,7 @@
 """SQLite reception archive; one writer, bounded batches, independent readers."""
 import json
 import hashlib
+from bisect import insort
 from collections import OrderedDict
 import logging
 import os
@@ -12,6 +13,7 @@ import time
 import uuid
 from datetime import datetime
 from onair_rf_neighbors import topic_identity, parse_report
+from onair_prefixes import unique_prefix
 from onair_repeaters import (record_repeater, repeater_summary, repeater_token,
                              record_repeater_observer, attach_observer_signals)
 from onair_scopes import scope_label
@@ -49,7 +51,7 @@ class Archive:
         self.rf_neighbor_saved = 0
         self.rf_neighbor_dropped = 0
         self.rf_neighbor_error = None
-        self.names = {}
+        self._names_lock = Lock()
         self._neighbors_lock = Lock()
         self._neighbors_json = None
         self._neighbors_items = None
@@ -215,11 +217,22 @@ class Archive:
     def _load_names(self, db):
         self.names = dict(db.execute('SELECT public_key, name FROM nodes'))
 
+    @property
+    def names(self):
+        return self._names
+
+    @names.setter
+    def names(self, names):
+        keys = sorted(names)
+        with self._names_lock:
+            self._names = names
+            self._name_keys = keys
+
     def resolve(self, token):
         if len(token) < 4:
             return None
-        matches = [name for key, name in self.names.items() if key.startswith(token)]
-        return matches[0] if len(matches) == 1 else None
+        with self._names_lock:
+            return self._names.get(unique_prefix(self._name_keys, token))
 
     def discovery(self, hours=24, limit=100):
         cutoff = time.time() - hours * 3600
@@ -384,6 +397,7 @@ class Archive:
             logging.error('Archiv-Warteschlange voll: Empfang verworfen (%s)', self.dropped)
 
     def _write(self, db, batch):
+        updated_names = {}
         with db:
             for p in batch:
                 if 'noise_sample' in p:
@@ -405,13 +419,21 @@ class Archive:
                 db.execute('INSERT INTO packets(received,kind,channel,observer_hash,search_text,packet_json,repeater_token,origin_id,origin) VALUES(?,?,?,?,?,?,?,?,?)',
                     (received, d['payload_name'], d.get('group_channel'), p['observer_hash'], search,
                      json.dumps(p, ensure_ascii=False), repeater_token(p), p.get('origin_id'), p.get('origin')))
-                self._record_node(db, p)
+                node = self._record_node(db, p)
+                if node is not None:
+                    key, name = node
+                    updated_names[key] = name
                 self._record_advert_path(db, p)
             record_path_pairs(db, batch)
             maintain_positions(db)
-            names = dict(db.execute('SELECT public_key, name FROM nodes'))
+        # Publish only after commit. A failed batch leaves the resolver untouched.
+        if updated_names:
+            with self._names_lock:
+                for key, name in updated_names.items():
+                    if key not in self._names:
+                        insort(self._name_keys, key)
+                    self._names[key] = name
         self.saved += sum('noise_sample' not in p for p in batch)
-        self.names = names
 
     @staticmethod
     def _record_node(db, packet):
@@ -421,7 +443,7 @@ class Archive:
             return
         received = datetime.fromisoformat(packet['received_at']).timestamp()
         position_time = a['timestamp'] if a.get('latitude') is not None and a.get('longitude') is not None else None
-        db.execute('''INSERT INTO nodes
+        return db.execute('''INSERT INTO nodes
             (public_key,name,advert_time,first_seen,last_seen,node_type,latitude,longitude,position_time)
             VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(public_key) DO UPDATE SET
             name=CASE WHEN excluded.advert_time > nodes.advert_time THEN excluded.name ELSE nodes.name END,
@@ -431,9 +453,10 @@ class Archive:
             last_seen=MAX(nodes.last_seen,excluded.last_seen),
             latitude=CASE WHEN excluded.position_time >= COALESCE(nodes.position_time,-1) THEN excluded.latitude ELSE nodes.latitude END,
             longitude=CASE WHEN excluded.position_time >= COALESCE(nodes.position_time,-1) THEN excluded.longitude ELSE nodes.longitude END,
-            position_time=CASE WHEN excluded.position_time >= COALESCE(nodes.position_time,-1) THEN excluded.position_time ELSE nodes.position_time END''',
+            position_time=CASE WHEN excluded.position_time >= COALESCE(nodes.position_time,-1) THEN excluded.position_time ELSE nodes.position_time END
+            RETURNING public_key,name''',
             (a['public_key'], a.get('name'), a['timestamp'], received, received,
-             a.get('node_type'), a.get('latitude'), a.get('longitude'), position_time))
+             a.get('node_type'), a.get('latitude'), a.get('longitude'), position_time)).fetchone()
 
     @staticmethod
     def _record_advert_path(db, packet):

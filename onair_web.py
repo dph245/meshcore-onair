@@ -37,7 +37,7 @@ class PacketStore:
 
     def add(self, packet):
         item = packet.to_dict()
-        self.raw_packets.append(onair_mqtt.format_packet(packet))
+        self.raw_packets.append(packet.raw_text)
         key = packet.group_id
         group = self.groups.get(key)
         if group is None:

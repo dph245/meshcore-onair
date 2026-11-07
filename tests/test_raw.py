@@ -13,6 +13,16 @@ def packet():
 
 
 class RawTests(unittest.IsolatedAsyncioTestCase):
+    async def test_console_and_dashboard_share_render_without_serializing_it(self):
+        store = web.PacketStore()
+        output = io.StringIO()
+        with patch.object(mqtt, 'format_packet', wraps=mqtt.format_packet) as render, \
+                contextlib.redirect_stdout(output):
+            p = mqtt.handle_packet({'raw': '15416f33abcd', 'direction': 'rx'}, store.add)
+        render.assert_called_once_with(p)
+        self.assertEqual(store.snapshot()['raw_packets'], [output.getvalue()])
+        self.assertNotIn('raw_text', p.to_dict())
+
     async def test_repeated_packets_stream_separately_and_resync(self):
         dashboard = web.Dashboard()
         listener = asyncio.Queue(maxsize=1)

@@ -2,15 +2,20 @@ import asyncio
 import contextlib
 import io
 import json
+from pathlib import Path
+import sqlite3
 import ssl
 import unittest
 import tempfile
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from onair_archive import Archive
+from onair_repeaters import repeater_summary
 import onair_mqtt as mqtt
 import onair_web as web
-from node_fixtures import node_database
+from node_fixtures import node_database, seed_nodes
 
 
 NODE_NAMES = {'6f33a9' + '0' * 58: 'Test-Repeater',
@@ -132,6 +137,15 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(packet().decoded['hop_labels'], ['Test-Repeater[6f33]'])
         self.assertEqual(mqtt.node_label('ffff'), 'ffff')
 
+    def test_packet_resolves_each_distinct_hop_once(self):
+        with patch.object(mqtt, 'learned_alias', wraps=self.archive.resolve) as resolve:
+            p = packet('15836f33a9b317ac6f33a9abcd')
+        self.assertEqual([call.args[0] for call in resolve.call_args_list], ['6f33a9', 'b317ac'])
+        labels = ['Test-Repeater[6f33a9]', 'Brocken[b317ac]', 'Test-Repeater[6f33a9]']
+        self.assertEqual(p.decoded['hop_labels'], labels)
+        self.assertEqual(p.path, ' → '.join(labels))
+        self.assertEqual(p.last_hop, labels[-1])
+
     def test_repeats_and_terminal(self):
         first, second = packet(), packet('1581b317acabcd', hash='aabb')
         self.assertEqual(first.group_id, second.group_id)
@@ -157,6 +171,84 @@ class DecoderTests(unittest.TestCase):
                 mqtt.on_message(None, {'packet_sink': sink}, SimpleNamespace(topic='meshcore/test/packets', payload=payload))
             mqtt.on_message(None, {'packet_sink': sink}, SimpleNamespace(topic='meshcore/test/packets', payload=b'{"direction":"rx","raw":"1500"}'))
         self.assertEqual(sink.call_count, 1)
+
+
+class PrefixTests(unittest.TestCase):
+    def test_learned_names_match_linear_reference_and_alias_order(self):
+        a = 'aabb0011'.ljust(64, '0')
+        b = 'aabb0022'.ljust(64, '0')
+        c = 'aacc'.ljust(64, '0')
+        d = 'aadd'.ljust(64, '0')
+        names = {a: 'Same', b: 'Same', c: None, d: ''}
+        with node_database(names) as archive:
+            queries = [key[:width] for key in names for width in (0, 2, 4, 5, 6, 7, 8, 63, 64)]
+            queries += [a.upper(), a + '0', 'ffff', 'unknown']
+            for token in queries:
+                with self.subTest(token=token):
+                    matches = [name for key, name in names.items() if key.startswith(token)]
+                    expected = matches[0] if len(token) >= 4 and len(matches) == 1 else None
+                    self.assertEqual(archive.resolve(token), expected)
+            with patch.object(mqtt, 'ALIASES', {'AABB': 'First', 'aabb0011': 'Second', 'aa': 'Short'}):
+                self.assertEqual(mqtt.node_label('AABB0011'), 'First[aabb0011]')
+                self.assertEqual(mqtt.node_label('aabb00'), 'First[aabb00]')
+                self.assertEqual(mqtt.node_label('AA'), 'aa')
+
+    def test_signed_adverts_update_live_after_commit_and_retry(self):
+        key = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+        public_key = key.public_key().public_bytes_raw()
+        token = public_key.hex()[:6]
+        shared_prefix = token[:4]
+        sibling = shared_prefix + ('ff' if token[4:] != 'ff' else '00') + '0' * 58
+
+        def advert(name, timestamp, valid=True):
+            prefix = public_key + timestamp.to_bytes(4, 'little')
+            appdata = b'\x82' + name.encode()
+            signature = key.sign(prefix + appdata) if valid else bytes(64)
+            return mqtt.build_packet(dict(raw='1100' + (prefix + signature + appdata).hex(),
+                                          direction='rx')).to_dict()
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'test.sqlite3'
+            seed_nodes(path, {sibling: 'Sibling'})
+            archive = Archive(path)
+            try:
+                with archive.connect() as db, patch.multiple(mqtt, learned_alias=archive.resolve, ALIASES={}):
+                    self.assertEqual(archive.resolve(shared_prefix), 'Sibling')
+                    batch = [advert('Old', 100), advert('Current', 200), advert('Replay', 150)]
+                    with patch('onair_archive.maintain_positions', side_effect=sqlite3.OperationalError):
+                        with self.assertRaises(sqlite3.OperationalError):
+                            archive._write(db, batch)
+                    self.assertEqual(mqtt.node_label(token), token)
+                    self.assertEqual(archive.resolve(shared_prefix), 'Sibling')
+                    self.assertIsNone(db.execute('SELECT name FROM nodes WHERE public_key=?',
+                                                 (public_key.hex(),)).fetchone())
+                    archive._write(db, batch)
+                    self.assertEqual(mqtt.node_label(token), f'Current[{token}]')
+                    self.assertIsNone(archive.resolve(shared_prefix))
+                    archive._write(db, [advert('Same timestamp', 200), advert('Invalid', 300, False)])
+                    self.assertEqual(archive.resolve(public_key.hex()), 'Current')
+                    archive._write(db, [advert('Renamed', 300)])
+                    self.assertEqual(mqtt.node_label(token), f'Renamed[{token}]')
+            finally:
+                archive.close()
+
+    def test_repeater_collisions_and_observed_only_extensions(self):
+        a = 'aabb01'.ljust(64, '0')
+        b = 'aabb02'.ljust(64, '0')
+        names = {a: 'A', b: 'B', 'aabb01': 'Short', 'ee11': 'Named'}
+        tokens = ('aabb', 'aabb01', a, 'ff', 'ff00', 'ff0001', 'ee', 'ee11')
+        rows = [dict(token=token, count=1, rssi=-100 + n, min_rssi=-100 + n,
+                     max_rssi=-100 + n, last_seen=n) for n, token in enumerate(tokens)]
+        items = {item['id']: item for item in repeater_summary(iter(rows), names, str)}
+        self.assertEqual(set(items), {'aabb', a, 'ff0001', 'ee11'})
+        self.assertEqual(items['aabb']['tokens'], ['aabb'])
+        self.assertEqual(items[a]['tokens'], ['aabb01', a])
+        self.assertEqual(items[a]['name'], 'A')
+        self.assertEqual(items['ff0001']['tokens'], ['ff', 'ff00', 'ff0001'])
+        self.assertEqual(items['ff0001']['count'], 3)
+        self.assertEqual(items['ff0001']['min_rssi'], -97)
+        self.assertEqual(items['ff0001']['rssi'], -95)
+        self.assertEqual(items['ee11']['tokens'], ['ee', 'ee11'])
 
 
 class StoreTests(unittest.TestCase):

@@ -1,5 +1,6 @@
 """Reception statistics for the immediate transmitter of flood packets."""
 from datetime import datetime
+from onair_prefixes import unique_prefix
 
 
 def repeater_token(packet):
@@ -83,17 +84,17 @@ def repeater_summary(rows, names, label):
     rows = list(rows)
     # Use the longest known identifiers, including observed hops without ADVERTs.
     # Keep raw counters separate in SQLite so later collisions can be split again.
-    candidates = set(names) | {row['token'] for row in rows}
-    identities = []
-    for candidate in sorted(candidates, key=lambda token: (-len(token), token)):
-        if not any(identity.startswith(candidate) for identity in identities):
-            identities.append(candidate)
+    candidates = sorted(set(names) | {row['token'] for row in rows})
+    # A candidate is extended by another key exactly when its next neighbor
+    # starts with it. Retain only identities with no such extension.
+    identities = [candidate for index, candidate in enumerate(candidates)
+                  if index + 1 == len(candidates) or not candidates[index + 1].startswith(candidate)]
     result = {}
     for row in rows:
         item = dict(row)
         token = item.pop('token')
-        matches = [identity for identity in identities if identity.startswith(token)]
-        identity = matches[0] if len(matches) == 1 else token
+        match = unique_prefix(identities, token)
+        identity = token if match is None else match
         item.update(id=identity, name=names.get(identity) or label(identity), tokens=[token])
         previous = result.get(identity)
         if previous:

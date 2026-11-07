@@ -7,6 +7,7 @@ import uuid
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from functools import cached_property
 
 import paho.mqtt.client as mqtt
 
@@ -356,6 +357,10 @@ class Packet:
     origin_id: str | None = None
     origin: str | None = None
 
+    @cached_property
+    def raw_text(self):
+        return format_packet(self)
+
     def to_dict(self):
         return asdict(self)
 
@@ -369,7 +374,17 @@ def build_packet(data):
     decoded = decode_raw_packet(raw_hex)
     decoded.update(decode_payload_details(decoded))
     decoded['scope_label'] = scope_label(decoded)
-    decoded["hop_labels"] = [node_label(hop) for hop in decoded["hops"]]
+    labels = {}
+    hop_labels = []
+    for hop in decoded["hops"]:
+        if hop not in labels:
+            labels[hop] = node_label(hop)
+        hop_labels.append(labels[hop])
+    decoded["hop_labels"] = hop_labels
+    is_trace = decoded['payload_type'] == 9
+    path = 'TRACE (SNR-Pfad)' if is_trace else (" → ".join(hop_labels) if hop_labels else "direct")
+    last_hop = ('Unbekannt' if is_trace or decoded['route_type'] in (2, 3) else
+                hop_labels[-1] if hop_labels else "direct")
     if decoded["payload_type"] == 0x04:
         if decoded["payload_ver"] == 0:
             decoded.update(decode_advert(bytes.fromhex(decoded["payload_hex"])))
@@ -404,9 +419,7 @@ def build_packet(data):
         repeat_count=entry["count"], first_number=entry["first_number"],
         rssi=parse_int(data.get("RSSI")), snr=parse_float(data.get("SNR")),
         length=parse_int(data.get("len")), raw_hex=raw_hex,
-        decoded=decoded, path='TRACE (SNR-Pfad)' if decoded['payload_type'] == 9 else format_path(decoded["hops"]),
-        last_hop=('Unbekannt' if decoded['payload_type'] == 9 or decoded['route_type'] in (2, 3) else
-                  node_label(decoded["hops"][-1]) if decoded["hops"] else "direct"),
+        decoded=decoded, path=path, last_hop=last_hop,
     )
 
 
@@ -511,7 +524,7 @@ def format_packet(packet):
 
 
 def print_packet(packet):
-    print(format_packet(packet), end="")
+    print(packet.raw_text, end="")
 
 
 def on_connect(client, userdata, flags, reason_code, properties):
