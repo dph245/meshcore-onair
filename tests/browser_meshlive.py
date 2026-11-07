@@ -60,7 +60,7 @@ def packet(number, hops=None, observer=2, hash_value=None):
                              group_channel='Public', group_text=f'Test {number}'))
 
 
-def emit(page, packets, kind='update'):
+def emit(page, packets, kind='update', **fields):
     groups = {}
     for p in packets:
         group = groups.setdefault(p['group_id'], dict(id=p['group_id'], count=0, first_seen=p['received_at'], receptions=[]))
@@ -69,7 +69,8 @@ def emit(page, packets, kind='update'):
         group['receptions'].append(p)
     page.evaluate('data => window.__sockets.at(-1).onmessage({data:JSON.stringify(data)})',
                   dict(type=kind, groups=list(groups.values()), removed=[], raw_packets=['raw fixture'],
-                       status=dict(connected=True, received=len(packets), dropped=0, noise_history=[])))
+                       status=dict(connected=True, received=len(packets), dropped=0, noise_history=[]),
+                       **fields))
 
 
 def route_page(page, requests, baseline=None):
@@ -307,8 +308,12 @@ def main():
         manual.update(name='Updated Manual', latitude=53.251)
         page.locator('#meshlive-refresh').click()
         page.wait_for_selector('#meshlive-map .leaflet-marker-icon[title="Updated Manual [36477e]"]')
+        emit(page, [], 'snapshot', seq=20)
         page.evaluate('window.__meshStrokes=[]')
-        emit(page, [packet(999, hops=['3647','aabb'], hash_value='MANUAL')])
+        p = packet(999, hops=['3647','aabb'], hash_value='MANUAL')
+        page.evaluate('data => __sockets.at(-1).onmessage({data: JSON.stringify(data)})',
+                      dict(type='delta', seq=21, receptions=[p],
+                           status=dict(connected=True, max_receptions=50)))
         page.wait_for_function('window.__meshStrokes.length > 0')
         manual_rows.clear()
         page.locator('#meshlive-refresh').click()

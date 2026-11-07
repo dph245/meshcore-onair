@@ -150,6 +150,48 @@ def main():
         assert page.locator('#noise-charts .noise-point').count() == 3
         click('#pause')
         assert page.locator('#noise-charts .noise-observer').count() == 0
+        # Versioned snapshots and deltas use the same rendering and raw ring.
+        def frame(kind, seq, **data):
+            page.evaluate('data => __sockets.at(-1).onmessage({data: JSON.stringify(data)})',
+                          dict(type=kind, seq=seq, status=dict(connected=True, max_receptions=2), **data))
+
+        click('#tab-live')
+        first = packet(800)
+        frame('snapshot', 10, groups=[dict(id='HASH800', first_seen=first['received_at'],
+                                         latest=first, count=1, receptions=[first])], raw_packets=['one'])
+        check(page, "__sockets.at(-1).url.endsWith('/ws?stream=delta')")
+        click('#packets button.expand')
+        click('#pause')
+        late = dict(packet(801, observer=3, hash_value='HASH800'), time='01:00:00')
+        frame('delta', 11, receptions=[late, packet(802, hash_value='HASH800')], raw_packets=['two', 'three'])
+        check(page, "displayedGroups[0].count === 1 && displayedGroups[0].receptions.length === 1")
+        click('#pause')
+        check(page, "groups.get('HASH800').count === 3 && rawPackets.join(',') === 'one,two,three'")
+        check(page, "groups.get('HASH800').receptions.map(p => p.number).join() === '801,802'")
+        assert page.locator('#packets .reception').count() == 2
+        assert 'Test 802' in page.locator('#packets').inner_text()
+        page.locator('#live-observer').select_option(KEYS[3])
+        assert 'Test 801' in page.locator('#packets').inner_text()
+        click('#live-filter-reset')
+        revived = dict(packet(804, hash_value='HASH800'), received_at='2026-10-10T12:01:00+00:00')
+        frame('delta', 12, receptions=[packet(803), revived], evictions={'0': 'HASH800', '1': 'HASH803'})
+        check(page, "groups.size === 1 && groups.get('HASH800').count === 1")
+        assert page.evaluate("groups.get('HASH800').first_seen") == revived['received_at']
+        # Queue-overflow snapshots can legitimately jump over sequence numbers.
+        frame('snapshot', 20, groups=[], raw_packets=['overflow'])
+        frame('delta', 21, receptions=[packet(805)], raw_packets=['after overflow'])
+        check(page, "groups.has('HASH805') && rawPackets.join(',') === 'overflow,after overflow'")
+        # A gap in ordinary updates must neither apply nor leak to any consumer.
+        frame('delta', 23, receptions=[packet(807)], raw_packets=['gap'])
+        check(page, "__sockets.at(-1).readyState === 3 && !groups.has('HASH807') && !rawPackets.includes('gap')")
+        frame('delta', 22, receptions=[packet(806)])
+        check(page, "!groups.has('HASH806')")
+        page.wait_for_function('__sockets.length === 2')
+        frame('snapshot', 1, groups=[], raw_packets=['restart'])
+        frame('delta', 2, receptions=[packet(808)], raw_packets=['resume'])
+        check(page, "groups.size === 1 && groups.has('HASH808') && rawPackets.join(',') === 'restart,resume'")
+        frame('delta', 2, receptions=[packet(808)], raw_packets=['resume'])
+        check(page, "__sockets.at(-1).readyState === 3 && groups.get('HASH808').count === 1 && rawPackets.length === 2")
         assert not errors, errors
         browser.close()
     print('Live rendering: stable nodes, status-only, order, details, eviction, filters, pause, snapshots and scroll passed')

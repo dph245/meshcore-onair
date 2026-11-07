@@ -241,6 +241,21 @@ werden in der Werkzeugleiste gezählt. Langsame Browser erhalten einen aktuellen
 Snapshot. Nach einer WebSocket-Neuverbindung wird die Ansicht ebenfalls synchronisiert.
 „Ansicht pausieren“ friert nur die Darstellung ein; der Empfang läuft weiter.
 
+Das aktuelle Frontend fordert über `/ws?stream=delta` Empfangsdeltas an. Ein
+`snapshot` enthält alle Gruppen und Rohdaten im Live-Puffer sowie den Status.
+Darauf folgen `delta`-Frames mit fortlaufender `seq`, neuen Empfängen und
+Rohdaten in Eingangsreihenfolge sowie dem aktuellen Status einschließlich
+Noise-Historie. `evictions` ist nur bei Verdrängungen vorhanden und ordnet
+Empfangsindizes den an dieser Stelle entfernten Gruppen zu. So beginnt bei
+einem späteren Empfang für dieselbe Gruppe der Zähler wieder bei eins.
+
+Bei einer vollen Client-Queue ersetzt ein neuer Snapshot die wartenden Frames.
+Seine `seq` ist der Ausgangspunkt für die nächsten Deltas. Bei einer
+Sequenzlücke in einem Delta verbindet sich das Frontend erneut und wartet auf
+den Snapshot. Bereits geöffnete ältere Seiten erhalten über `/ws` weiterhin
+vollständige geänderte Gruppen. Je Frame-Format werden die JSON-Daten einmal
+serialisiert und von allen Clients dieses Formats geteilt.
+
 Ein-Byte-Hop-Hashes werden niemals auf Aliase abgebildet. Bekannte Präfixe ab zwei
 Byte bleiben wie im vorhandenen Parser aufgelöst. Die Tabellenzeit kommt vom
 Observer; die Details enthalten zusätzlich die lokale Empfangszeit mit Zeitzone.

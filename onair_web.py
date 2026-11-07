@@ -78,7 +78,8 @@ class Dashboard:
             self.noise_history.setdefault(sample.get('origin_id'), deque(maxlen=500)).append(sample)
         self.store = PacketStore()
         self.incoming = Queue(maxsize=2048)
-        self.listeners = set()
+        self.listeners = {}  # Queue -> whether the client requested reception deltas
+        self.sequence = 0
         self._websocket_snapshot = None
         self.dropped = 0
         self.connected = False
@@ -115,50 +116,63 @@ class Dashboard:
     def snapshot_payload(self, status):
         # Status includes the store's monotonically increasing reception count.
         if self._websocket_snapshot is None or self._websocket_snapshot[0] != status:
-            payload = _encode_websocket_message({**self.store.snapshot(), "status": status})
+            payload = _encode_websocket_message({
+                **self.store.snapshot(), "seq": self.sequence, "status": status,
+            })
             self._websocket_snapshot = (status, payload)
         return self._websocket_snapshot[1]
 
     def remove_listener(self, queue):
-        self.listeners.discard(queue)
+        self.listeners.pop(queue, None)
         if not self.listeners:
             self._websocket_snapshot = None
 
-    def _broadcast(self, changed, removed, status, raw_packets):
-        if self._websocket_snapshot is not None and self._websocket_snapshot[0] != status:
-            self._websocket_snapshot = None
-        update = None
-        for queue in self.listeners:
+    def _broadcast(self, receptions, changed, evictions, status, raw_packets):
+        # The pump publishes the entire batch without yielding. A snapshot at seq N
+        # includes this batch, so the first update following it must be N + 1.
+        self.sequence += 1
+        self._websocket_snapshot = None
+        updates = {}
+        for queue, delta in self.listeners.items():
             if queue.full():
                 while not queue.empty():
                     queue.get_nowait()
                 queue.put_nowait(self.snapshot_payload(status))
             else:
-                if update is None:
-                    update = _encode_websocket_message({
-                        "type": "update", "groups": list(changed.values()),
-                        "removed": removed, "status": status, "raw_packets": raw_packets,
+                if delta not in updates:
+                    if delta:
+                        body = {"type": "delta", "receptions": receptions}
+                        if evictions:
+                            body["evictions"] = evictions
+                    else:
+                        body = {"type": "update", "groups": list(changed.values()),
+                                "removed": list(evictions.values())}
+                    updates[delta] = _encode_websocket_message({
+                        **body, "seq": self.sequence, "status": status, "raw_packets": raw_packets,
                     })
-                queue.put_nowait(update)
+                queue.put_nowait(updates[delta])
 
     async def pump(self):
         previous_status = None
         while True:
-            changed, removed, raw_packets = {}, [], []
+            receptions, changed, evictions, raw_packets = [], {}, {}, []
             for _ in range(200):
                 try:
                     packet = self.incoming.get_nowait()
                 except Empty:
                     break
                 group, evicted = self.store.add(packet)
+                receptions.append(group["latest"])
                 raw_packets.append(self.store.raw_packets[-1])
                 changed[group["id"]] = group
-                if evicted:
-                    removed.append(evicted)
+                if evicted is not None:
+                    # Apply eviction at this reception, even if the same ID returns
+                    # later in the batch and starts a new group.
+                    evictions[len(receptions) - 1] = evicted
                     changed.pop(evicted, None)
             status = self.status()
-            if changed or status != previous_status:
-                self._broadcast(changed, removed, status, raw_packets)
+            if receptions or status != previous_status:
+                self._broadcast(receptions, changed, evictions, status, raw_packets)
                 previous_status = status
             await asyncio.sleep(0.25)
 
@@ -413,7 +427,7 @@ async def websocket(websocket: WebSocket):
     dashboard = websocket.app.state.dashboard
     queue = asyncio.Queue(maxsize=8)
     queue.put_nowait(dashboard.snapshot_payload(dashboard.status()))
-    dashboard.listeners.add(queue)
+    dashboard.listeners[queue] = websocket.query_params.get("stream") == "delta"
 
     async def send():
         while True:

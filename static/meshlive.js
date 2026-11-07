@@ -631,7 +631,7 @@ window.MeshLive = (() => {
 
   function receive(data) {
     // This lightweight watermark runs even before initialization. Hidden tabs never replay.
-    const packets = (data.groups || []).flatMap(group => group.receptions || [])
+    const packets = (data.receptions ?? (data.groups || []).flatMap(group => group.receptions || []))
       .filter(packet => Number.isSafeInteger(packet.number));
     const snapshot = data.type === 'snapshot';
     const fresh = packets.filter(packet => packet.number > highWater).sort((a, b) => a.number - b.number);

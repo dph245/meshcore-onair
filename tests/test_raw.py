@@ -27,7 +27,7 @@ class RawTests(unittest.IsolatedAsyncioTestCase):
     async def test_repeated_packets_stream_separately_and_resync(self):
         dashboard = web.Dashboard()
         listener = asyncio.Queue(maxsize=1)
-        dashboard.listeners.add(listener)
+        dashboard.listeners[listener] = True
         first, second = packet(), packet()
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -38,7 +38,7 @@ class RawTests(unittest.IsolatedAsyncioTestCase):
         task = asyncio.create_task(dashboard.pump())
         try:
             event = json.loads(await asyncio.wait_for(listener.get(), 2))
-            self.assertEqual(len(event['groups']), 1)
+            self.assertEqual(event['receptions'], [first.to_dict(), second.to_dict()])
             self.assertEqual(len(event['raw_packets']), 2)
             self.assertEqual(''.join(event['raw_packets']), output.getvalue())
             self.assertEqual(dashboard.store.snapshot()['raw_packets'], event['raw_packets'])

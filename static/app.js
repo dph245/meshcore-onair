@@ -419,27 +419,63 @@ function connection() {
   }
   if (!noise.children.length) noise.textContent = 'Noise Floor: —';
 }
+function applyReceptionDelta({receptions, status, evictions}) {
+  const changedIds = new Set();
+  for (const [index, packet] of receptions.entries()) {
+    const id = packet.group_id;
+    let group = groups.get(id);
+    if (!group) group = {id, count: 0, first_seen: packet.received_at, receptions: []};
+    // Paused rendering retains the previous group objects and their reception lists.
+    else if (!changedIds.has(id)) group = {...group, receptions: [...group.receptions]};
+    group.count++;
+    group.latest = packet;
+    group.receptions.push(packet);
+    if (group.receptions.length > status.max_receptions) group.receptions.shift();
+    groups.set(id, group);
+    changedIds.add(id);
+    const evicted = evictions?.[index];
+    if (evicted !== undefined) {
+      groups.delete(evicted);
+      changedIds.add(evicted);
+    }
+  }
+  return changedIds;
+}
 function connect() {
-  socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
-  socket.onopen = connection;
-  socket.onmessage = event => {
+  const stream = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws?stream=delta`);
+  socket = stream;
+  let sequence = null, desynced = false;
+  stream.onopen = connection;
+  stream.onmessage = event => {
+    if (desynced || socket !== stream) return;
     const data = JSON.parse(event.data);
+    let changedIds = null;
     if (data.type === 'snapshot') {
+      sequence = data.seq ?? null;
       groups.clear();
       rawPackets = [];
+    } else {
+      if ((sequence !== null || data.seq !== undefined || data.type === 'delta') &&
+          (sequence === null || data.seq !== sequence + 1)) {
+        // The socket is server-only. Reconnect to acquire a fresh baseline.
+        desynced = true;
+        stream.close();
+        return;
+      }
+      sequence = data.seq ?? null;
+      changedIds = data.type === 'delta' ? applyReceptionDelta(data)
+        : new Set([...(data.removed || []), ...(data.groups || []).map(group => group.id)]);
     }
     rawPackets = rawPackets.concat(data.raw_packets || []).slice(-500);
     for (const id of data.removed || []) groups.delete(id);
     for (const group of data.groups || []) groups.set(group.id, group);
     for (const id of expanded) if (!groups.has(id)) expanded.delete(id);
     status = data.status || status;
-    const changedIds = data.type === 'snapshot' ? null
-      : new Set([...(data.removed || []), ...(data.groups || []).map(group => group.id)]);
     connection(); render(false, changedIds);
     window.MeshLive?.receive(data);
   };
-  socket.onclose = () => { connection(); setTimeout(connect, 2000); };
-  socket.onerror = () => socket.close();
+  stream.onclose = () => { connection(); setTimeout(connect, 2000); };
+  stream.onerror = () => stream.close();
 }
 document.getElementById('pause').onclick = event => {
   paused = !paused;
