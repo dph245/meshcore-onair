@@ -62,3 +62,6 @@ tests/*
 !tests/browser_map_selection.py
 !tests/browser_map_history.py
 !tests/browser_live_render.py
+
+!tests/test_repeater_history.py
+!tests/browser_repeater_history.py

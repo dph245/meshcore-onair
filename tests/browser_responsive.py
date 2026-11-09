@@ -139,6 +139,7 @@ def main():
                     page.locator('#observer-west').select_option(KEYS[3])
                     expect(page.locator('#observers-results tbody tr')).to_have_count(1)
                 elif name == 'repeaters':
+                    page.locator('.repeater-history select').scroll_into_view_if_needed()
                     expect(page.locator('.repeater-chart')).to_be_visible()
                 elif name == 'channels':
                     tap(page, '#channels-results summary')

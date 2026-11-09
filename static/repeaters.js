@@ -1,6 +1,18 @@
 const repeaterViews = new Map();
 const repeaterChoices = new Map();
 let selectedRepeaters = null; // null shows all, a Set selects individual repeaters.
+const repeaterTimeFormat = new Intl.DateTimeFormat('de-DE', {
+  day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+});
+const repeaterHistoryObserver = typeof IntersectionObserver === 'undefined' ? null
+  : new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      const view = repeaterViews.get(entry.target.dataset.identity);
+      if (view?.history !== entry.target) continue;
+      view.nearViewport = entry.isIntersecting;
+      if (view.nearViewport) loadRepeaterHistory(view);
+    }
+  }, {rootMargin: '160px 0px'});
 
 function updateRepeaterSelection() {
   let visible = 0;
@@ -70,49 +82,92 @@ function repeaterView(item) {
     const tooltip = text('p', 'Messpunkt berühren, mit der Maus zeigen oder per Tab auswählen.', 'muted');
     history.append(label, message, plot, tooltip);
     element.append(overview, history);
-    view = {element, overview, select, message, plot, tooltip, item, version: 0};
+    view = {element, overview, history, select, message, plot, tooltip, item, cache: new Map(),
+      nearViewport: !repeaterHistoryObserver};
     repeaterViews.set(item.id, view);
+    if (repeaterHistoryObserver) {
+      history.dataset.identity = item.id;
+      repeaterHistoryObserver.observe(history);
+    }
     select.addEventListener('change', () => {
-      view.version += 1;
-      view.loaded = null;
+      view.loading?.controller.abort();
       view.loading = null;
-      loadRepeaterHistory(view);
+      loadRepeaterHistory(view, true);
     });
   }
   view.item = item;
   return view;
 }
 
-async function loadRepeaterHistory(view) {
-  if (paused || view.element.hidden || !view.element.isConnected) return;
-  const signature = JSON.stringify([view.item.count, view.item.tokens, view.select.value,
-    view.select.value === '0' ? 0 : Math.floor(Date.now() / 60000)]);
-  if (signature === view.loaded || signature === view.loading) return;
-  const version = ++view.version;
-  view.loading = signature;
+function repeaterHistoryVisible(view, explicit = false) {
+  return !paused && !document.getElementById('panel-repeaters').hidden &&
+    !view.element.hidden && view.element.isConnected && (explicit || view.nearViewport);
+}
+
+async function loadRepeaterHistory(view, explicit = false) {
+  if (!repeaterHistoryVisible(view, explicit)) return;
+  const hours = view.select.value;
+  const revision = JSON.stringify([view.item.count, view.item.tokens]);
+  const cached = view.cache.get(hours);
+  const started = performance.now();
+  if (cached?.revision === revision && started < cached.expires) {
+    showRepeaterHistory(view, cached.result);
+    return;
+  }
+  if (view.loading) return;
+  const request = {controller: new AbortController()};
+  view.loading = request;
   view.message.textContent = 'RSSI-Verlauf wird geladen …';
   try {
-    const query = new URLSearchParams({identity: view.item.id, hours: view.select.value});
-    const response = await fetch(`/api/repeater-history?${query}`);
+    const query = new URLSearchParams({identity: view.item.id, hours, compact: 'true'});
+    const response = await fetch(`/api/repeater-history?${query}`, {signal: request.controller.signal});
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
-    if (version !== view.version || paused || !view.element.isConnected) return;
-    renderRepeaterHistory(view, result.items);
-    view.message.textContent = result.items.length
-      ? `${result.sampled ? `${result.items.length} dargestellte Punkte aus ${result.total} Messwerten · gesamter Zeitraum, je Observer zeitlich verdichtet (erster/letzter Wert und Min/Max)` : `${result.items.length} Messwerte`} · lokale Empfangszeit · RSSI in dBm`
-      : 'Keine RSSI-Messwerte in diesem Zeitraum archiviert.';
-    view.loaded = signature;
+    if (view.loading !== request || !view.element.isConnected) return;
+    if (result.points) {
+      result.items = result.points.map(([received, rssi, observer]) => {
+        const [origin_id, origin] = result.observers[observer];
+        return {received, rssi, origin_id, origin};
+      });
+      delete result.points;
+      delete result.observers;
+    }
+    // Count changes cover new receptions (including late arrivals). The oldest
+    // retained point determines when an otherwise unchanged time window expires.
+    const expires = result.valid_for === null ? Infinity : started + (result.valid_for ?? 60) * 1000;
+    view.cache.delete(hours);
+    view.cache.set(hours, {revision, expires, result});
+    if (view.cache.size > 2) view.cache.delete(view.cache.keys().next().value);
+    if (repeaterHistoryVisible(view, explicit)) showRepeaterHistory(view, result);
   } catch (error) {
-    if (version === view.version) view.message.textContent = `Verlauf konnte nicht geladen werden: ${error.message}. Automatischer erneuter Versuch folgt.`;
+    if (view.loading === request) view.message.textContent = `Verlauf konnte nicht geladen werden: ${error.message}. Automatischer erneuter Versuch folgt.`;
   } finally {
-    if (version === view.version) view.loading = null;
+    if (view.loading === request) view.loading = null;
   }
 }
 
+function showRepeaterHistory(view, result) {
+  const {items, sampled, total} = result;
+  const previous = view.displayed?.items;
+  if (view.chartName !== view.item.name || items.length !== previous?.length ||
+      (items !== previous && items.some((p, i) => p.received !== previous[i].received || p.rssi !== previous[i].rssi ||
+        p.origin_id !== previous[i].origin_id || p.origin !== previous[i].origin))) {
+    renderRepeaterHistory(view, items);
+  }
+  view.displayed = result;
+  view.chartName = view.item.name;
+  const message = items.length
+    ? `${sampled ? `${items.length} dargestellte Punkte aus ${total} Messwerten · gesamter Zeitraum, je Observer zeitlich verdichtet (erster/letzter Wert und Min/Max)` : `${items.length} Messwerte`} · lokale Empfangszeit · RSSI in dBm`
+    : 'Keine RSSI-Messwerte in diesem Zeitraum archiviert.';
+  if (view.message.textContent !== message) view.message.textContent = message;
+}
+
 function renderRepeaterHistory(view, samples) {
-  view.plot.replaceChildren();
   view.tooltip.textContent = 'Messpunkt berühren, mit der Maus zeigen oder per Tab auswählen.';
-  if (!samples.length) return;
+  if (!samples.length) {
+    view.plot.replaceChildren();
+    return;
+  }
   const svg = (tag, attributes, content) => {
     const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
     for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
@@ -132,7 +187,7 @@ function renderRepeaterHistory(view, samples) {
     chart.append(svg('text', {x: 54, y: y(value) + 4, 'text-anchor': 'end'}, value));
   }
   chart.append(svg('text', {x: 12, y: 12}, 'dBm'));
-  const timeLabel = time => new Date(time * 1000).toLocaleString('de-DE');
+  const timeLabel = time => repeaterTimeFormat.format(time * 1000);
   chart.append(svg('text', {x: 64, y: 225}, timeLabel(start)));
   if (end !== start) chart.append(svg('text', {x: 976, y: 225, 'text-anchor': 'end'}, timeLabel(end)));
   const series = new Map();
@@ -164,13 +219,15 @@ function renderRepeaterHistory(view, samples) {
         tabindex: 0, class: 'noise-point', 'aria-label': label});
       point.style.stroke = color;
       point.append(svg('title', {}, label));
-      for (const event of ['pointerenter', 'focus', 'click']) {
-        point.addEventListener(event, () => { view.tooltip.textContent = label; });
-      }
       chart.append(point);
     }
   }
-  view.plot.append(legend, chart);
+  const showPoint = event => {
+    const point = event.target.closest('.noise-point');
+    if (point) view.tooltip.textContent = point.getAttribute('aria-label');
+  };
+  for (const event of ['pointerover', 'focusin', 'click']) chart.addEventListener(event, showPoint);
+  view.plot.replaceChildren(legend, chart);
 }
 
 function renderRepeaterSignal(sample) {

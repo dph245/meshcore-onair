@@ -511,6 +511,9 @@ async function loadRepeaters() {
     const results = document.getElementById('repeaters-results');
     for (const item of items) {
       const view = repeaterView(item);
+      const overviewState = JSON.stringify(item);
+      if (view.overviewState === overviewState) continue;
+      view.overviewState = overviewState;
       const row = view.overview;
       row.replaceChildren();
       const identity = text('div', '', 'repeater-identity');
@@ -525,6 +528,8 @@ async function loadRepeaters() {
     }
     for (const [id, view] of repeaterViews) {
       if (!items.some(item => item.id === id)) {
+        repeaterHistoryObserver?.unobserve(view.history);
+        view.loading?.controller.abort();
         view.element.remove();
         repeaterViews.delete(id);
       }

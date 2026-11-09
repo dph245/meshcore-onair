@@ -3,6 +3,8 @@ import json
 import hashlib
 from bisect import insort
 from collections import OrderedDict
+from heapq import merge
+from itertools import chain, islice
 import logging
 import os
 from pathlib import Path
@@ -637,35 +639,46 @@ class Archive:
                                          if signal['last_seen'] >= since]
         return {'items': items}
 
-    def repeater_history(self, identity, hours=24, limit=500):
-        item = next((item for item in self.repeaters(hours=0, include_observers=False)['items'] if item['id'] == identity), None)
+    def repeater_history(self, identity, hours=24, limit=500, *, now=None):
         empty = {'items': [], 'has_more': False, 'total': 0, 'sampled': False}
-        if item is None:
-            return empty
-        tokens = item['tokens']
-        placeholders = ','.join('?' for _ in tokens)
-        since = time.time() - hours * 3600 if hours else 0
-        where = f"""FROM packets WHERE repeater_token IN ({placeholders}) AND received >= ?
+        since = (time.time() if now is None else now) - hours * 3600 if hours else 0
+        where = """FROM packets WHERE repeater_token = ? AND received >= ?
             AND json_extract(packet_json, '$.rssi') IS NOT NULL"""
         with self.connect() as db:
-            # Bounds and readings must come from the same snapshot during live ingestion.
+            # Resolve tokens, read the bounds and stream the rows in the same snapshot.
             db.execute('BEGIN')
-            total, start, end = db.execute(
-                'SELECT COUNT(*), MIN(received), MAX(received) ' + where,
-                tokens + [since]).fetchone()
-            if not total:
+            db.row_factory = sqlite3.Row
+            # Every token is at least one byte. Only candidates in this branch
+            # can affect the shared resolver's result for the requested identity.
+            prefix = identity[:2]
+            bounds = (prefix, prefix + '\uffff')
+            candidates = db.execute(
+                'SELECT * FROM repeater_receptions WHERE token >= ? AND token < ?', bounds).fetchall()
+            names = dict(db.execute(
+                'SELECT public_key,name FROM nodes WHERE public_key >= ? AND public_key < ?', bounds))
+            items = repeater_summary(candidates, names, str)
+            item = next((item for item in items if item['id'] == identity), None)
+            if item is None:
                 return empty
-            rows = db.execute("""SELECT received, json_extract(packet_json, '$.rssi'),
-                json_extract(packet_json, '$.origin_id'), json_extract(packet_json, '$.origin'), id
-                """ + where + ' ORDER BY received,id', tokens + [since])
-            if total <= limit:
-                selected = list(rows)
-            else:
+            db.row_factory = None
+            params = [(token, since) for token in item['tokens']]
+            # A single token can stream in index order. Merge those streams
+            # without asking SQLite to sort all matching rows across tokens.
+            streams = [db.execute("""SELECT received, json_extract(packet_json, '$.rssi'),
+                origin_id, origin, id """ + where + ' ORDER BY received,id', args) for args in params]
+            rows = merge(*streams, key=lambda row: (row[0], row[4])) if len(streams) > 1 else streams[0]
+            selected = list(islice(rows, max(0, limit) + 1))
+            total = len(selected)
+            if total > limit and selected:
+                start = selected[0][0]
+                latest = [db.execute('SELECT received ' + where +
+                                     ' ORDER BY received DESC,id DESC LIMIT 1', args).fetchone()
+                          for args in params]
+                end = max(row[0] for row in latest if row is not None)
                 # Keep real first/last/min/max readings per time bucket and observer.
-                # Stream the full interval without loading the archive into memory.
                 buckets = {}
                 bucket_count = max(1, limit // 4)
-                for row in rows:
+                for total, row in enumerate(chain(selected, rows), 1):
                     bucket = min(bucket_count - 1, int((row[0] - start) / (end - start) * bucket_count)) if end > start else 0
                     key = (row[2] or None, bucket)
                     if key not in buckets:

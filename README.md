@@ -636,7 +636,10 @@ werden können. Die Aliasauflösung in der Paketansicht bleibt unverändert.
 Eine Auswahlleiste über den Repeater-Zeilen zeigt „Alle“ und die einzelnen Repeater.
 Ein Klick auf einen Repeater wechselt von „Alle“ zur Einzelauswahl; weitere
 Repeater lassen sich hinzufügen und abwählen. Die Auswahl bleibt bei automatischen
-Aktualisierungen und Tabwechseln erhalten. Nur sichtbare Verläufe werden nachgeladen.
+Aktualisierungen und Tabwechseln erhalten. Verläufe werden beim Annähern an den
+sichtbaren Bereich geladen. Die letzten zwei geladenen Zeiträume pro Repeater
+lassen sich wiederverwenden, bis sich die Empfangsstatistik ändert oder die
+älteste dargestellte Messung aus dem Zeitfenster fällt.
 
 Repeater-Zeilen zeigen links Name, Kennung und darunter je Observer den zuletzt empfangenen RSSI
 mit Observer-Name, Empfangszeit und eigenen Min/Max-Markern sowie Empfangsstatistik.
@@ -657,8 +660,14 @@ Anzahl dargestellter Punkte und zugrunde liegender Messwerte und kennzeichnet
 die Verdichtung. Fehlende RSSI-Werte werden ausgelassen. Punkte zeigen echte Empfänge, die Verbindungslinien dienen
 der Orientierung. Maus, Touch oder Tastatur zeigen Observer, Empfangszeit und RSSI.
 Die Verläufe werden automatisch aktualisiert und berücksichtigen dieselbe
-Hash-Zusammenfassung wie die Übersicht. `/api/repeater-history` ist der zugehörige
-Lese-Endpunkt. Beim ersten Start wird automatisch eine indizierte Hop-Zuordnung
+Zuordnung der Hop-Kennungen wie die Übersicht. Gleiche Paket-Hashes fassen
+einzelne Empfänge in diesem Verlauf nicht zusammen. `/api/repeater-history` ist
+der zugehörige Lese-Endpunkt. Mit `compact=true` liefert er `points` als
+`[received, rssi, observer_index]` und `observers` als Liste von
+`[origin_id, origin]`. `valid_for` gibt die Sekunden bis zum zeitbedingten
+Ablauf an und ist für leere Zeiträume sowie das gesamte Archiv `null`.
+Die bisherigen Abfragen liefern weiterhin `items`.
+Beim ersten Start wird automatisch eine indizierte Hop-Zuordnung
 in der Pakettabelle ergänzt und aus vorhandenen Archivdaten befüllt (Schema 4).
 
 Der Tab **Map** startet mit dem Linkmodus **Ausgewählter Repeater** und ohne

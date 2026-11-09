@@ -7,6 +7,7 @@ from threading import Lock
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from queue import Empty, Full, Queue
+import time
 
 from typing import Literal
 
@@ -18,7 +19,7 @@ from onair_replay import ReplayLimitError
 from onair_distance import AnalysisLimitError, MAX_PAIR_RECEPTIONS
 from onair_neighbors import MAX_LINK_DISTANCE_KM
 from onair_routes import route_nodes, plan_routes
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from onair_assets import VersionedStaticFiles, index_response
 import onair_rf_neighbor_view as rf_neighbor_view
 
@@ -325,8 +326,22 @@ def list_repeaters():
 
 @app.get("/api/repeater-history")
 def repeater_history(identity: str = Query(..., pattern='^(?:[0-9a-fA-F]{2}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{64})$'),
-                     hours: int = Query(24, ge=0, le=8760)):
-    return app.state.archive.repeater_history(identity.lower(), hours)
+                     hours: int = Query(24, ge=0, le=8760), compact: bool = False):
+    if not compact:
+        return app.state.archive.repeater_history(identity.lower(), hours)
+
+    now = time.time()
+    result = app.state.archive.repeater_history(identity.lower(), hours, now=now)
+    observers = {}
+    points = []
+    items = result.pop('items')
+    for item in items:
+        observer = (item['origin_id'], item['origin'])
+        points.append((item['received'], item['rssi'], observers.setdefault(observer, len(observers))))
+    # The oldest reading survives sampling and is the first one to expire.
+    valid_for = max(0, items[0]['received'] + hours * 3600 - now) if items and hours else None
+    return JSONResponse(dict(result, points=points, observers=list(observers), valid_for=valid_for),
+                        headers={'Cache-Control': 'no-store'})
 
 
 @app.get("/api/nodes")
