@@ -4,6 +4,8 @@ let mapNeighborsPromise;
 const neighborLinksByNode = new Map();
 let mapLinkMode = 'selected';
 let mapRepeaterDirectory = [];
+let lastMapNodes = null, lastMapNodesTime = '';
+let historicalMapKeys = new Set();
 let mapSearchLimit = 30;
 let neighborPage = 0;
 let neighborSortKey = 'count', neighborSortDirection = -1;
@@ -147,6 +149,11 @@ function selectMapRepeater(identity) {
 
 let pendingMapRepeater = null;
 
+function mapHistoricalHidden(identity) {
+  return !document.getElementById('map-show-historical').checked &&
+    historicalMapKeys.has(identity);
+}
+
 function focusMapRepeater(identity) {
   const view = mapMarkers.get(identity);
   if (!view || view.nodeType !== 2) return false;
@@ -169,8 +176,9 @@ function applyPendingMapRepeater(loaded = false) {
     selectMapRepeater(null);
     document.getElementById('map-repeater-search').value = pendingMapRepeater.id;
     renderMapRepeaterSearch();
-    document.getElementById('map-repeater-search-status').textContent =
-      `${pendingMapRepeater.name || pendingMapRepeater.id.slice(0, 6)}: derzeit nicht auf der Karte verfügbar (keine aktuelle Kartenposition).`;
+    document.getElementById('map-repeater-search-status').textContent = mapHistoricalHidden(pendingMapRepeater.id)
+      ? 'Historischer Repeater ausgeblendet. „Historische Repeater anzeigen“ aktivieren.'
+      : `${pendingMapRepeater.name || pendingMapRepeater.id.slice(0, 6)}: derzeit nicht auf der Karte verfügbar (keine aktuelle Kartenposition).`;
     pendingMapRepeater = null;
   }
 }
@@ -178,7 +186,7 @@ function applyPendingMapRepeater(loaded = false) {
 function openMapRepeater(identity, name = '') {
   pendingMapRepeater = {id: identity, name};
   selectTab(document.getElementById('tab-map'));
-  applyPendingMapRepeater();
+  applyPendingMapRepeater(!!lastMapNodes && !mapLoading);
 }
 
 function mapLinksWanted() {
@@ -210,7 +218,8 @@ function renderMapRepeaterSearch() {
     // Unlocated candidates remain visible so collisions never disappear from search.
     const available = mapMarkers.has(item.public_key);
     button.disabled = !available;
-    if (!available) button.append(text('span', item.unavailable || 'Derzeit nicht auf der Karte verfügbar'));
+    if (!available) button.append(text('span', mapHistoricalHidden(item.public_key)
+      ? 'Ausgeblendet · „Historische Repeater anzeigen“ aktivieren' : item.unavailable || 'Derzeit nicht auf der Karte verfügbar'));
     button.addEventListener('click', () => {
       focusMapRepeater(item.public_key);
     });
@@ -568,9 +577,24 @@ async function loadMapNodes() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
     if (paused) return;
+    lastMapNodes = result;
+    historicalMapKeys = new Set(result.items.filter(item => item.historical).map(item => item.public_key));
+    lastMapNodesTime = new Date().toLocaleTimeString('de-DE');
+    renderMapNodes(result);
+    applyPendingMapRepeater(true);
+  } catch (error) {
+    message.textContent = `Nodes konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; vorhandene Marker bleiben stehen.`;
+  } finally {
+    mapLoading = false;
+  }
+}
+
+function renderMapNodes(result, forceSearch = false) {
     const keys = new Set();
+    const showHistorical = document.getElementById('map-show-historical').checked;
     let geometryChanged = false, appearanceChanged = false;
     for (const item of result.items) {
+      if (item.historical && !showHistorical) continue;
       keys.add(item.public_key);
       let view = mapMarkers.get(item.public_key);
       const signature = JSON.stringify(item);
@@ -633,21 +657,19 @@ async function loadMapNodes() {
     if (geometryChanged) layoutMapNodes();
     else if (appearanceChanged) { mapLayoutVersion++; drawMapNeighbors(); }
     // Do not replace a focused result button during the regular node refresh.
-    if (!document.getElementById('map-repeater-results').contains(document.activeElement)) renderMapRepeaterSearch();
+    if (forceSearch || !document.getElementById('map-repeater-results').contains(document.activeElement)) renderMapRepeaterSearch();
     const historical = result.items.filter(item => item.historical).length;
-    message.textContent = `${mapMarkers.size} Nodes auf der Karte · davon ${historical} historische Repeater · ${result.without_position} ohne bekannte Position · ${result.inactive} insgesamt seit mindestens 4 Wochen nicht gehört · Stand: ${new Date().toLocaleTimeString('de-DE')}`;
-    applyPendingMapRepeater(true);
-  } catch (error) {
-    message.textContent = `Nodes konnten nicht geladen werden: ${error.message}. Erneuter Versuch in 5 Sekunden; vorhandene Marker bleiben stehen.`;
-  } finally {
-    mapLoading = false;
-  }
+    document.getElementById('map-status').textContent = `${mapMarkers.size} Nodes auf der Karte · ${historical} historische Repeater ${showHistorical ? 'eingeblendet' : 'ausgeblendet'} · ${result.without_position} ohne bekannte Position · ${result.inactive} insgesamt seit mindestens 4 Wochen nicht gehört · Stand: ${lastMapNodesTime}`;
 }
 
 for (const legend of document.querySelectorAll('.map-legend[data-node-style]')) {
   legend.prepend(mapNodeSymbol(legend.dataset.nodeStyle));
 }
 document.getElementById('map-fit').addEventListener('click', fitMapNodes);
+document.getElementById('map-show-historical').checked = false;
+document.getElementById('map-show-historical').addEventListener('change', () => {
+  if (lastMapNodes) renderMapNodes(lastMapNodes, true);
+});
 document.getElementById('map-neighbors-reset').addEventListener('click', () => selectMapRepeater(null));
 document.getElementById('map-dx-analysis').addEventListener('click', async () => {
   const identity = selectedMapRepeater;

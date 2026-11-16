@@ -833,7 +833,7 @@ Tastaturfokus zeigen Details, Klick/Touch öffnet ein Popup mit Public Key,
 Koordinaten, Zeitpunkt der Position und erster/letzter Empfangszeit.
 Nodes ohne Position oder mit dem exakten Koordinatenpaar 0/0 werden gezählt,
 aber nicht auf der Karte eingezeichnet. Nodes, deren letzter Empfang mindestens
-28 Tage zurückliegt, werden ebenfalls ausgeblendet und separat gezählt.
+28 Tage zurückliegt, werden standardmäßig ausgeblendet und separat gezählt.
 Maßgeblich ist `last_seen`, also der letzte Empfang eines gültig signierten ADVERTs.
 Alle Einträge bleiben in der Datenbank; bei erneutem Empfang erscheinen Nodes
 mit bekannter Position wieder auf der Karte.
@@ -845,11 +845,14 @@ Aktualisierungen wird die Anordnung automatisch angepasst.
 
 `/api/map-nodes` liefert die innerhalb der letzten 28 Tage gehörten Nodes sowie
 ältere Repeater mit bekannter Position, ohne Seitengrenze und ohne Position 0/0.
-Ältere Repeater bleiben suchbar und anklickbar; `historical: true` kennzeichnet
-ihren letzten bekannten Standort. Die Karte zeigt sie grau mit gestricheltem Rand
-und dem Hinweis „Historischer Standort“. Das bedeutet keine aktuelle Erreichbarkeit.
+`historical: true` kennzeichnet den letzten bekannten Standort älterer Repeater.
+Sie sind auf der Karte standardmäßig ausgeblendet und können über „Historische
+Repeater anzeigen“ eingeblendet werden. Die Suche weist bei ausgeblendeten
+Treffern auf diese Einstellung hin. Eingeblendete Standorte sind anklickbar und
+erscheinen grau mit gestricheltem Rand und dem Hinweis „Historischer Standort“.
+Das bedeutet keine aktuelle Erreichbarkeit.
 `inactive` zählt alle seit mindestens 28 Tagen nicht per ADVERT gehörten Nodes,
-auch die weiterhin dargestellten historischen Repeater; `without_position` zählt
+auch die historischen Repeater; `without_position` zählt
 die berücksichtigten Nodes ohne nutzbare Position. Gültig
 signierte ADVERTs bestimmen Typ und Position; ältere Positionsmeldungen
 überschreiben keine neueren. ADVERTs ohne Koordinaten lassen die letzte bekannte

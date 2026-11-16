@@ -137,12 +137,12 @@
 <button type="button" data-mode="paths" aria-pressed="false">Pfade</button>
 </div>
 
-<div id="map-node-tools" class="map-toolbar"><span class="map-legend repeater" data-node-style="repeater">Repeater</span><span class="map-legend room" data-node-style="room">RoomServer</span><span class="map-legend companion" data-node-style="companion">Companion</span><span class="map-legend other" data-node-style="other">Weitere Nodes</span><button id="map-fit" type="button">Alle Nodes anzeigen</button></div>
+<div id="map-node-tools" class="map-toolbar"><span class="map-legend repeater" data-node-style="repeater">Repeater</span><span class="map-legend room" data-node-style="room">RoomServer</span><span class="map-legend companion" data-node-style="companion">Companion</span><span class="map-legend other" data-node-style="other">Weitere Nodes</span><label><input id="map-show-historical" type="checkbox"> Historische Repeater anzeigen</label><button id="map-fit" type="button">Alle Nodes anzeigen</button></div>
 <p id="map-status" role="status">Noch keine Daten geladen.</p>
 <p id="map-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden. Bitte Internetverbindung prüfen.</p>
 <p id="map-neighbors-status" role="status">Noch keine Verbindungen geladen.</p>
 <section id="map-node-help" class="map-help"><h3>Hinweise zur Karte · Blau: beide Richtungen · Orange: eine Richtung beobachtet</h3>
-<p class="muted">Letzte bekannte Positionen aus gültig signierten ADVERTs · Details mit Maus, Klick oder Touch · Aktualisierung alle 5 Sekunden. Historische Repeater (seit mindestens 4 Wochen kein ADVERT) bleiben suchbar und anklickbar; grau und gestrichelt bedeutet historischer Standort, aktuelle Erreichbarkeit unbekannt. Nodes an identischer Position werden auseinandergezogen; Linien markieren den tatsächlichen Standort.</p>
+<p class="muted">Letzte bekannte Positionen aus gültig signierten ADVERTs · Details mit Maus, Klick oder Touch · Aktualisierung alle 5 Sekunden. Historische Repeater (seit mindestens 4 Wochen kein ADVERT) sind standardmäßig ausgeblendet und bleiben suchbar. Nach dem Einblenden sind sie anklickbar; grau und gestrichelt bedeutet historischer Standort, aktuelle Erreichbarkeit unbekannt. Nodes an identischer Position werden auseinandergezogen; Linien markieren den tatsächlichen Standort.</p>
 <p class="muted">Pfeile zeigen die beobachtete Weiterleitungsrichtung. Blau: beide Richtungen, Orange: nur eine Richtung beobachtet. Dickere Linien bedeuten mehr Beobachtungen; keine Aussage über aktuelle Erreichbarkeit oder Funkqualität. Nur eindeutig zugeordnete Repeater mit sichtbarer Position werden verbunden. Alle Verbindungen mit Suche und Häufigkeiten im Tab „Nachbarn“.</p>
 </section>
 </aside>

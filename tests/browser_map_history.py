@@ -21,26 +21,51 @@ def main():
             def respond(route):
                 route.fulfill(json=dict(items=nodes, repeaters=[
                     dict(public_key=n['public_key'], name=n['name'], historical=n.get('historical', False))
-                    for n in nodes], inactive=1, without_position=0))
+                    for n in nodes] + [dict(public_key='f' * 64, name='Ohne Position', historical=True,
+                                            unavailable='Keine bekannte Position')], inactive=2, without_position=1))
             page.route('**/api/map-nodes', respond)
             page.goto('http://history.test/')
             page.locator('#tab-map').click()
-            expect(page.locator('#node-map .map-marker')).to_have_count(2)
-            expect(page.locator('#node-map .map-historical')).to_have_count(1)
-            expect(page.locator('#node-map .map-historical .map-neighbor-dot')).to_have_css('background-color', 'rgb(102, 114, 124)')
+            checkbox = page.get_by_label('Historische Repeater anzeigen')
+            expect(checkbox).not_to_be_checked()
+            expect(page.locator('#node-map .map-marker')).to_have_count(1)
+            expect(page.locator('#node-map .map-historical')).to_have_count(0)
+            expect(page.locator('#map-status')).to_contain_text('1 historische Repeater ausgeblendet')
             search = page.locator('#map-repeater-search')
+            search.fill('Ohne Position')
+            expect(page.locator('#map-repeater-results button')).to_contain_text('Keine bekannte Position')
             search.fill('fz-zgora-os17')
             result = page.locator('#map-repeater-results button')
-            expect(result).to_be_enabled()
+            expect(result).to_be_disabled()
             expect(result).to_contain_text('Historischer Standort')
+            expect(result).to_contain_text('Historische Repeater anzeigen')
+            # The filter also works immediately when live updates are paused.
+            page.locator('#pause').click()
+            checkbox.check()
+            expect(page.locator('#node-map .map-marker')).to_have_count(2)
+            expect(page.locator('#node-map .map-historical .map-neighbor-dot')).to_have_css('background-color', 'rgb(102, 114, 124)')
+            expect(page.locator('#map-status')).to_contain_text('1 historische Repeater eingeblendet')
+            expect(result).to_be_enabled()
             result.click()
-            popup = page.locator('#node-map .leaflet-popup-content')
+            popup = page.locator('#node-map .leaflet-popup-content').last
             expect(popup).to_contain_text('Historischer Standort')
             expect(popup).to_contain_text('51.935450, 15.527040')
             expect(page.locator('#node-map .map-historical .map-node-symbol')).to_have_css('border-top-style', 'dashed')
             assert page.evaluate('selectedMapRepeater') == old['public_key']
             assert page.evaluate('nodeMap.getZoom()') >= 12
             expect(page.locator('#map-dx-analysis')).to_be_enabled()
+            checkbox.uncheck()
+            expect(page.locator('#node-map .map-historical')).to_have_count(0)
+            expect(page.locator('#map-dx-analysis')).to_be_disabled()
+            assert page.evaluate('selectedMapRepeater') is None
+            # DX navigation explains why a hidden historical location cannot open.
+            page.locator('#tab-dx').click()
+            page.evaluate('(key) => openMapRepeater(key)', old['public_key'])
+            expect(page.locator('#map-repeater-search-status')).to_contain_text('Historischer Repeater ausgeblendet')
+            checkbox.check()
+            expect(result).to_be_enabled()
+            result.click()
+            page.locator('#pause').click()
             page.evaluate('loadMapNodes()')
             expect(popup).to_contain_text('Historischer Standort')
             # The DX-to-Map entry point also opens an old stored location.
@@ -55,11 +80,13 @@ def main():
             expect(page.locator('#node-map .map-historical')).to_have_count(0)
             expect(popup).not_to_contain_text('Historischer Standort')
             assert page.evaluate('selectedMapRepeater') == old['public_key']
+            checkbox.uncheck()
+            assert page.evaluate('mapMarkers.size') == 2
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             assert not errors, errors
             page.close()
         browser.close()
-    print('Historical map: desktop/mobile search, popup, DX navigation and reactivation passed')
+    print('Historical map: desktop/mobile filter, pause, search, DX navigation and reactivation passed')
 
 
 if __name__ == '__main__':
