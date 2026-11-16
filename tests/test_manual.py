@@ -122,12 +122,18 @@ class ManualTests(unittest.TestCase):
         self.cli('delete', KEY)
         self.assertEqual(before, self.real_dump())
 
-    def test_replay_snapshot_is_identical_with_manual_nodes(self):
+    def test_replay_only_changes_visibility_metadata_with_manual_nodes(self):
         with patch('onair_replay.time.time', return_value=1791697200):
             before = replay_response(self.archive.connect)
             self.add()
-            self.assertEqual(before, replay_response(self.archive.connect))
+            after = json.loads(replay_response(self.archive.connect))
+            self.assertEqual(after['bootstrap'].pop('map_repeater_keys'), [KEY])
+            expected = json.loads(before)
+            expected['bootstrap'].pop('map_repeater_keys')
+            self.assertEqual(expected, after)
             self.cli('update', KEY, '--latitude', '53')
-            self.assertEqual(before, replay_response(self.archive.connect))
+            updated = json.loads(replay_response(self.archive.connect))
+            updated['bootstrap'].pop('map_repeater_keys')
+            self.assertEqual(expected, updated)
             self.cli('delete', KEY)
             self.assertEqual(before, replay_response(self.archive.connect))

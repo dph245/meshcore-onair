@@ -150,7 +150,7 @@ function selectMapRepeater(identity) {
 let pendingMapRepeater = null;
 
 function mapHistoricalHidden(identity) {
-  return !document.getElementById('map-show-historical').checked &&
+  return !repeaterMapVisibility.hidden(identity) && !document.getElementById('map-show-historical').checked &&
     historicalMapKeys.has(identity);
 }
 
@@ -176,9 +176,11 @@ function applyPendingMapRepeater(loaded = false) {
     selectMapRepeater(null);
     document.getElementById('map-repeater-search').value = pendingMapRepeater.id;
     renderMapRepeaterSearch();
-    document.getElementById('map-repeater-search-status').textContent = mapHistoricalHidden(pendingMapRepeater.id)
-      ? 'Historischer Repeater ausgeblendet. „Historische Repeater anzeigen“ aktivieren.'
-      : `${pendingMapRepeater.name || pendingMapRepeater.id.slice(0, 6)}: derzeit nicht auf der Karte verfügbar (keine aktuelle Kartenposition).`;
+    document.getElementById('map-repeater-search-status').textContent = repeaterMapVisibility.hidden(pendingMapRepeater.id)
+      ? 'Hash-Präfix-Kollision: Standort ausgeblendet.'
+      : mapHistoricalHidden(pendingMapRepeater.id)
+        ? 'Historischer Repeater ausgeblendet. „Historische Repeater anzeigen“ aktivieren.'
+        : `${pendingMapRepeater.name || pendingMapRepeater.id.slice(0, 6)}: derzeit nicht auf der Karte verfügbar (keine aktuelle Kartenposition).`;
     pendingMapRepeater = null;
   }
 }
@@ -577,6 +579,7 @@ async function loadMapNodes() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
     if (paused) return;
+    repeaterMapVisibility.addKeys(result.map_repeater_keys);
     lastMapNodes = result;
     historicalMapKeys = new Set(result.items.filter(item => item.historical).map(item => item.public_key));
     lastMapNodesTime = new Date().toLocaleTimeString('de-DE');
@@ -594,7 +597,8 @@ function renderMapNodes(result, forceSearch = false) {
     const showHistorical = document.getElementById('map-show-historical').checked;
     let geometryChanged = false, appearanceChanged = false;
     for (const item of result.items) {
-      if (item.historical && !showHistorical) continue;
+      if (repeaterMapVisibility.hidden(item.public_key, item.node_type) ||
+          (item.historical && !showHistorical)) continue;
       keys.add(item.public_key);
       let view = mapMarkers.get(item.public_key);
       const signature = JSON.stringify(item);
@@ -653,7 +657,8 @@ function renderMapNodes(result, forceSearch = false) {
     for (const [key, view] of mapMarkers) {
       if (!keys.has(key)) { view.marker.remove(); view.line?.remove(); mapMarkers.delete(key); geometryChanged = true; }
     }
-    mapRepeaterDirectory = result.repeaters || result.items.filter(item => item.node_type === 2);
+    mapRepeaterDirectory = (result.repeaters || result.items.filter(item => item.node_type === 2)).map(item =>
+      repeaterMapVisibility.hidden(item.public_key) ? {...item, unavailable: 'Hash-Präfix-Kollision: Standort ausgeblendet'} : item);
     if (geometryChanged) layoutMapNodes();
     else if (appearanceChanged) { mapLayoutVersion++; drawMapNeighbors(); }
     // Do not replace a focused result button during the regular node refresh.
@@ -727,3 +732,9 @@ function updateMapMode() {
 }
 document.getElementById('map-link-mode').addEventListener('change', updateMapMode);
 updateMapMode();
+
+repeaterMapVisibility.listeners.add(() => {
+  if (lastMapNodes) renderMapNodes(lastMapNodes, true);
+  // Connection popups are independent Leaflet snapshots and can outlive a line.
+  nodeMap?.closePopup();
+});

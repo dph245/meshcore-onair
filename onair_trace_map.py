@@ -3,6 +3,7 @@ import json
 from onair_payload import decode_payload_details
 from onair_trace import trace_sessions
 from onair_neighbors import distance_km
+from onair_map_visibility import MapVisibility
 
 BATCH = 500
 PAGE = 50
@@ -41,14 +42,21 @@ def detail(db, identity, positions):
     if row is None:
         return None
     row_id, received, raw = row
-    names = dict(db.execute('SELECT public_key,name FROM nodes'))
+    nodes = [dict(public_key=key, name=name, node_type=kind)
+             for key, name, kind in db.execute('SELECT public_key,name,node_type FROM nodes')]
+    manual = [dict(public_key=row[0]) for row in db.execute('SELECT public_key FROM manual_nodes')]
+    visibility = MapVisibility(nodes, manual)
+    names = {node['public_key']: node['name'] for node in nodes}
+    types = {node['public_key']: node['node_type'] for node in nodes}
     sessions, _, _ = trace_sessions([(row_id, received, json.loads(raw))], names)
     if not sessions:
         return None
     item = sessions[0]
-    item.update(source=None, target=None)
+    item.update(source=None, target=None, map_repeater_keys=visibility.repeater_keys)
     for hop in item['hops']:
-        pos = positions.at(hop['public_key'], received) if hop['public_key'] else None
+        hop['node_type'] = types.get(hop['public_key'])
+        pos = (positions.at(hop['public_key'], received)
+               if hop['public_key'] and not visibility.hidden(hop['public_key'], hop['node_type']) else None)
         hop['position'] = pos if distance_km(pos, pos) is not None else None
     return item
 

@@ -1,4 +1,5 @@
-const source = await Deno.readTextFile('static/meshlive.js');
+const visibilitySource = await Deno.readTextFile('static/map-visibility.js');
+const source = visibilitySource + '\n' + await Deno.readTextFile('static/meshlive.js');
 const {MeshLiveReplay, MeshLiveModel, meshLivePhase} = new Function(source.slice(0, source.indexOf('window.MeshLive =')) +
   '; return {MeshLiveReplay, MeshLiveModel, meshLivePhase};')();
 const assert = (ok, message) => { if (!ok) throw Error(message); };

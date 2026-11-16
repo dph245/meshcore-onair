@@ -4,12 +4,12 @@ from math import sin, cos
 from playwright.sync_api import sync_playwright, expect
 from browser_meshlive import route_page, NODES
 
-KEYS = [prefix.ljust(64, '0') for prefix in ['dd4c42a1', 'dd4c42d1', 'dd4c42b1', 'eeeeffff']]
+KEYS = [prefix.ljust(64, '0') for prefix in ['dd4c41a1', 'dd4c42d1', 'dd4c43b1', 'eeeeffff']]
 NAMES = ['Funkfeuer Bridge 02', 'Funkfeuer Ampleben', 'Früherer Kandidat <test>', 'Fernstation']
 NODES = [dict(deepcopy(node), public_key=KEYS[i], name=NAMES[i]) for i, node in enumerate(NODES)]
 NODES[3].update(latitude=-33.9, longitude=151.2)
 DIRECTORY = [dict(public_key=n['public_key'], name=n['name']) for n in NODES]
-DIRECTORY += [dict(public_key='dd4c42c1'.ljust(64, '0'), name='Ohne Position', unavailable='Keine bekannte Kartenposition')]
+DIRECTORY += [dict(public_key='dd4c44c1'.ljust(64, '0'), name='Ohne Position', unavailable='Keine bekannte Kartenposition')]
 LINKS = dict(nodes=[[n['public_key'], n['name']] for n in NODES],
              links=[[0, 1, 10, 7, 3, 100, 4], [1, 2, 8, 8, 0, 101, 3],
                     [0, 3, 2, 0, 2, 102, 16000]], total=3)
@@ -23,7 +23,7 @@ MANUAL_REFRESH = '''
 
 def dense_neighbors(browser, viewports=((1280, 900), (390, 844), (844, 390))):
     # Synthetic identities/topology: counts from the field report, no production data.
-    nodes = [dict(deepcopy(NODES[0]), public_key=f'{i:064x}', name=f'Node {i}',
+    nodes = [dict(deepcopy(NODES[0]), public_key=f'{i:06x}'.ljust(64, '0'), name=f'Node {i}',
                   node_type=2 if i < 250 else 1 + i % 4,
                   latitude=51.5 + cos(i * 2.4) * (0.2 + i % 31 / 31) * 3,
                   longitude=10 + sin(i * 2.4) * (0.2 + i % 31 / 31) * 5)
@@ -43,7 +43,8 @@ def dense_neighbors(browser, viewports=((1280, 900), (390, 844), (844, 390))):
         page.on('pageerror', lambda error: errors.append(str(error)))
         route_page(page, requests)
         page.route('**/api/map-nodes', lambda route: route.fulfill(json=dict(
-            items=nodes, inactive=0, without_position=0)))
+            items=nodes, inactive=0, without_position=0,
+            map_repeater_keys=[item['public_key'] for item in nodes if item['node_type'] == 2])))
         def respond(route):
             calls.append(route.request.url)
             route.fulfill(json=dict(nodes=[[n['public_key'], n['name']] for n in nodes],
@@ -142,7 +143,8 @@ def refresh_regression(page):
     page.wait_for_function('!nodeMap._animatingZoom')
     payload = deepcopy(NODES)
     page.route('**/api/map-nodes', lambda route: route.fulfill(json=dict(
-        items=payload, repeaters=DIRECTORY, inactive=0, without_position=1)))
+        items=payload, repeaters=DIRECTORY, inactive=0, without_position=1,
+        map_repeater_keys=[item['public_key'] for item in DIRECTORY])))
     page.evaluate('''() => {
       window.layoutCalls = 0; window.linkBuilds = 0;
       window.linkAdds = 0; window.linkRemoves = 0; window.markerMoves = 0;
@@ -229,7 +231,8 @@ def main():
             route_page(page, requests)
             page.add_init_script("localStorage.setItem('onair-map-neighbors', 'true')")
             page.route('**/api/map-nodes', lambda route: route.fulfill(json=dict(
-                items=NODES, repeaters=DIRECTORY, inactive=0, without_position=1)))
+                items=NODES, repeaters=DIRECTORY, inactive=0, without_position=1,
+                map_repeater_keys=[item['public_key'] for item in DIRECTORY])))
             link_calls = []
             def links(route):
                 link_calls.append(route.request.url)
@@ -242,9 +245,9 @@ def main():
             assert page.evaluate('neighborLayer.getLayers().length') == 0
             assert not link_calls, 'No initial complete link request'
             assert page.locator('#map-repeater-search').bounding_box()['y'] < page.locator('#node-map').bounding_box()['y']
-            # Search must expose all colliding full keys, without choosing one.
+            # Search must expose every prefix candidate, including unlocated identities.
             search = page.locator('#map-repeater-search')
-            search.fill('DD4C42')
+            search.fill('DD4C4')
             expect(page.locator('#map-repeater-results button')).to_have_count(4)
             expect(page.locator('#map-repeater-results button').last).to_be_disabled()
             assert page.locator('#map-repeater-results test').count() == 0
@@ -311,6 +314,7 @@ def main():
             expect(page.locator('#node-map .map-repeater-selected')).to_have_count(1)
             # Explicit refresh must preserve selection and highlighting.
             page.evaluate('loadMapNodes()')
+            page.wait_for_function('!mapLoading')
             assert page.evaluate('selectedMapRepeater') == KEYS[3]
             if width == 1280:
                 page.evaluate('''() => { mapRepeaterDirectory = Array.from({length: 35}, (_, i) => ({

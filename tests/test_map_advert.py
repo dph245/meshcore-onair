@@ -80,16 +80,13 @@ class MapAdvertTests(unittest.TestCase):
                            (prefix.ljust(64, '0'), name, stamp, lat, lon))
         with patch('onair_archive.time.time', return_value=now):
             result = archive.map_nodes()
-        self.assertEqual(len(result['items']), 2)
+        self.assertEqual(result['items'], [])
         self.assertEqual(len(result['repeaters']), 3)
         by_name = {item['name']: item for item in result['repeaters']}
-        self.assertIsNone(by_name['Bridge']['unavailable'])
-        self.assertIn('Kartenposition', by_name['Ampleben']['unavailable'])
-        self.assertIsNone(by_name['Früher']['unavailable'])
+        self.assertIn('Hash-Präfix-Kollision', by_name['Bridge']['unavailable'])
+        self.assertIn('Hash-Präfix-Kollision', by_name['Ampleben']['unavailable'])
+        self.assertIn('Hash-Präfix-Kollision', by_name['Früher']['unavailable'])
         self.assertTrue(by_name['Früher']['historical'])
-        mapped = {item['name']: item for item in result['items']}
-        self.assertTrue(mapped['Früher']['historical'])
-        self.assertFalse(mapped['Bridge']['historical'])
 
     def test_historical_repeaters_keep_only_real_positions_and_existing_age_boundary(self):
         archive = Archive(self.path)
@@ -104,7 +101,7 @@ class MapAdvertTests(unittest.TestCase):
         with archive.connect() as db, db:
             for i, (name, kind, lat, lon, stamp) in enumerate(candidates):
                 db.execute('INSERT INTO nodes(public_key,name,node_type,advert_time,first_seen,last_seen,latitude,longitude) VALUES(?,?,?,0,0,?,?,?)',
-                           (f'{i:064x}', name, kind, stamp, lat, lon))
+                           (f'{i:06x}'.ljust(64, '0'), name, kind, stamp, lat, lon))
         with patch('onair_archive.time.time', return_value=now):
             result = archive.map_nodes()
         self.assertEqual([item['name'] for item in result['items']],

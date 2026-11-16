@@ -11,10 +11,11 @@ class TraceMapTests(unittest.TestCase):
         self.db = sqlite3.connect(':memory:')
         self.db.executescript('''CREATE TABLE packets(id INTEGER PRIMARY KEY, received REAL, kind TEXT, packet_json TEXT);
             CREATE INDEX packets_kind_id ON packets(kind,id);
-            CREATE TABLE nodes(public_key TEXT, name TEXT);''')
+            CREATE TABLE nodes(public_key TEXT, name TEXT, node_type INTEGER DEFAULT 2);
+            CREATE TABLE manual_nodes(public_key TEXT);''')
         self.addCleanup(self.db.close)
         self.a, self.b = 'aa' + '00'*31, 'bb' + '00'*31
-        self.db.executemany('INSERT INTO nodes VALUES(?,?)', [(self.a, 'A'), (self.b, 'B')])
+        self.db.executemany('INSERT INTO nodes(public_key,name) VALUES(?,?)', [(self.a, 'A'), (self.b, 'B')])
 
     def add(self, stamp, packet, kind='TRACE'):
         return self.db.execute('INSERT INTO packets(received,kind,packet_json) VALUES(?,?,?)',
@@ -62,7 +63,7 @@ class TraceMapTests(unittest.TestCase):
         self.assertIn('packets_kind_id', plan)
 
     def test_ambiguity_and_no_future_positions(self):
-        self.db.execute('INSERT INTO nodes VALUES(?,?)', ('aa'+'11'*31, 'Collision'))
+        self.db.execute('INSERT INTO nodes(public_key,name) VALUES(?,?)', ('aa'+'11'*31, 'Collision'))
         identity = self.add(1, reception(snrs=(1,2)))
         self.advert(2, self.b, 51)
         item = detail(self.db, identity, Positions(self.db, 0, 10))

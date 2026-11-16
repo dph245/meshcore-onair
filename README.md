@@ -940,6 +940,19 @@ CONTROL-Empfänge im Zeitraum, und zeigt maximal 100 Gruppen. Begrenzungen werde
 angezeigt. Fehlende Antworten sind kein Offline-Nachweis. API: `/api/discovery`
 mit `hours=1..168` und `limit=1..100`.
 
+### Kartenfilter für kollidierende Repeater-Präfixe
+
+Mindestens zwei unterschiedliche Repeater-Public-Keys mit identischen ersten drei
+Bytes (sechs Hex-Zeichen, unabhängig von Groß-/Kleinschreibung) blenden alle
+betroffenen Repeater aus Hauptkarte, MeshLive/Replay und TRACE aus. Historische,
+positionslose und manuell bekannte Repeater zählen mit; wiederholte ADVERTs
+desselben Keys zählen nur einmal. Andere Node-Typen bleiben unbeeinflusst.
+Marker, Verbindungslinien und geografische Tooltips werden gemeinsam entfernt.
+Pakete, Node-Datensätze und Empfangs-/RSSI-/SNR-Auswertungen bleiben erhalten.
+Neue gültige ADVERTs aktualisieren die gemeinsame Kartenregel auch per WebSocket;
+einmal gelernte Kollisionen bleiben bis zum Neuladen der Seite gesperrt.
+Details und Testnachweise: [Kartenfilter](docs/map-visibility.md).
+
 ### MeshLive · animierte Karte
 
 **MeshLive** ergänzt einen eigenen Tab. Die textbasierte **Live**-Ansicht mit ihren
@@ -1026,7 +1039,7 @@ Lokale Tests:
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
-deno run --allow-read=static/meshlive.js tests/test_meshlive_ui.js
+deno run --allow-read=static tests/test_meshlive_ui.js
 # Python-Umgebung mit Playwright und lokalem /usr/bin/chromium:
 python tests/browser_meshlive.py
 # Optional: textbasierte Liveansicht zusätzlich gegen einen Git-Stand vergleichen:
@@ -1124,7 +1137,7 @@ Zusätzliche lokale Tests:
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -p test_replay.py -v
-deno run --allow-read=static/meshlive.js tests/test_replay_ui.js
+deno run --allow-read=static tests/test_replay_ui.js
 # Python-Umgebung mit Playwright und lokalem Chromium, ausschließlich simulierte Daten:
 python tests/browser_replay.py
 python tests/browser_meshlive.py --compare-ref HEAD

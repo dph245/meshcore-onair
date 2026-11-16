@@ -1,5 +1,6 @@
 // Pure event/model tests: no server, MQTT, timers or browser needed.
-const source = await Deno.readTextFile('static/meshlive.js');
+const visibilitySource = await Deno.readTextFile('static/map-visibility.js');
+const source = visibilitySource + '\n' + await Deno.readTextFile('static/meshlive.js');
 const {MeshLiveModel, meshLivePhase, MESH_LIVE} = new Function(
   source.slice(0, source.indexOf('window.MeshLive =')) + '\nreturn {MeshLiveModel, meshLivePhase, MESH_LIVE};')();
 const assert = (ok, message) => { if (!ok) throw Error(message); };

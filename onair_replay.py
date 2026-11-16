@@ -2,6 +2,7 @@
 import json
 import time
 from datetime import datetime, timezone
+from onair_map_visibility import MapVisibility
 
 WINDOW_SECONDS = 600
 MAX_EVENTS = 5000
@@ -70,9 +71,10 @@ def replay_response(connect):
                 raise ReplayLimitError('Mehr als 5.000 Empfänge in zehn Minuten. Replay wurde nicht gestartet; es wurde nichts abgeschnitten.')
             events.append(charge(dict(id=packet_id, received=received, packet=decode(raw, received))))
 
-        nodes, uncertain = [], set()
+        nodes, uncertain, identities = [], set(), []
         for row in db.execute('SELECT ' + ','.join(NODE_COLUMNS) + ' FROM nodes'):
             node = dict(zip(NODE_COLUMNS, row))
+            identities.append(dict(public_key=node['public_key'], node_type=node['node_type']))
             # The device's position_time alone cannot prove when we learned a position.
             if node['last_seen'] >= start:
                 uncertain.add(node['public_key'])
@@ -106,12 +108,15 @@ def replay_response(connect):
                         'decoded': {'advert': advert, 'advert_status': None}}
                 seeds.append((received, packet_id, charge(seed)))
         seeds.sort(key=lambda row: (row[0], row[1]))
+        manual = [dict(public_key=row[0]) for row in db.execute('SELECT public_key FROM manual_nodes')]
+        map_repeater_keys = charge(MapVisibility(identities, manual).repeater_keys)
         db.set_progress_handler(None, 0)
 
     body = encode(dict(window_start=start, window_end=end, speed=10,
                        archive_latest_received=latest[0] if latest else None,
                        events=events,
-                       bootstrap=dict(nodes=nodes, tokens=tokens, seed_packets=[row[2] for row in seeds]),
+                       bootstrap=dict(nodes=nodes, tokens=tokens, map_repeater_keys=map_repeater_keys,
+                                      seed_packets=[row[2] for row in seeds]),
                        seed_adverts_scanned=scanned, seed_scan_limited=seed_limited))
     if len(body) > MAX_RESPONSE_BYTES:
         raise ReplayLimitError('Replay überschreitet das Antwortlimit von 4 MiB. Es wurde nichts abgeschnitten.')

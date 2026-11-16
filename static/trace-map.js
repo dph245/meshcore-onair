@@ -3,6 +3,7 @@
 function traceMapSnrSegments(hops) {
   const sections = new Map();
   const valid = hop => hop && !hop.ambiguous && hop.position &&
+    !repeaterMapVisibility.hidden(hop.public_key, hop.node_type) &&
     Number.isFinite(hop.position.latitude) && Number.isFinite(hop.position.longitude);
   const identity = hop => hop.public_key || hop.hash;
   for (let i = 1; i < hops.length; i++) {
@@ -32,7 +33,8 @@ let traceMap;
   const selected = new Map();
   let activeGroup, receptionPage = 0;
   const el = id => document.getElementById(`map-trace-${id}`);
-  const position = hop => hop.position && [hop.position.latitude, hop.position.longitude];
+  const position = hop => !repeaterMapVisibility.hidden(hop.public_key, hop.node_type) &&
+    hop.position && [hop.position.latitude, hop.position.longitude];
   const routes = new Map(), labelViews = new WeakMap();
   let drawFrame = null;
   function scheduleDraw() {
@@ -74,7 +76,7 @@ let traceMap;
     }
   }
   function routeView(item) {
-    const view = {item, markers: [], segments: [], labels: []};
+    const view = {item, visibilityVersion: repeaterMapVisibility.version, markers: [], segments: [], labels: []};
     item.hops.forEach((hop, i) => {
       const point = position(hop);
       if (!point) return;
@@ -93,7 +95,7 @@ let traceMap;
     if (document.getElementById('panel-trace').hidden || document.getElementById('map-traces').hidden) return;
     if (!layer) layer = L.layerGroup().addTo(traceMap);
     for (const [id, view] of routes) {
-      if (selected.get(id) === view.item) continue;
+      if (selected.get(id) === view.item && view.visibilityVersion === repeaterMapVisibility.version) continue;
       removeRoute(view);
       routes.delete(id);
     }
@@ -218,7 +220,7 @@ let traceMap;
       card.append(text('h3', `${index ? 'Orange' : 'Blau'} · #${item.id} · ${new Date(item.first_seen * 1000).toLocaleString('de-DE')}`),
         text('p', `Quelle: unbekannt · Ziel: nicht gesichert · ${item.hops.length} Routen-Hops · ${item.observed_hops} mit SNR`));
       const list = text('ol', '');
-      item.hops.forEach(hop => list.append(text('li', `${traceNode(hop)} · ${hop.position ? 'Position aus früherem ADVERT' : 'Historische Position unbekannt'} · SNR: ${hop.snr_min == null ? 'nicht mitgehört' : hop.snr_min + ' dB'}`)));
+      item.hops.forEach(hop => list.append(text('li', `${traceNode(hop)} · ${position(hop) ? 'Position aus früherem ADVERT' : 'Historische Position unbekannt oder ausgeblendet'} · SNR: ${hop.snr_min == null ? 'nicht mitgehört' : hop.snr_min + ' dB'}`)));
       const remove = text('button', 'Auswahl entfernen');
       remove.type = 'button';
       remove.addEventListener('click', () => { selected.delete(item.id); details();
@@ -240,6 +242,7 @@ let traceMap;
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result = await response.json();
       if (current !== version) return;
+      repeaterMapVisibility.addKeys(result.map_repeater_keys);
       if (selected.size >= 2) { checkbox.checked = false; return; }
       selected.set(item.id, result); details();
       const points = [...selected.values()].flatMap(v => v.hops.map(position).filter(Boolean));
@@ -357,6 +360,7 @@ let traceMap;
     for (const field of ['start', 'end']) el(field).disabled = el('period').value !== 'custom';
   });
   el('start').disabled = el('end').disabled = true;
+  repeaterMapVisibility.listeners.add(() => { details(); traceMap?.closePopup(); });
   window.showTraceMap = function() {
     if (!window.L) {
       el('status').textContent = 'Kartenbibliothek konnte nicht geladen werden. Bitte Seite neu laden.';

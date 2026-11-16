@@ -9,6 +9,7 @@ const MESH_REPLAY = Object.freeze({SPEED: 10, WINDOW_MS: 600000, MAX_EVENTS: 500
 
 class MeshLiveModel {
   constructor() {
+    this.visibility = new RepeaterMapVisibility();
     this.nodes = new Map();
     this.manualNodes = new Map();
     this.hopTokens = new Set();
@@ -63,15 +64,20 @@ class MeshLiveModel {
       }
     }
     this.nodes.set(key, node);
+    if (node.node_type === 2) this.visibility.addKeys([key]);
+    this.hideCollidingAnimations();
     return key;
   }
 
   bootstrap(data) {
+    this.visibility.addKeys(data.map_repeater_keys);
     // Merge instead of replacing: ADVERTs can arrive while the HTTP request runs.
     for (const node of data.nodes || []) this.mergeNode(node);
     for (const token of data.tokens || []) this.hopTokens.add(token);
     // Manual data is an authoritative snapshot, not observations to merge forever.
     this.manualNodes = new Map((data.manual_nodes || []).map(n => [n.public_key.toLowerCase(), n]));
+    this.visibility.addKeys([...this.manualNodes.keys()].filter(key => !this.nodes.has(key) || this.nodes.get(key).node_type === 2));
+    this.hideCollidingAnimations();
     this.prefixes.clear(); this.terminals.clear();
     for (const key of this.nodeKeys()) this.identity(key);
     for (const token of this.hopTokens) this.identity(token);
@@ -113,9 +119,20 @@ class MeshLiveModel {
       first_seen: received, last_seen: received});
   }
 
+  hideCollidingAnimations() {
+    this.active = this.active.filter(event => !this.visibility.hidden(event.source, this.node(event.source)?.node_type) &&
+      !this.visibility.hidden(event.target, this.node(event.target)?.node_type));
+  }
+
+  changedKeys(keys) {
+    for (const key of this.visibility.changed) keys.add(key);
+    this.visibility.changed.clear();
+    return keys;
+  }
+
   position(key, wallTime) {
     const node = this.node(key);
-    if (!node || !Number.isFinite(node.latitude) || !Number.isFinite(node.longitude) ||
+    if (!node || this.visibility.hidden(key, node.node_type) || !Number.isFinite(node.latitude) || !Number.isFinite(node.longitude) ||
         Math.abs(node.latitude) > 90 || Math.abs(node.longitude) > 180 ||
         (node.latitude === 0 && node.longitude === 0) ||
         (node.position_source !== 'manual' &&
@@ -360,7 +377,11 @@ window.MeshLive = (() => {
       if (!response.ok) throw Error(data.detail || `HTTP ${response.status}`);
       const next = new MeshLiveReplay(data, performance.now());
       if (!data.events.length) { endReplay('Keine archivierten Empfänge in den letzten zehn Minuten.'); return; }
-      replay = next; model = replay.model; mode = 'replay'; ready = true;
+      repeaterMapVisibility.addKeys(data.bootstrap.map_repeater_keys);
+      replay = next; model = replay.model;
+      model.visibility.addKeys(repeaterMapVisibility.keys);
+      model.hideCollidingAnimations();
+      mode = 'replay'; ready = true;
       packetTime = null;
       for (const kind of ['observed', 'reconstructed']) model[kind] = element(kind).checked;
       replay.paused = true;
@@ -402,6 +423,7 @@ window.MeshLive = (() => {
     if (!visible() || !ready || (mode === 'live' && !running())) return;
     if (replay) {
       const changed = replay.advance(now);
+      model.changedKeys(changed);
       if (changed.size) renderNodes(changed);
       replayProgress();
       if (replay.finished(now)) { endReplay('Replay beendet. Zurück zu Live, ohne Nachspielen.'); return; }
@@ -493,7 +515,10 @@ window.MeshLive = (() => {
       if (!response.ok) throw Error(`HTTP ${response.status}`);
       const data = await response.json();
       if (controller !== request || !visible() || mode !== 'live') return;
+      repeaterMapVisibility.addKeys(data.map_repeater_keys);
       model.bootstrap(data);
+      model.visibility.addKeys(repeaterMapVisibility.keys);
+      model.hideCollidingAnimations();
       resetMarkers();
       renderNodes();
       ready = true; needsRefresh = false;
@@ -656,6 +681,7 @@ window.MeshLive = (() => {
         if (key) changed.add(key);
       }
       for (const packet of fresh) model.ingest(packet, now, wallTime, running());
+      model.changedKeys(changed);
       if (changed.size) renderNodes(changed);
       // Expire inactive nodes without a polling query or a permanent timer.
       if (packetTime == null || now - packetTime > 60000) { renderNodes(); packetTime = now; }
@@ -665,5 +691,16 @@ window.MeshLive = (() => {
       clear(); error = `MeshLive: ${cause.message}`; status();
     }
   }
+  repeaterMapVisibility.listeners.add(() => {
+    if (!model) return;
+    model.visibility.addKeys(repeaterMapVisibility.keys);
+    model.hideCollidingAnimations();
+    if (map) {
+      renderNodes();
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      status();
+      schedule(true);
+    }
+  });
   return {select, receive};
 })();

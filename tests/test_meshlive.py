@@ -59,8 +59,8 @@ class MeshLiveTests(unittest.TestCase):
                     patch('fastapi.routing.run_in_threadpool', run_endpoint):
                 old = asyncio.run(get(b''))
                 self.assertEqual(old[0]['status'], 200)
-                self.assertEqual(json.loads(old[1]['body']), {'items': [], 'repeaters': [], 'inactive': 0, 'without_position': 0})
+                self.assertEqual(json.loads(old[1]['body']), {'items': [], 'repeaters': [], 'inactive': 0, 'without_position': 0, 'map_repeater_keys': []})
                 mesh = asyncio.run(get(b'mesh_live=true'))
                 self.assertEqual(mesh[0]['status'], 200)
-                self.assertEqual(json.loads(mesh[1]['body']), {'nodes': [], 'tokens': [], 'manual_nodes': []})
+                self.assertEqual(json.loads(mesh[1]['body']), {'nodes': [], 'tokens': [], 'manual_nodes': [], 'map_repeater_keys': []})
                 self.assertEqual(asyncio.run(get(b'mesh_live=invalid'))[0]['status'], 422)

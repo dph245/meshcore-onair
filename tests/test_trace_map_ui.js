@@ -1,4 +1,5 @@
-const source = await Deno.readTextFile('static/trace-map.js');
+const visibilitySource = await Deno.readTextFile('static/map-visibility.js');
+const source = visibilitySource + '\n' + await Deno.readTextFile('static/trace-map.js');
 const {segments, format} = new Function(`${source.split('// Historical observations')[0]}; return {segments: traceMapSnrSegments, format: traceMapSnrText}`)();
 const equal = (actual, expected) => { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${JSON.stringify(actual)} != ${JSON.stringify(expected)}`); };
 const hop = (hash, snr, extra = {}) => ({hash, public_key: hash.repeat(32), snr_min: snr, snr_max: snr,

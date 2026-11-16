@@ -13,7 +13,8 @@ globalThis.document = {
 globalThis.text = (_, value) => Object.assign(new Element(), {textContent:value});
 globalThis.setInterval = () => {};
 globalThis.paused = false;
-const source = await Deno.readTextFile('static/map.js');
+const visibilitySource = await Deno.readTextFile('static/map-visibility.js');
+const source = visibilitySource + '\n' + await Deno.readTextFile('static/map.js');
 await new (Object.getPrototypeOf(async function(){}).constructor)(`${source}
 const assert = (ok, message) => { if (!ok) throw Error(message); };
 const page = {items:[], page:0, total:0, total_all:25, one_way_total:4};

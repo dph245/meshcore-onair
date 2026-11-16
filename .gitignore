@@ -65,3 +65,7 @@ tests/*
 
 !tests/test_repeater_history.py
 !tests/browser_repeater_history.py
+
+!tests/test_map_visibility.py
+!tests/test_map_visibility_ui.js
+!tests/browser_map_visibility.py

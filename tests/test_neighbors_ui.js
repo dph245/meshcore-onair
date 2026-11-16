@@ -39,7 +39,8 @@ globalThis.L = {
     addTo() { lines.push(this); return this; }
   }),
 };
-const source = await Deno.readTextFile('static/map.js');
+const visibilitySource = await Deno.readTextFile('static/map-visibility.js');
+const source = visibilitySource + '\n' + await Deno.readTextFile('static/map.js');
 new Function('lines', 'getPopup', `${source}
 const assert = (ok, message) => { if (!ok) throw Error(message); };
 const sample = {name:'Sender', public_key:'aabb', advert_path:{received:123, origin:'<Observer>',

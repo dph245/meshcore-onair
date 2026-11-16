@@ -472,6 +472,7 @@ function connect() {
     for (const id of expanded) if (!groups.has(id)) expanded.delete(id);
     status = data.status || status;
     connection(); render(false, changedIds);
+    repeaterMapVisibility.receive(data);
     window.MeshLive?.receive(data);
   };
   stream.onclose = () => { connection(); setTimeout(connect, 2000); };

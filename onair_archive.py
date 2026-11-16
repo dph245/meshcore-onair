@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime
 from onair_rf_neighbors import topic_identity, parse_report
 from onair_prefixes import unique_prefix
+from onair_map_visibility import MapVisibility
 from onair_repeaters import (record_repeater, repeater_summary, repeater_token,
                              record_repeater_observer, attach_observer_signals)
 from onair_scopes import scope_label
@@ -486,7 +487,8 @@ class Archive:
             tokens = [row[0] for row in db.execute('''SELECT token FROM repeater_receptions
                 UNION SELECT source FROM repeater_pairs UNION SELECT target FROM repeater_pairs''')]
             manual = [dict(row) for row in db.execute('SELECT * FROM manual_nodes ORDER BY public_key')]
-        return {'nodes': nodes, 'tokens': tokens, 'manual_nodes': manual}
+        return {'nodes': nodes, 'tokens': tokens, 'manual_nodes': manual,
+                'map_repeater_keys': MapVisibility(nodes, manual).repeater_keys}
 
     def mesh_live_replay(self):
         from onair_replay import replay_response
@@ -495,8 +497,11 @@ class Archive:
     def map_nodes(self):
         with self.connect() as db:
             db.row_factory = sqlite3.Row
+            db.execute('BEGIN')
             rows = db.execute('''SELECT nodes.*, reception FROM nodes
                 LEFT JOIN node_advert_paths USING(public_key) ORDER BY public_key''').fetchall()
+            manual = [dict(row) for row in db.execute('SELECT public_key FROM manual_nodes')]
+        visibility = MapVisibility(rows, manual)
         prefixes = {}
         for row in rows:
             for length in range(2, len(row['public_key']) + 1, 2):
@@ -514,7 +519,7 @@ class Archive:
             if (row['latitude'] is None or row['longitude'] is None or
                   (row['latitude'] == 0 and row['longitude'] == 0)):
                 without_position += 1
-            else:
+            elif not visibility.hidden(row['public_key'], row['node_type']):
                 item = dict(row)
                 item['historical'] = historical
                 raw = item.pop('reception')
@@ -532,12 +537,14 @@ class Archive:
         # including identities excluded from marker display by the existing rules.
         visible = {item['public_key'] for item in items}
         repeaters = [dict(public_key=row['public_key'], name=row['name'],
-                          unavailable=None if row['public_key'] in visible else
-                          'Keine bekannte Kartenposition',
+                          unavailable=('Hash-Präfix-Kollision: Standort ausgeblendet'
+                                       if visibility.hidden(row['public_key']) else
+                                       None if row['public_key'] in visible else 'Keine bekannte Kartenposition'),
                           historical=row['last_seen'] <= cutoff)
                      for row in rows if row['node_type'] == 2]
         return {'items': items, 'repeaters': repeaters,
-                'without_position': without_position, 'inactive': inactive}
+                'without_position': without_position, 'inactive': inactive,
+                'map_repeater_keys': visibility.repeater_keys}
 
     def neighbors(self):
         with self.connect() as db, db:
