@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime
 from onair_rf_neighbors import topic_identity, parse_report
 from onair_prefixes import unique_prefix
+from onair_prefix_explorer import PrefixExplorer
 from onair_map_visibility import MapVisibility
 from onair_repeaters import (record_repeater, repeater_summary, repeater_token,
                              record_repeater_observer, attach_observer_signals)
@@ -62,6 +63,7 @@ class Archive:
         self._neighbors_expires = 0
         self._distance_lock = Lock()
         self._distance_cache = OrderedDict()
+        self.prefix_explorer = PrefixExplorer(self.connect)
         self.position_backup = backup_before_migration(self.path)
         with self.connect() as db:
             db.execute('PRAGMA journal_mode=WAL')

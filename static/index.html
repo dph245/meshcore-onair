@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map-visibility.js" defer></script><script src="/static/map.js" defer></script><script src="/static/trace-map.js" defer></script><script src="/static/distance.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/trace.js" defer></script><script src="/static/meshlive-effects.js" defer></script><script src="/static/meshlive.js" defer></script><script src="/static/rf-neighbors.js" defer></script><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>MeshCore OnAir</title><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/static/style.css"><script src="/static/vendor/leaflet/leaflet.js" defer></script><script src="/static/map-visibility.js" defer></script><script src="/static/map.js" defer></script><script src="/static/trace-map.js" defer></script><script src="/static/distance.js" defer></script><script src="/static/noise.js" defer></script><script src="/static/repeaters.js" defer></script><script src="/static/observers.js" defer></script><script src="/static/routes.js" defer></script><script src="/static/discovery.js" defer></script><script src="/static/trace.js" defer></script><script src="/static/meshlive-effects.js" defer></script><script src="/static/meshlive.js" defer></script><script src="/static/rf-neighbors.js" defer></script><script src="/static/prefix-explorer.js" defer></script><script src="/static/app.js" defer></script></head>
 <body>
 <header><h1>MeshCore <span>OnAir</span></h1><span id="connection" role="status">WebSocket verbindet …</span><span id="noise-floor">Noise Floor: —</span><span class="radio">869.618 MHz · BW 62.5 · SF8 · CR4/8</span><button id="theme-toggle" type="button" aria-pressed="false">Lightmode</button></header>
 <div class="toolbar"><span id="counts">Warte auf RX-Pakete …</span><button id="pause" type="button">Ansicht pausieren</button></div>
@@ -15,6 +15,7 @@
 <button id="tab-map" type="button" role="tab" aria-controls="panel-map" aria-selected="false" tabindex="-1">Map</button>
 <button id="tab-neighbors" type="button" role="tab" aria-controls="panel-neighbors" aria-selected="false" tabindex="-1">Nachbarn</button>
 <button id="tab-rf-neighbors" type="button" role="tab" aria-controls="panel-rf-neighbors" aria-selected="false" tabindex="-1">RF-Nachbarn</button>
+<button id="tab-prefix-explorer" type="button" role="tab" aria-controls="panel-prefix-explorer" aria-selected="false" tabindex="-1">Prefix-Explorer</button>
 <button id="tab-dx" type="button" role="tab" aria-controls="panel-dx" aria-selected="false" tabindex="-1">DX</button>
 <button id="tab-routes" type="button" role="tab" aria-controls="panel-routes" aria-selected="false" tabindex="-1">Routen</button>
 <button id="tab-discovery" type="button" role="tab" aria-controls="panel-discovery" aria-selected="false" tabindex="-1">Discovery</button>
@@ -206,6 +207,28 @@
 <p id="rf-neighbor-status" role="status">Noch keine Daten geladen.</p>
 <p class="muted">Der Status beschreibt die Scope-Abfrage. Ein Timeout beweist keine Funkstörung. Leere Scopes nach ausgebliebener Antwort bedeuten keine Scope-Abwesenheit. Fehlende Nachbarn in einem gekürzten Bericht belegen kein Verschwinden. SNR und Hörzeit können aus unterschiedlichen RF-Empfängen stammen.</p>
 <div id="rf-neighbor-results"></div>
+</section>
+<section id="panel-prefix-explorer" class="archive" role="tabpanel" aria-labelledby="tab-prefix-explorer" tabindex="0" hidden>
+<h2>Prefix-Explorer</h2>
+<p class="muted">Eindeutige Repeater aus lokalen, gültig signierten ADVERTs und eindeutig zuordenbaren Empfangstokens. Entfernungen belegen keine Funkstörung. Standorte mit Karten-Sperre bleiben verborgen.</p>
+<form id="prefix-form" class="prefix-controls">
+<label>Zeitraum <select id="prefix-days"><option value="7">Letzte 7 Tage</option><option value="30" selected>Letzte 30 Tage</option><option value="60">Letzte 60 Tage</option><option value="90">Letzte 90 Tage</option><option value="0">Gesamter Datenbestand</option></select></label>
+<label>Hex-Prefix <input id="prefix-search" placeholder="z. B. 777300" maxlength="6" pattern="([0-9a-fA-F]{2}){1,3}" autocomplete="off" spellcheck="false"></label>
+<button type="submit">Suchen</button><button id="prefix-reset" type="button">Übersicht</button>
+<label>Sortierung <select id="prefix-sort"><option value="prefix">Prefix</option><option value="count">Belegung absteigend</option><option value="distance">Entfernung aufsteigend</option></select></label>
+<label>Bezugspunkt suchen (max. 100 Treffer) <input id="prefix-reference-search" placeholder="Repeatername / Public Key" maxlength="128"></label>
+<label>Bezugspunkt <select id="prefix-reference"><option value="">Wolfenbüttel (Zentrum)</option></select></label>
+<label>Umkreis <select id="prefix-radius"><option value="0">Alle</option><option value="25">25 km</option><option value="50">50 km</option><option value="100">100 km</option><option value="250">250 km</option></select></label>
+</form>
+<p id="prefix-status" role="status">Noch keine Daten geladen.</p>
+<div id="prefix-statistics" class="noise-scroll"></div>
+<p id="prefix-busiest"></p>
+<div id="prefix-levels" class="prefix-controls" aria-label="Prefix-Ebenen"></div>
+<h3 id="prefix-heading">1-Byte-Belegung</h3>
+<div id="prefix-heatmap" class="prefix-heatmap" aria-label="Prefix-Belegung"></div>
+<p class="muted">Belegung und Ebenenzähler gelten für den gesamten Zeitraum. Der Umkreisfilter gilt nur für die Repeater-Liste; unbekannte und verborgene Positionen erscheinen bei „Alle“. Kleinster eindeutiger Prefix: volle Bytes im gewählten Zeitraum.</p>
+<div id="prefix-results" class="noise-scroll"></div>
+<button id="prefix-more" type="button" hidden>Weitere 100 Repeater</button>
 </section>
 <section id="panel-dx" class="archive" role="tabpanel" aria-labelledby="tab-dx" tabindex="0" hidden>
 <h2>DX · Fernverbindungen</h2>

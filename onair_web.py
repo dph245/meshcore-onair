@@ -344,6 +344,21 @@ def repeater_history(identity: str = Query(..., pattern='^(?:[0-9a-fA-F]{2}|[0-9
                         headers={'Cache-Control': 'no-store'})
 
 
+@app.get('/api/prefix-explorer')
+def prefix_explorer(days: int = 30,
+                    prefix: str = Query('', max_length=6),
+                    reference: str = Query('', max_length=64),
+                    reference_q: str = Query('', max_length=128),
+                    radius: int = 0,
+                    sort: Literal['prefix', 'count', 'distance'] = 'prefix',
+                    offset: int = Query(0, ge=0, le=10000000)):
+    try:
+        return JSONResponse(app.state.archive.prefix_explorer.query(
+            days, prefix, reference, radius, sort, offset, reference_q=reference_q), headers={'Cache-Control': 'no-store'})
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
 @app.get("/api/nodes")
 def search_nodes(q: str = Query('', max_length=200),
                  after: str | None = Query(None, min_length=64, max_length=64, pattern='^[0-9a-fA-F]{64}$'),

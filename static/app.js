@@ -18,6 +18,7 @@ function selectTab(selected) {
   if (selected.id === 'tab-map') showNodeMap();
   if (selected.id === 'tab-neighbors') loadNeighbors();
   window.RFNeighbors?.select(selected.id === 'tab-rf-neighbors');
+  window.PrefixExplorer?.select(selected.id === 'tab-prefix-explorer');
   if (selected.id === 'tab-routes') loadRouteNodes();
   window.MeshLive?.select(selected.id === 'tab-meshlive');
 }

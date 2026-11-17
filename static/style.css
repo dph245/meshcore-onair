@@ -378,3 +378,16 @@ main, [role="tabpanel"], .noise-scroll, .archive form>label{min-width:0}
 /* Native select popups follow option text width, so labels are compact too. */
 #trace-route{width:100%;min-width:0;max-width:480px}
 .trace-route-description{overflow-wrap:anywhere;line-height:1.6}
+
+/* Prefix Explorer: bounded grid, no canvas or millions of empty combinations. */
+.prefix-controls { display:flex; flex-wrap:wrap; align-items:end; gap:.65rem; margin-bottom:1rem; }
+.prefix-controls label { display:flex; flex-direction:column; gap:.25rem; max-width:100%; }
+.prefix-controls select, .prefix-controls input { max-width:100%; }
+#prefix-reference { width:25rem; }
+.prefix-heatmap { display:grid; grid-template-columns:repeat(16,minmax(0,1fr)); gap:3px; max-width:56rem; }
+.prefix-heatmap button { min-width:0; padding:.55rem 0; font:inherit; font-family:monospace; position:relative; isolation:isolate; }
+.prefix-heatmap button.occupied::before { content:''; position:absolute; inset:0; background:var(--accent); opacity:calc(var(--prefix-intensity) * .4); z-index:-1; border-radius:inherit; }
+#prefix-results td { overflow-wrap:anywhere; max-width:26rem; }
+#prefix-results table { min-width:44rem; }
+#prefix-busiest button { margin:.2rem; }
+@media(max-width:480px) { .prefix-heatmap {gap:2px;grid-template-columns:repeat(8,minmax(0,1fr));} .prefix-heatmap button {font-size:.75rem;padding:.5rem 0;} .prefix-controls label {width:100%;} }

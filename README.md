@@ -1438,3 +1438,12 @@ Teilauswertung. Der Index und die letzten Positionsmeldungen ersetzen keinen
 Beweis des tatsächlichen Standorts eines mobilen Repeaters.
 
 Validierung und Messungen: [Fernverbindungsanalyse](docs/fernverbindungsanalyse.md).
+
+## Prefix-Explorer
+
+Der Tab **Prefix-Explorer** analysiert lokal bekannte Repeater-Public-Keys auf
+1/2/3-Byte-Belegung und Kollisionen. Heatmap, Hex-Suche, Zeiträume (Standard 30
+Tage), paginierte Listen und Luftlinienfilter verwenden ausschließlich das
+vorhandene Archiv. Verborgene Kartenstandorte bleiben auch bei Entfernungen
+und Bezugspunkten geschützt. Details zu Datenbasis, Cache, API und Tests:
+[docs/prefix-explorer.md](docs/prefix-explorer.md).
