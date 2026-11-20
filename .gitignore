@@ -69,6 +69,8 @@ tests/*
 !tests/test_map_visibility.py
 !tests/test_map_visibility_ui.js
 !tests/test_archive_http.py
+!tests/test_archive_stats.py
+!tests/browser_archive_stats.py
 !tests/browser_map_visibility.py
 !tests/test_prefix_explorer.py
 !tests/browser_prefix_explorer.py

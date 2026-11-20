@@ -3,6 +3,7 @@ import json
 import hashlib
 from bisect import insort
 from collections import OrderedDict
+from contextlib import closing
 from heapq import merge
 from itertools import chain, islice
 import logging
@@ -31,6 +32,8 @@ from onair_distance import INDEX_SQL, analyze as analyze_distance, response as d
 from onair_positions import (MODES as POSITION_MODES, backup_before_migration,
                              migrate as migrate_positions, maintain as maintain_positions,
                              evaluate as evaluate_positions)
+
+ARCHIVE_STATS_TTL = 30
 
 
 def database_path():
@@ -63,6 +66,10 @@ class Archive:
         self._neighbors_expires = 0
         self._distance_lock = Lock()
         self._distance_cache = OrderedDict()
+        self._stats_lock = Lock()
+        self._stats_cache = None
+        self._stats_expires = 0
+        self._stats_count = None
         self.prefix_explorer = PrefixExplorer(self.connect)
         self.position_backup = backup_before_migration(self.path)
         with self.connect() as db:
@@ -216,8 +223,57 @@ class Archive:
 
     def connect(self):
         # Connections are owned by their calling thread and explicitly closed below.
-        from contextlib import closing
         return closing(sqlite3.connect(self.path, timeout=5))
+
+    def archive_stats(self):
+        with self._stats_lock:
+            if self._stats_cache is not None and time.monotonic() < self._stats_expires:
+                return self._stats_cache
+            total = recent = size = None
+            try:
+                size = self._database_size()
+            except OSError:
+                pass
+            try:
+                total, recent = self._packet_counts()
+            except (OSError, sqlite3.Error):
+                pass
+            self._stats_cache = dict(total_packets=total, packets_last_24h=recent,
+                                     database_bytes=size)
+            self._stats_expires = time.monotonic() + ARCHIVE_STATS_TTL
+            return self._stats_cache
+
+    def _packet_counts(self):
+        uri = self.path.resolve().as_uri() + '?mode=ro'
+        with closing(sqlite3.connect(uri, uri=True, timeout=1)) as db:
+            db.execute('BEGIN')
+            now = time.time()
+            last_id = db.execute('SELECT MAX(id) FROM packets').fetchone()[0]
+            # OnAir appends packets at increasing IDs. Run manual table changes
+            # with OnAir stopped so the next process starts with a fresh count.
+            if last_id is None:
+                total = 0
+            elif self._stats_count is None or last_id < self._stats_count[1]:
+                total = db.execute('SELECT COUNT(*) FROM packets INDEXED BY packets_received').fetchone()[0]
+            else:
+                total, previous_id = self._stats_count
+                if last_id > previous_id:
+                    total += db.execute('SELECT COUNT(*) FROM packets WHERE id > ?',
+                                        (previous_id,)).fetchone()[0]
+            recent = db.execute('SELECT COUNT(*) FROM packets WHERE received BETWEEN ? AND ?',
+                                (now - 86400, now)).fetchone()[0]
+        self._stats_count = (total, last_id) if last_id is not None else None
+        return total, recent
+
+    def _database_size(self):
+        size = self.path.stat().st_size
+        for suffix in ('-wal', '-shm', '-journal'):
+            try:
+                size += self.path.with_name(self.path.name + suffix).stat().st_size
+            except FileNotFoundError:
+                # SQLite creates and removes sidecars as journal state changes.
+                pass
+        return size
 
     def _load_names(self, db):
         self.names = dict(db.execute('SELECT public_key, name FROM nodes'))

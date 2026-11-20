@@ -244,6 +244,11 @@ def search_archive(q: str = Query('', max_length=200), kind: str = '', channel: 
     return app.state.archive.search(q, kind, channel, observer_hash, since, until, before, limit)
 
 
+@app.get('/api/archive/stats')
+def archive_stats():
+    return JSONResponse(app.state.archive.archive_stats(), headers={'Cache-Control': 'no-store'})
+
+
 @app.get("/api/channels")
 def list_channels():
     return {'channels': list(onair_channels.CHANNELS)}

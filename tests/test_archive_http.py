@@ -52,6 +52,12 @@ class ArchiveHttpTests(unittest.TestCase):
         self.state_patch.start()
         self.addCleanup(self.state_patch.stop)
 
+    def test_archive_stats(self):
+        status, body = asyncio.run(get('/api/archive/stats'))
+        self.assertEqual(status, 200)
+        self.assertEqual(body, dict(total_packets=1, packets_last_24h=1,
+                                    database_bytes=self.archive.path.stat().st_size))
+
     def test_injection_payloads_remain_literal(self):
         async def check():
             for payload in ("' OR 1=1 --", "x' UNION SELECT 1,2 --",

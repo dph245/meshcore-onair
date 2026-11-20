@@ -302,6 +302,14 @@ den Verbindungsstatus. Es werden keine zusätzlichen Messpunkte erzeugt.
 Web- und Terminal-Modus speichern jeden erfolgreich geparsten RX-Empfang inklusive
 Wiederholungen, Raw-Paket, decodierter Inhalte, Pfad und Messwerten. Fehlerhafte
 Raw-Pakete, die der bisherige Decoder verwirft, werden weiterhin nur protokolliert.
+Im Tab **Archiv** zeigt die Archivstatistik gespeicherte Paketempfänge insgesamt
+und innerhalb der letzten 24 Stunden sowie die Dateigröße der Datenbank inklusive
+vorhandener WAL-, SHM- und Journaldateien. Die Anzeige aktualisiert sich alle
+30 Sekunden bei sichtbarem Archiv-Tab. Die Gesamtzahl wird einmal aus dem
+Zeitindex ermittelt und danach um neu hinzugekommene Paketzeilen erhöht.
+Bei manuellen Änderungen an der Pakettabelle OnAir vorher beenden, damit
+beim nächsten Start eine neue Ausgangszählung erfolgt.
+
 Die Datei `onair.sqlite3` wird beim Start neben den Python-Dateien angelegt.
 Ein anderer Speicherort lässt sich für eine spätere SSD-Migration einstellen:
 

@@ -11,6 +11,7 @@ function selectTab(selected) {
   if (selected.id === 'tab-noise') renderNoise((paused ? displayedStatus : status).noise_history || []);
   if (selected.id === 'tab-raw') renderRaw();
   if (selected.id === 'tab-channels' && !channelsReady) loadChannelMessages();
+  if (selected.id === 'tab-archive') loadArchiveStats();
   if (selected.id === 'tab-observers') loadObservers();
   if (selected.id === 'tab-repeaters') loadRepeaters();
   if (selected.id === 'tab-discovery') loadDiscovery();
@@ -558,6 +559,58 @@ const archiveForm = document.getElementById('archive-search');
 const archiveResults = document.getElementById('archive-results');
 const archiveStatus = document.getElementById('archive-status');
 const archiveMore = document.getElementById('archive-more');
+const archivePanel = document.getElementById('panel-archive');
+const archiveStatsNumber = new Intl.NumberFormat('de-DE', {useGrouping: 'always', maximumFractionDigits: 2});
+const archiveStatsFields = {
+  total_packets: document.getElementById('archive-stats-total'),
+  packets_last_24h: document.getElementById('archive-stats-recent'),
+  database_bytes: document.getElementById('archive-stats-size'),
+};
+let archiveStatsLoading = false, archiveStatsTimer;
+
+function renderArchiveStats(stats) {
+  for (const [key, field] of Object.entries(archiveStatsFields)) {
+    const value = stats?.[key];
+    let label = '—';
+    let title = 'Derzeit nicht verfügbar';
+    if (Number.isSafeInteger(value) && value >= 0) {
+      title = '';
+      if (key === 'database_bytes') {
+        const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+        let amount = value, unit = 0;
+        while (amount >= 1024 && unit < units.length - 1) {
+          amount /= 1024;
+          unit++;
+        }
+        label = `${archiveStatsNumber.format(amount)} ${units[unit]}`;
+        title = `${archiveStatsNumber.format(value)} Byte`;
+      } else {
+        label = archiveStatsNumber.format(value);
+      }
+    }
+    if (field.title !== title) field.title = title;
+    if (field.textContent !== label) field.textContent = label;
+  }
+}
+
+async function loadArchiveStats() {
+  if (archivePanel.hidden || document.hidden || archiveStatsLoading) return;
+  clearTimeout(archiveStatsTimer);
+  archiveStatsLoading = true;
+  try {
+    const response = await fetch('/api/archive/stats', {signal: AbortSignal.timeout(10000)});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    renderArchiveStats(await response.json());
+  } catch {
+    renderArchiveStats(null);
+  } finally {
+    archiveStatsLoading = false;
+    archiveStatsTimer = setTimeout(loadArchiveStats, 30000);
+  }
+}
+
+document.addEventListener('visibilitychange', loadArchiveStats);
+
 let archiveQuery = new URLSearchParams(), archiveBefore = null, archiveLoading = false;
 async function searchArchive(more = false) {
   if (archiveLoading) return;
