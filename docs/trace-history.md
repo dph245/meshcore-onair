@@ -258,3 +258,39 @@ for test in tests/test_*ui.js; do deno run --allow-read=static "$test" || exit; 
 und dunkles Theme, Zoom-Beschriftungen, Canvas und Layer-Wiederverwendung,
 Funkprofil- und Zeitfilter, WebSocket-Aktualisierung, Lazy Loading,
 Messgruppenvergleich, Kartenkollisionen sowie die responsiven Ansichten.
+
+### Benchmark-Diagnose nach einem abgebrochenen Lauf
+
+Eine ältere Variante der Standortprüfung verglich den Ausdruck
+`json_extract(…public_key)` direkt mit einer TEXT-Spalte aus einem
+`CROSS JOIN`. SQLite 3.46.1 plante für jeden bewegten Knoten
+`SCAN source.packets USING INDEX packets_advert_key_received`.
+Der Index umfasste rund 233.000 ADVERT-Zeilen.
+Die langsamere Variante wurde auf dem lokalen Archiv mit einem
+3-s-Limit reproduziert und abgebrochen. Die wiederholte Aggregation
+für vier Zeitfenster verstärkt diesen Aufwand.
+
+Die Standortprüfung ermittelt die relevanten bewegten Schlüssel jetzt
+aus der Positionshistorie und übergibt sie getrennt als JSON-Liste.
+SQLite plant dafür `SEARCH source.packets USING INDEX
+packets_advert_key_received (<expr>=?)`. Backfill und Messwertabfrage
+verwenden weiterhin `packets_kind_id` beziehungsweise `trace_sample_time`
+als Bereichssuche. Die Prüfung benötigt keinen neuen Archivindex.
+
+Der Kontrolllauf auf 2.645.802 Paketzeilen unter Schema 18 brauchte
+10,40 s einschließlich 9,20 s Backfill. Die reine SQL-Abfrage im
+Gesamtzeitraum lag bei 1,73 ms im Median. Die vollständige
+Aggregation lag bei 88,95 ms. Der Kontrolllauf lieferte erneut
+8.126 TRACE-Empfänge, 1.042 kartierbare Werte und 106 Linkobjekte.
+Die genaue Abfrage des manuell beendeten Laufs ist mangels eines
+Abschnittsprotokolls offen.
+
+Der Benchmark meldet Fortschritt mit Zeitstempeln auf Standardfehler,
+einschließlich Archivbestand, Batch-Fortschritt und jedem Messdurchlauf.
+Das JSON auf Standardausgabe enthält Laufzeiten je Abschnitt und
+die Gesamtzeit. `--timeout 60` setzt das Standardlimit für den
+gesamten Lauf. SQLite prüft die Deadline auch während einer laufenden
+Abfrage. Beim Timeout endet das Programm mit Code 124. Ctrl+C
+und SIGTERM enden mit 130 beziehungsweise 143. Die temporäre
+Projektion wird in allen drei Fällen aufgeräumt. JSON-Fixtures
+werden erst nach abgeschlossener Messung veröffentlicht.

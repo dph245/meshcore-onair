@@ -21,6 +21,10 @@ ADVERT_POSITIONS = f'''SELECT {KEY_EXPR} AS public_key,
     json_extract(packet_json,'$.decoded.advert.longitude') AS longitude
     FROM packets INDEXED BY packets_advert_key_received WHERE {ADVERT_WHERE}
     AND json_extract(packet_json,'$.decoded.advert.signature_status')='Gültig' '''
+POSITION_CONFLICTS_SQL = '''SELECT DISTINCT public_key FROM trace_advert_positions
+    WHERE public_key IN (SELECT value FROM json_each(?))
+    GROUP BY public_key,stamp
+    HAVING MIN(latitude)<>MAX(latitude) OR MIN(longitude)<>MAX(longitude)'''
 
 
 def migrate(db):
@@ -265,15 +269,17 @@ def position_conflicts(db, keys):
     # so verify only moving keys against the existing per-key ADVERT index.
     if not keys:
         return set()
-    return {key for key, in db.execute('''SELECT DISTINCT public_key FROM trace_advert_positions
-        WHERE public_key IN (
-            SELECT +i.public_key FROM position_state s JOIN position_identity i USING(node_id)
-            WHERE s.generation=? AND i.public_key IN (SELECT value FROM json_each(?))
-            GROUP BY s.node_id
-            HAVING MIN(s.latitude)<>MAX(s.latitude) OR MIN(s.longitude)<>MAX(s.longitude)
-        ) GROUP BY public_key,stamp
-        HAVING MIN(latitude)<>MAX(latitude) OR MIN(longitude)<>MAX(longitude)''',
-        (current_generation(db), json.dumps(sorted(keys))))}
+    moving = [key for key, in db.execute('''SELECT i.public_key
+        FROM position_identity i JOIN position_state s USING(node_id)
+        WHERE i.public_key IN (SELECT value FROM json_each(?)) AND s.generation=?
+        GROUP BY s.node_id
+        HAVING MIN(s.latitude)<>MAX(s.latitude) OR MIN(s.longitude)<>MAX(s.longitude)''',
+        (json.dumps(sorted(keys)), current_generation(db)))]
+    # A direct comparison to a TEXT-affinity column from a JOIN/subquery
+    # can turn the expression index seek into a full index scan in SQLite.
+    if not moving:
+        return set()
+    return {key for key, in db.execute(POSITION_CONFLICTS_SQL, (json.dumps(moving),))}
 
 
 def _repeater_keys(identities, tokens):

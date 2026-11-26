@@ -24,6 +24,11 @@ Einzelwerte werden bei Bedarf geladen.
   SF7/SF8-Messkampagne bleibt ein eigener Sprint.
 - Protokoll, Datenmodell, Einschränkungen, Test- und Messwerte stehen
   in [Historische TRACE-Linkstrecken](docs/trace-history.md).
+- Die Benchmark-Nachprüfung sichert den ADVERT-Indexzugriff der
+  Standortprüfung ab. Der Benchmark meldet Abschnittszeiten und
+  hat ein konfigurierbares Zeitlimit von 60 s. Der Kontrolllauf
+  auf dem lokalen Schema-18-Archiv dauerte 10,40 s. Die vollständige
+  Python-Suite bestand mit 255 Tests.
 
 ## Observer-Radioparameter, Sprint 1
 

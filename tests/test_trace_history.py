@@ -2,8 +2,11 @@ from contextlib import closing
 from datetime import datetime, timezone
 import asyncio
 import json
+import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -12,7 +15,7 @@ from unittest.mock import patch
 from onair_archive import Archive
 from onair_mqtt import build_packet
 from onair_observer_radio import RadioReport, radio_profile_at, record_radio
-from onair_trace_history import backfill_batch, links, measurement, record, status
+from onair_trace_history import POSITION_CONFLICTS_SQL, backfill_batch, links, measurement, record, status
 from onair_web import app
 from test_archive_http import get
 from test_trace import reception
@@ -264,3 +267,56 @@ class TraceHistoryTests(unittest.TestCase):
         self.assertIsNone(reports[1].origin_id)
         self.assertEqual(reports[0].source_at, BASE)
         self.assertTrue(reports[0].mqtt_retained)
+
+    def test_advert_conflict_uses_expression_index_seek_in_attached_archive(self):
+        from tools.benchmark_trace_history import build_projection, connect_source
+
+        other = self.path.with_name('projection.sqlite3')
+        with closing(sqlite3.connect(other)) as db:
+            connect_source(db, self.path)
+            build_projection(db)
+            plan = [description for _, _, _, description in db.execute(
+                'EXPLAIN QUERY PLAN ' + POSITION_CONFLICTS_SQL, (json.dumps([A, B]),))]
+            self.assertTrue(any('SEARCH' in line and 'packets_advert_key_received' in line
+                                for line in plan), plan)
+            self.assertFalse(any('SCAN source.packets' in line for line in plan), plan)
+
+    def test_benchmark_cli_timeout_progress_and_cleanup(self):
+        self.packet(3, (1, 2))
+        root = Path(__file__).resolve().parents[1]
+        temp = self.path.parent / 'scratch'
+        temp.mkdir()
+        fixture = self.path.parent / 'fixtures'
+        command = [sys.executable, str(root / 'tools/benchmark_trace_history.py'),
+                   str(self.path), '--fixture-dir', str(fixture)]
+        env = dict(os.environ, PYTHONPATH=str(root), TMPDIR=str(temp))
+        stopped = subprocess.run(command + ['--timeout', '.06'], env=env, capture_output=True,
+                                 text=True, timeout=5)
+        self.assertEqual(stopped.returncode, 124, stopped.stderr)
+        self.assertIn('Zeitlimit', stopped.stderr)
+        self.assertEqual(stopped.stdout, '')
+        self.assertFalse(fixture.exists())
+        self.assertEqual(list(temp.iterdir()), [])
+
+        completed = subprocess.run(command + ['--timeout', '4'], env=env, capture_output=True,
+                                   text=True, timeout=6, check=True)
+        report = json.loads(completed.stdout)
+        self.assertEqual(report['trace_receptions'], 1)
+        self.assertIn('backfill', report['section_seconds'])
+        self.assertIn('window_all', report['section_seconds'])
+        self.assertIn('fixtures', report['section_seconds'])
+        self.assertIn('Aggregation', completed.stderr)
+        self.assertEqual({path.name for path in fixture.iterdir()},
+                         {f'trace-links-{days}.json' for days in (0, 1, 7, 30)})
+        self.assertEqual(list(temp.iterdir()), [])
+
+    def test_benchmark_deadline_interrupts_running_sql(self):
+        from tools.benchmark_trace_history import Run
+
+        run = Run(.04)
+        with closing(sqlite3.connect(':memory:')) as db, self.assertRaisesRegex(sqlite3.OperationalError, 'interrupted'):
+            db.set_progress_handler(run.sqlite_progress, 10000)
+            with run.section('sql-test', 'SQLite-Deadline prüfen'):
+                db.execute('''WITH RECURSIVE seq(n) AS (
+                    SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<1000000000
+                ) SELECT sum(n) FROM seq''').fetchone()
