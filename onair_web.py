@@ -3,6 +3,7 @@ import asyncio
 import json
 import sqlite3
 from collections import OrderedDict, deque
+from datetime import datetime
 from threading import Lock
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -24,12 +25,21 @@ from onair_assets import VersionedStaticFiles, index_response
 import onair_rf_neighbor_view as rf_neighbor_view
 
 from onair_mqtt import BROKER_HOST, BROKER_PORT, create_client, noise_sample
-from onair_observer_radio import radio_report
+from onair_observer_radio import (MAX_CLOCK_LEAD, observer_identity, radio_report,
+                                  status_origin_id, status_reported_time)
 
 MAX_RAW_PACKETS = 500
 MAX_GROUPS = 500
 MAX_RECEPTIONS = 50
 STATIC = Path(__file__).parent / "static"
+
+
+def contact_time(reported_at, received_at, retained=False):
+    if reported_at is None:
+        return None if retained else received_at
+    if reported_at <= received_at + MAX_CLOCK_LEAD:
+        return min(reported_at, received_at)
+    return None
 
 
 def _encode_websocket_message(message) -> str | Exception:
@@ -74,10 +84,21 @@ class PacketStore:
 class Dashboard:
     def __init__(self, archive=None):
         self.archive = archive
-        self.noise_lock = Lock()
+        self.status_lock = Lock()
         self.noise_history = {}
+        self.latest_noise = {}
+        self.observer_activity = {}
+        self._activity_snapshot = None
         for sample in archive.noise_history() if archive else []:
-            self.noise_history.setdefault(sample.get('origin_id'), deque(maxlen=500)).append(sample)
+            received = status_reported_time({'timestamp': sample['received_at']})
+            reported = status_reported_time({'timestamp': sample.get('status_at')})
+            # Legacy rows have no retain flag. Only a known source time can
+            # restore activity without mistaking a replay for a new contact.
+            observed = contact_time(reported, received, retained=True) if received is not None else None
+            identity = self._record_noise(sample, observed)
+            self._record_contact(identity, sample.get('origin'), observed)
+        for radio in archive.observer_radio_status() if archive else []:
+            self._record_contact(radio['origin_id'], radio.get('origin'), radio['last_confirmed_at'])
         self.store = PacketStore()
         self.incoming = Queue(maxsize=2048)
         self.listeners = {}  # Queue -> whether the client requested reception deltas
@@ -89,12 +110,52 @@ class Dashboard:
 
     def accept_status(self, data):
         sample = noise_sample(data)
-        if sample is not None:
-            with self.noise_lock:
-                self.noise_history.setdefault(sample.get('origin_id'), deque(maxlen=500)).append(sample)
+        received = data.get('_mqtt_received_at')
+        if received is None:
+            received = time.time()
+        observed = contact_time(status_reported_time(data), received, data.get('_mqtt_retained'))
+        identity = status_origin_id(data)
+        with self.status_lock:
+            if sample is not None:
+                self._record_noise(sample, observed)
                 self.noise_floor = sample['noise_floor'] if len(self.noise_history) == 1 else None
+            if data.get('status') != 'offline' and (
+                    identity is not None or sample is not None and not sample.get('origin_id')):
+                self._record_contact(identity or '', data.get('origin'), observed)
         if self.archive is not None:
             self.archive.accept_observer_status(sample, radio_report(data))
+
+    def _record_noise(self, sample, observed):
+        origin_id = sample.get('origin_id')
+        self.noise_history.setdefault(origin_id, deque(maxlen=500)).append(sample)
+        identity = observer_identity(origin_id) or ''
+        previous = self.latest_noise.get(identity)
+        if previous is None or previous[0] is None or (observed is not None and observed >= previous[0]):
+            self.latest_noise[identity] = (observed, sample)
+        return identity
+
+    def _record_contact(self, identity, origin, observed):
+        if observed is None:
+            return
+        # Second resolution matches the age check and coalesces busy RX streams.
+        observed = int(observed)
+        previous = self.observer_activity.get(identity)
+        if previous is not None and observed <= previous['last_contact']:
+            return
+        if isinstance(origin, str) and origin.strip():
+            origin = origin.encode('utf-8', errors='replace').decode('utf-8')
+        else:
+            origin = previous['origin'] if previous else None
+        self.observer_activity[identity] = dict(origin=origin, last_contact=observed)
+        self._activity_snapshot = None
+
+    def accept_reception_contact(self, packet, data):
+        identity = observer_identity(packet.origin_id)
+        if identity is not None:
+            received = datetime.fromisoformat(packet.received_at).timestamp()
+            observed = contact_time(status_reported_time(data), received)
+            with self.status_lock:
+                self._record_contact(identity, packet.origin, observed)
 
     def accept_packet(self, packet):
         # Called from the MQTT thread; no event-loop or browser work here.
@@ -104,15 +165,19 @@ class Dashboard:
             self.dropped += 1
 
     def status(self):
-        with self.noise_lock:
+        with self.status_lock:
             history = [sample for series in self.noise_history.values() for sample in series]
-            observers = [dict(series[-1]) for series in self.noise_history.values()]
+            observers = [sample for _, sample in self.latest_noise.values()]
+            if self._activity_snapshot is None:
+                self._activity_snapshot = self.observer_activity.copy()
+            activity = self._activity_snapshot
         return {"connected": self.connected, "received": self.store.received,
                 "archive": self.archive_status() if hasattr(self, 'archive_status') else None,
                 "noise_floor": self.noise_floor,
                 "noise_history": history,
                 "noise_observers": observers,
                 "radio_observers": self.archive.observer_radio_status() if self.archive else (),
+                "observer_activity": activity,
                 "dropped": self.dropped, "max_groups": MAX_GROUPS,
                 "max_receptions": MAX_RECEPTIONS}
 
@@ -130,16 +195,27 @@ class Dashboard:
         if not self.listeners:
             self._websocket_snapshot = None
 
-    def _broadcast(self, receptions, changed, evictions, status, raw_packets, radio_changed=True):
+    def _broadcast(self, receptions, changed, evictions, status, raw_packets, previous_status):
         # The pump publishes the entire batch without yielding. A snapshot at seq N
         # includes this batch, so the first update following it must be N + 1.
         self.sequence += 1
         self._websocket_snapshot = None
+        if not self.listeners:
+            return
         updates = {}
-        update_status = status
-        if not radio_changed:
-            update_status = status.copy()
-            update_status.pop("radio_observers", None)
+        update_status = status.copy()
+        if previous_status is not None:
+            if status["radio_observers"] is previous_status["radio_observers"]:
+                update_status.pop("radio_observers")
+            previous_activity = previous_status["observer_activity"]
+            activity = status["observer_activity"]
+            changed_activity = ({key: entry for key, entry in activity.items()
+                                 if entry is not previous_activity.get(key)}
+                                if activity is not previous_activity else {})
+            if changed_activity:
+                update_status["observer_activity"] = changed_activity
+            else:
+                update_status.pop("observer_activity")
         for queue, delta in self.listeners.items():
             if queue.full():
                 while not queue.empty():
@@ -180,9 +256,7 @@ class Dashboard:
                     changed.pop(evicted, None)
             status = self.status()
             if receptions or status != previous_status:
-                radio_changed = (previous_status is None or
-                                 status["radio_observers"] is not previous_status["radio_observers"])
-                self._broadcast(receptions, changed, evictions, status, raw_packets, radio_changed)
+                self._broadcast(receptions, changed, evictions, status, raw_packets, previous_status)
                 previous_status = status
             await asyncio.sleep(0.25)
 
@@ -203,7 +277,8 @@ async def lifespan(app):
     pump = None
     try:
         client = create_client(accept_packet, status_sink=dashboard.accept_status,
-                               rf_neighbor_sink=archive.accept_rf_neighbors)
+                               rf_neighbor_sink=archive.accept_rf_neighbors,
+                               reception_contact_sink=dashboard.accept_reception_contact)
         original_connect, original_disconnect = client.on_connect, client.on_disconnect
 
         def connected(*args):

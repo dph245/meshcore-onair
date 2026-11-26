@@ -598,14 +598,19 @@ def on_message(client, userdata, msg):
             status_sink(data)
 
     elif msg.topic.endswith("/packets"):
-        handle_packet(data, userdata.get("packet_sink") if isinstance(userdata, dict) else None)
+        sinks = userdata if isinstance(userdata, dict) else {}
+        packet = handle_packet(data, sinks.get("packet_sink"))
+        contact_sink = sinks.get("reception_contact_sink")
+        if (contact_sink is not None and packet is not None and packet.direction == "rx"
+                and not getattr(msg, 'retain', False)):
+            contact_sink(packet, data)
 
 
 # ============================================================
 # Start
 # ============================================================
 
-def create_client(packet_sink=None, status_sink=None, rf_neighbor_sink=None):
+def create_client(packet_sink=None, status_sink=None, rf_neighbor_sink=None, reception_contact_sink=None):
     if MQTT_TLS not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
         raise ValueError("ONAIR_MQTT_TLS muss true oder false sein")
     use_tls = MQTT_TLS in {"1", "true", "yes", "on"}
@@ -618,7 +623,7 @@ def create_client(packet_sink=None, status_sink=None, rf_neighbor_sink=None):
         mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"meshcore-onair-{uuid.uuid4().hex[:10]}",
         userdata={"packet_sink": packet_sink, "status_sink": status_sink,
-                  "rf_neighbor_sink": rf_neighbor_sink},
+                  "rf_neighbor_sink": rf_neighbor_sink, "reception_contact_sink": reception_contact_sink},
     )
 
     if MQTT_USERNAME:

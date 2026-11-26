@@ -116,6 +116,18 @@ def status_timestamp(data):
     return timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc)
 
 
+def status_reported_time(data):
+    source = status_timestamp(data)
+    if source is None or len(data['timestamp']) <= 10:
+        return None
+    try:
+        reported_at = source.timestamp()
+    except (OverflowError, ValueError, OSError):
+        return None
+    # An observer without a synchronized clock may report a boot-time date.
+    return reported_at if reported_at >= MIN_CLOCK_TIME else None
+
+
 @dataclass(frozen=True)
 class RadioReport:
     origin_id: str
@@ -139,17 +151,9 @@ def radio_report(data, received_at=None):
         return None
 
     retained = bool(data.get('_mqtt_retained'))
-    source = status_timestamp(data)
-    try:
-        # Date-only values supply no observation time.
-        reported_at = source.timestamp() if source and len(data['timestamp']) > 10 else None
-    except (OverflowError, ValueError, OSError):
-        reported_at = None
+    reported_at = status_reported_time(data)
     if reported_at is not None and reported_at > received_at + MAX_CLOCK_LEAD:
         return None
-    # MQTT can carry a boot-time clock near the Unix epoch before NTP is ready.
-    if reported_at is not None and reported_at < MIN_CLOCK_TIME:
-        reported_at = None
     if retained and reported_at is None:
         return None
     return RadioReport(origin_id, _text(data.get('origin')), reported_at, received_at,

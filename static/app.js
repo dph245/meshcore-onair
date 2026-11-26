@@ -414,7 +414,8 @@ function connection() {
   if (node.textContent !== label) node.textContent = label;
   const className = connected ? 'online' : 'offline';
   if (node.className !== className) node.className = className;
-  renderObserverStatus(status.noise_observers || [], status.radio_observers || [], Boolean(connected));
+  renderObserverStatus(status.observer_activity || {}, status.noise_observers || [],
+                       status.radio_observers || [], Boolean(connected));
 }
 function applyReceptionDelta({receptions, status, evictions}) {
   const changedIds = new Set();
@@ -469,8 +470,13 @@ function connect() {
     for (const id of expanded) if (!groups.has(id)) expanded.delete(id);
     if (data.status) {
       // Packet updates omit unchanged radio profiles. Snapshots reset the baseline.
-      const radio = data.type === 'snapshot' ? undefined : status.radio_observers;
-      status = {radio_observers: radio, ...data.status};
+      if (data.type === 'snapshot') {
+        status = data.status;
+      } else {
+        const activity = data.status.observer_activity
+          ? {...status.observer_activity, ...data.status.observer_activity} : status.observer_activity;
+        status = {radio_observers: status.radio_observers, ...data.status, observer_activity: activity};
+      }
     }
     connection(); render(false, changedIds);
     repeaterMapVisibility.receive(data);
@@ -493,8 +499,8 @@ document.getElementById('pause').onclick = event => {
   }
 };
 connect();
-// Expire silent observers even without MQTT/WebSocket updates. While paused,
-// keep the displayed measurements frozen but still hide expired observers.
+// Age observer activity even without MQTT/WebSocket updates. While paused,
+// retain the displayed measurements in the noise chart.
 setInterval(() => {
   connection();
   renderNoise((paused ? displayedStatus : status).noise_history || []);

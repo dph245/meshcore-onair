@@ -223,6 +223,7 @@ class RadioArchiveTests(unittest.TestCase):
                     snapshot = json.loads(dashboard.snapshot_payload(dashboard.status()))
                     self.assertEqual(snapshot['status']['noise_observers'][0]['noise_floor'], -115)
                     self.assertEqual(snapshot['status']['radio_observers'][0]['profile'], CORE)
+                    self.assertEqual(snapshot['status']['observer_activity'][EAST.lower()]['last_contact'], BASE)
                     queue = asyncio.Queue()
                     dashboard.listeners[queue] = True
                     dashboard.accept_packet(build_packet(dict(direction='rx', raw='1500')))
@@ -236,6 +237,16 @@ class RadioArchiveTests(unittest.TestCase):
                     dashboard.accept_packet(build_packet(dict(direction='rx', raw='1500')))
                     delta = json.loads(await queue.get())
                     self.assertNotIn('radio_observers', delta['status'])
+                    self.assertNotIn('observer_activity', delta['status'])
+                    dashboard.accept_status(dict(origin_id=WEST, status='online',
+                                                 timestamp=mqtt_timestamp(30), _mqtt_received_at=BASE + 31))
+                    delta = json.loads(await queue.get())
+                    self.assertEqual(delta['receptions'], [])
+                    self.assertNotIn('radio_observers', delta['status'])
+                    self.assertEqual(delta['status']['observer_activity'],
+                                     {WEST.lower(): dict(origin=None, last_contact=BASE + 30)})
+                    snapshot = json.loads(dashboard.snapshot_payload(dashboard.status()))
+                    self.assertEqual(set(snapshot['status']['observer_activity']), {EAST.lower(), WEST.lower()})
                     self.receive(60, 7)
                     delta = json.loads(await queue.get())
                     self.assertEqual(delta['receptions'], [])

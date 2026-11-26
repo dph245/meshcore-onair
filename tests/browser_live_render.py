@@ -20,7 +20,7 @@ def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path='/usr/bin/chromium', headless=True,
                                     args=['--no-sandbox', '--disable-dev-shm-usage'])
-        page = browser.new_page(viewport=dict(width=1280, height=900))
+        page = browser.new_page(viewport=dict(width=1280, height=900), color_scheme='dark')
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         route_page(page, [])
@@ -208,35 +208,107 @@ def main():
         ]
         header = page.locator('#noise-floor')
         latest_noise = [reading, dict(reading, origin_id='legacy', origin='Alt')]
-        frame('snapshot', 1, groups=[], status=dict(noise_observers=latest_noise, radio_observers=radios))
+        activity = {
+            'ab' * 32: dict(origin='Gleicher Name', last_contact=int(stamp)),
+            'legacy': dict(origin='Alt', last_contact=int(stamp)),
+            'cd' * 32: dict(origin='Gleicher Name', last_contact=int(stamp) - 1800),
+        }
+        frame('snapshot', 1, groups=[], status=dict(noise_observers=latest_noise,
+                                                    radio_observers=radios, observer_activity=activity))
         assert header.locator('.observer-status-row').count() == 3
         assert '-115 dBm' in header.locator('.observer-status-row').first.inner_text()
         assert header.locator('strong').first.inner_text() == 'SF8'
         assert '869,618 MHz · BW 62,5 kHz · SF8 · CR 4/8' in header.inner_text()
         assert 'Funkprofil unbekannt' in header.inner_text()
         assert 'SF11 · CR — · veraltet' in header.inner_text()
+        assert 'Offline' in header.locator('.observer-offline').inner_text()
         assert 'MeshCore 1.14' in header.locator('.observer-status-row').first.get_attribute('title')
         page.evaluate('''() => {
           const header = document.querySelector('#noise-floor');
-          window.headerWrites = 0;
+          window.headerWrites = [];
+          window.eastRow = header.firstElementChild;
           window.westRow = header.lastElementChild;
-          window.headerObserver = new MutationObserver(records => headerWrites += records.length);
+          window.headerObserver = new MutationObserver(records => headerWrites.push(...records));
           headerObserver.observe(header, {subtree:true, childList:true, attributes:true, characterData:true});
         }''')
-        frame('delta', 2, receptions=[packet(809)], status=dict(noise_observers=latest_noise))
-        check(page, "headerWrites === 0 && headerObserver.takeRecords().length === 0")
+        activity['ab' * 32]['last_contact'] += 1
+        frame('delta', 2, receptions=[packet(809)], status=dict(noise_observers=latest_noise,
+                                                               observer_activity={'ab' * 32: activity['ab' * 32]}))
+        check(page, "headerWrites.length === 0 && headerObserver.takeRecords().length === 0")
         radios[0]['profile']['spreading_factor'] = 7
         frame('delta', 3, receptions=[], status=dict(noise_observers=latest_noise, radio_observers=radios))
         assert header.locator('strong').first.inner_text() == 'SF7'
-        check(page, "westRow === document.querySelector('#noise-floor').lastElementChild && headerWrites === 1")
+        check(page, """westRow === document.querySelector('#noise-floor').lastElementChild &&
+                       headerWrites.length > 0 && headerWrites.every(({target}) => eastRow.contains(target))""")
+
+        def observer_lines():
+            return header.locator('.observer-status-row').evaluate_all(
+                'rows => new Set(rows.map(row => row.getBoundingClientRect().top)).size')
+
+        assert observer_lines() == 1
+        page.set_viewport_size(dict(width=820, height=900))
+        assert header.evaluate('''el => {
+          const style = getComputedStyle(el.parentElement);
+          return el.clientWidth === el.parentElement.clientWidth -
+            parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        }''')
+        assert observer_lines() == 1
         page.set_viewport_size(dict(width=390, height=844))
+        assert observer_lines() > 1
+        page.set_viewport_size(dict(width=320, height=600))
+        long_name = 'Observer mit sehr langem Namen ' * 6
+        latest_noise[0] = dict(reading, origin=long_name)
+        activity['ab' * 32]['origin'] = long_name
+        frame('delta', 4, receptions=[], status=dict(noise_observers=latest_noise,
+                                                    observer_activity={'ab' * 32: activity['ab' * 32]}))
+        first_row = header.locator('.observer-status-row').first
+        assert first_row.locator('.observer-name').evaluate('el => el.scrollWidth > el.clientWidth')
+        assert first_row.locator('.observer-reading > :last-child').inner_text() == '· -115 dBm'
+        tooltip = first_row.get_attribute('title')
+        assert long_name.strip() in tooltip and 'SF7 · CR 4/8' in tooltip
+        assert header.locator('.observer-status-row').evaluate_all('''rows => rows.every(row =>
+          row.getBoundingClientRect().height === 2 * parseFloat(getComputedStyle(row).lineHeight))''')
+        dark_color = first_row.locator('.observer-radio').evaluate('el => getComputedStyle(el).color')
+        click('#theme-toggle')
+        check(page, "document.documentElement.dataset.theme === 'light'")
+        assert first_row.locator('.observer-radio').evaluate('el => getComputedStyle(el).color') != dark_color
         check(page, 'document.documentElement.scrollWidth === innerWidth')
-        frame('snapshot', 5, groups=[], status=dict(noise_observers=latest_noise, radio_observers=[]))
+        activity.pop('cd' * 32)
+        frame('snapshot', 5, groups=[], status=dict(noise_observers=latest_noise, radio_observers=[],
+                                                    observer_activity=activity))
         assert 'SF7' not in header.inner_text()
         assert header.locator('.observer-status-row').count() == 2
+        # Drive the existing header refresh with a fixed clock at both boundaries.
+        clock = page.evaluate('''() => {
+          window.observerTestNow = Math.floor(Date.now() / 1000) * 1000;
+          Date.now = () => window.observerTestNow;
+          return observerTestNow / 1000;
+        }''')
+        last_contact = clock - 15 * 60 + 1
+        saved_radio = dict(radios[0], field_times=dict.fromkeys(east, clock - 3600),
+                           last_confirmed_at=clock - 3600)
+        frame('snapshot', 6, groups=[], status=dict(radio_observers=[saved_radio],
+              observer_activity={'ab' * 32: dict(origin='Gleicher Name', last_contact=last_contact)}))
+        row = header.locator('.observer-status-row')
+        assert row.count() == 1 and not header.locator('.observer-offline').count()
+        page.evaluate("window.originalObserver = document.querySelector('.observer-status-row')")
+        page.evaluate('observerTestNow += 1000')
+        header.locator('.observer-offline').wait_for()
+        check(page, "originalObserver === document.querySelector('.observer-status-row')")
+        assert 'Offline' in row.inner_text() and 'veraltet' not in row.inner_text()
+        page.evaluate('seconds => { observerTestNow = seconds * 1000; connection(); }',
+                      last_contact + 24 * 60 * 60)
+        assert row.count() == 1 and 'Offline' in row.inner_text()
+        page.evaluate('observerTestNow += 1000')
+        row.wait_for(state='detached')
+        assert header.inner_text() == 'Noise Floor: —'
+        frame('delta', 7, receptions=[], status=dict(observer_activity={
+            'ab' * 32: dict(origin='Gleicher Name', last_contact=last_contact + 86401)}))
+        assert row.count() == 1 and 'Offline' not in row.inner_text()
+        assert 'SF7 · CR 4/8 · veraltet' in row.inner_text()
         assert not errors, errors
         browser.close()
-    print('Live rendering: packet rows, snapshots, deltas, radio profiles and stable Observer header passed')
+    print('Live rendering: packet rows, snapshots, deltas and responsive Observer header in both themes passed')
 
 
 if __name__ == '__main__':

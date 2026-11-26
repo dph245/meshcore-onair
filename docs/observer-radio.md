@@ -5,13 +5,31 @@ Terminalbetrieb. Die Weboberfläche zeigt unter Name und Noise Floor pro
 Observer die gemeldete Frequenz, Bandbreite, den hervorgehobenen Spreading Factor
 und die Coding Rate. Ein Strich steht für einen fehlenden Wert. Wenn ein
 bekannter Kernparameter seit 24 Stunden nicht erneut gemeldet wurde, steht
-„veraltet“ beim Profil. Bei getrennter Verbindung erscheinen vorhandene Profile
+„veraltet“ beim Profil. Bei getrennter Verbindung erscheinen sichtbare Profile
 als zuletzt gemeldet. Der Tooltip zeigt die vollständige ID, die letzte
 Profilangabe und vorhandene Zusatzparameter. Der Noise-Floor-Plot verwendet wie
 bisher ganzzahlige Messwerte. Snapshots enthalten den aktuellen Profilstand.
 Der WebSocket sendet die Profilliste im laufenden Betrieb bei Änderungen von
 Profilen, Bestätigungszeiten oder Widerspruchsstatus. Im Browser bleiben die
 Knoten unveränderter Zeilen erhalten.
+
+Der Header zeigt Observer mit Kontakt in den letzten 15 Minuten normal,
+ab 15 Minuten abgeblendet mit „Offline“ und nach mehr als 24 Stunden
+gar nicht mehr. Die Grenzen stehen gemeinsam in `observerActivityLimits`
+in `static/noise.js`. Bei Statusmeldungen und live weitergeleiteten
+RX-Paketen zählt möglichst die Quellzeit. Retained Statusmeldungen zählen
+nur mit brauchbarer Quellzeit. Retained RX-Pakete verbleiben im Paketpfad.
+Auch ein Status ohne Noise Floor oder Funkprofil kann den Observer einblenden.
+Das Alter der Funkparameter richtet sich weiterhin nach den Zeitstempeln
+der einzelnen Felder.
+
+Der bestehende WebSocket liefert den letzten Kontakt je Observer im Snapshot
+und schickt in Updates nur geänderte Kontakte. Der vorhandene Sekundentakt
+wertet die Altersgrenzen aus. Nach Serverneustart liefern vorhandene
+Noise-Floor-Messungen mit Quellzeit und Profilmeldungen den Startstand.
+Reine Live-Kontakte aus RX-Paketen oder Statusmeldungen ohne archivierte
+Mess- und Profildaten werden ab der nächsten Meldung wieder berücksichtigt.
+Archiv und Auswertungen verwenden ihre bisherigen Daten und Ansichten.
 
 ## Verifizierte MQTT-Formate
 

@@ -1,4 +1,5 @@
 import contextlib
+from datetime import datetime, timezone
 import io
 import json
 from types import SimpleNamespace
@@ -54,8 +55,10 @@ class NoiseObserverTests(unittest.TestCase):
             archive.close()
             archive = Archive(path)
             archive.close()
-            restored = Dashboard(archive).status()['noise_observers'][0]
-            self.assertEqual(restored['status_at'], reading['status_at'])
+            restored = Dashboard(archive).status()
+            self.assertEqual(restored['noise_observers'][0]['status_at'], reading['status_at'])
+            self.assertEqual(restored['observer_activity']['C0CADC']['last_contact'],
+                             datetime.fromisoformat(reading['status_at']).timestamp())
             self.assertEqual(len(archive.noise_history()), 2)
         for timestamp in (None, '', 'invalid', 123):
             self.assertIsNone(noise_sample(dict(data, timestamp=timestamp, _mqtt_retained=True)))
@@ -78,6 +81,48 @@ class NoiseObserverTests(unittest.TestCase):
         self.assertEqual(latest['east']['noise_floor'], -100)
         self.assertEqual(len(dashboard.status()['noise_observers']), 2)
         self.assertEqual(dashboard.status()['noise_observers'][1]['origin'], 'New name')
+
+    def test_contact_uses_source_time_and_status_without_radio_or_noise(self):
+        dashboard = Dashboard()
+        now = int(datetime.now(timezone.utc).timestamp())
+        data = dict(origin_id='AB' * 32, origin='Observer', status='online', _mqtt_received_at=now)
+        dashboard.accept_status(dict(data, stats=dict(noise_floor=-112)))
+        old = datetime.fromtimestamp(now - 86401, timezone.utc).isoformat()
+        dashboard.accept_status(dict(data, timestamp=old, _mqtt_retained=True, stats=dict(noise_floor=-120)))
+        status = dashboard.status()
+        identity = data['origin_id'].lower()
+        self.assertEqual(status['observer_activity'][identity]['last_contact'], now)
+        self.assertEqual(status['noise_observers'][0]['noise_floor'], -112)
+        self.assertEqual([entry['noise_floor'] for entry in status['noise_history']], [-112, -120])
+
+        dashboard.accept_status(dict(data, _mqtt_received_at=now + 10))
+        self.assertEqual(dashboard.status()['observer_activity'][identity]['last_contact'], now + 10)
+        self.assertEqual(status['observer_activity'][identity]['last_contact'], now)
+        for value in (None, 'invalid', '1970-01-01T00:00:00Z', old[:10]):
+            dashboard.accept_status(dict(data, origin_id='no-time', timestamp=value, _mqtt_retained=True))
+        dashboard.accept_status(dict(data, origin_id='old', timestamp=old, _mqtt_retained=True))
+        dashboard.accept_status(dict(data, origin_id='offline', status='offline'))
+        future = datetime.fromtimestamp(now + 120, timezone.utc).isoformat()
+        dashboard.accept_status(dict(data, origin_id='bad-clock', timestamp=future, _mqtt_retained=True))
+        activity = dashboard.status()['observer_activity']
+        self.assertEqual(set(activity), {identity, 'old'})
+        self.assertEqual(activity['old']['last_contact'], now - 86401)
+
+    def test_live_rx_updates_contact_while_retained_rx_stays_in_packet_feed(self):
+        dashboard = Dashboard()
+        packets = []
+        sinks = dict(packet_sink=packets.append, reception_contact_sink=dashboard.accept_reception_contact)
+        stamp = int(datetime.now(timezone.utc).timestamp()) - 1
+        data = dict(direction='rx', raw='1500', origin_id='rx-only',
+                    timestamp=datetime.fromtimestamp(stamp, timezone.utc).isoformat())
+        delivery = SimpleNamespace(topic='meshcore/test/packets', payload=json.dumps(data).encode(), retain=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            on_message(None, sinks, delivery)
+            self.assertEqual(dashboard.status()['observer_activity'], {})
+            delivery.retain = False
+            on_message(None, sinks, delivery)
+        self.assertEqual(len(packets), 2)
+        self.assertEqual(dashboard.status()['observer_activity']['rx-only']['last_contact'], stamp)
 
     def test_schema6_migration_restarts_and_per_observer_limit(self):
         with tempfile.TemporaryDirectory() as folder:
