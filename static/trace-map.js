@@ -3,7 +3,7 @@
 function traceMapSnrSegments(hops) {
   const sections = new Map();
   const valid = hop => hop && !hop.ambiguous && hop.position &&
-    !repeaterMapVisibility.hidden(hop.public_key, hop.node_type) &&
+    !repeaterMapVisibility.hidden(hop.public_key, hop.node_type, hop.hash ? hop.hash.length / 2 : 3) &&
     Number.isFinite(hop.position.latitude) && Number.isFinite(hop.position.longitude);
   const identity = hop => hop.public_key || hop.hash;
   for (let i = 1; i < hops.length; i++) {
@@ -22,7 +22,7 @@ function traceMapSnrSegments(hops) {
 }
 
 function traceMapSnrText(value) {
-  const number = Math.abs(value).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 2});
+  const number = Math.abs(value).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 3});
   return `${value < 0 ? '−' : '+'}${number} dB`;
 }
 
@@ -33,7 +33,9 @@ let traceMap;
   const selected = new Map();
   let activeGroup, receptionPage = 0;
   const el = id => document.getElementById(`map-trace-${id}`);
-  const position = hop => !repeaterMapVisibility.hidden(hop.public_key, hop.node_type) &&
+  const active = () => !document.getElementById('panel-trace').hidden &&
+    !document.getElementById('map-traces').hidden && !document.getElementById('trace-compare-controls').hidden;
+  const position = hop => !repeaterMapVisibility.hidden(hop.public_key, hop.node_type, hop.hash.length / 2) &&
     hop.position && [hop.position.latitude, hop.position.longitude];
   const routes = new Map(), labelViews = new WeakMap();
   let drawFrame = null;
@@ -92,7 +94,7 @@ let traceMap;
   }
   function draw() {
     if (!traceMap) return;
-    if (document.getElementById('panel-trace').hidden || document.getElementById('map-traces').hidden) return;
+    if (!active()) return;
     if (!layer) layer = L.layerGroup().addTo(traceMap);
     for (const [id, view] of routes) {
       if (selected.get(id) === view.item && view.visibilityVersion === repeaterMapVisibility.version) continue;
@@ -246,7 +248,7 @@ let traceMap;
       if (selected.size >= 2) { checkbox.checked = false; return; }
       selected.set(item.id, result); details();
       const points = [...selected.values()].flatMap(v => v.hops.map(position).filter(Boolean));
-      if (points.length) traceMap.fitBounds(L.latLngBounds(points), {padding: [35, 35], maxZoom: 13, animate: false});
+      if (points.length && active()) traceMap.fitBounds(L.latLngBounds(points), {padding: [35, 35], maxZoom: 13, animate: false});
     } catch (error) {
       if (current === version && error.name !== 'AbortError') { checkbox.checked = false; el('status').textContent = `Details nicht verfügbar: ${error.message}`; }
     } finally { checkbox.disabled = false; }
@@ -377,6 +379,8 @@ let traceMap;
         if (!document.getElementById('panel-trace').hidden && !document.getElementById('map-traces').hidden) traceMap.invalidateSize({pan: false});
       }).observe(traceMap.getContainer());
     }
+    if (layer && !active()) layer.remove();
+    else if (layer && !traceMap.hasLayer(layer)) layer.addTo(traceMap);
     traceMap.invalidateSize({pan: false}); scheduleDraw();
   };
 })();

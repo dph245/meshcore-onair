@@ -75,3 +75,5 @@ tests/*
 !tests/browser_map_visibility.py
 !tests/test_prefix_explorer.py
 !tests/browser_prefix_explorer.py
+!tests/test_trace_history.py
+!tests/browser_trace_links.py

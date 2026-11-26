@@ -176,6 +176,7 @@ def grouped_flow(browser):
         page.route('**/api/map-traces/*', detail)
         page.goto('http://trace-groups.test/')
         page.locator('#tab-trace').click()
+        page.locator('#trace-views [data-view=map]').click()
         assert page.evaluate('nodeMap === undefined'), 'TRACE opens independently of Map'
         assert not calls, 'Opening TRACE does not search the archive'
         page.locator('#map-trace-form button').click()
@@ -255,6 +256,7 @@ def main():
         page.wait_for_function('mapMarkers.size > 0')
         page.evaluate("setMapLinkMode('none'); selectMapRepeater([...mapMarkers.keys()][0])")
         page.locator('#tab-trace').click()
+        page.locator('#trace-views [data-view=map]').click()
         assert page.locator('#panel-map').is_hidden()
         page.locator('#map-trace-form button').click()
         expect(page.locator('#map-trace-list input')).to_have_count(4)

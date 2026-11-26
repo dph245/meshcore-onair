@@ -106,6 +106,7 @@ def trace(browser):
     page.route('**/api/map-traces/1', lambda route: route.fulfill(json=detail))
     page.goto('http://trace-visibility.test/')
     page.locator('#tab-trace').click()
+    page.locator('#trace-views [data-view=map]').click()
     page.locator('#map-trace-form button').click()
     page.locator('#map-trace-list button').click()
     expect(page.locator('#trace-map .leaflet-interactive')).to_have_count(3)

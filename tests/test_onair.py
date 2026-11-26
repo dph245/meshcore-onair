@@ -533,6 +533,7 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
                     update_status = dashboard.status()
                     update_status.pop('radio_observers')
                     update_status.pop('observer_activity')
+                    update_status.pop('trace_revision')
                     self.assertEqual(text, legacy_json({
                         'type': 'delta', 'receptions': [item.to_dict()], **eviction,
                         'seq': count + 1, 'status': update_status, 'raw_packets': [item.raw_text],

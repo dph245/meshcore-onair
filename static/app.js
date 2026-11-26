@@ -16,6 +16,7 @@ function selectTab(selected) {
   if (selected.id === 'tab-repeaters') loadRepeaters();
   if (selected.id === 'tab-discovery') loadDiscovery();
   if (selected.id === 'tab-trace') showTraceWorkspace();
+  else window.TraceLinks?.sync();
   if (selected.id === 'tab-map') showNodeMap();
   if (selected.id === 'tab-neighbors') loadNeighbors();
   window.RFNeighbors?.select(selected.id === 'tab-rf-neighbors');
@@ -481,12 +482,14 @@ function connect() {
     connection(); render(false, changedIds);
     repeaterMapVisibility.receive(data);
     window.MeshLive?.receive(data);
+    window.TraceLinks?.receive(data.status?.trace_revision, data.type === 'snapshot');
   };
   stream.onclose = () => { connection(); setTimeout(connect, 2000); };
   stream.onerror = () => stream.close();
 }
 document.getElementById('pause').onclick = event => {
   paused = !paused;
+  window.TraceLinks?.sync();
   event.target.textContent = paused ? 'Live fortsetzen' : 'Ansicht pausieren';
   event.target.setAttribute('aria-pressed', String(paused));
   if (!paused) {

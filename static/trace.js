@@ -167,11 +167,15 @@ setInterval(loadTraces, 10000);
 function showTraceWorkspace() {
   if (document.getElementById('trace-analysis').hidden) showTraceMap();
   else loadTraces();
+  window.TraceLinks?.sync();
 }
 document.querySelectorAll('#trace-views button').forEach(button => button.addEventListener('click', () => {
   const history = button.dataset.view === 'history';
+  const links = button.dataset.view === 'links';
   document.getElementById('trace-analysis').hidden = !history;
   document.getElementById('map-traces').hidden = history;
+  for (const id of ['trace-links-controls', 'trace-links-details']) document.getElementById(id).hidden = !links;
+  for (const id of ['trace-compare-controls', 'trace-compare-details', 'trace-group-list']) document.getElementById(id).hidden = links;
   document.querySelectorAll('#trace-views button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
   if (!history) { ++traceRequest; traceController?.abort(); }
   showTraceWorkspace();

@@ -37,7 +37,7 @@ def browse(db, start, end, before=9223372036854775807, first='', last='', hops=N
                 before=before if len(rows) > consumed else None)
 
 
-def detail(db, identity, positions):
+def detail(db, identity, positions, position_conflicts=None):
     row = db.execute("SELECT id,received,packet_json FROM packets WHERE id=? AND kind='TRACE'", (identity,)).fetchone()
     if row is None:
         return None
@@ -53,10 +53,13 @@ def detail(db, identity, positions):
         return None
     item = sessions[0]
     item.update(source=None, target=None, map_repeater_keys=visibility.repeater_keys)
+    conflicts = (position_conflicts(db, {hop['public_key'] for hop in item['hops']
+                 if types.get(hop['public_key']) == 2}) if position_conflicts else set())
     for hop in item['hops']:
         hop['node_type'] = types.get(hop['public_key'])
         pos = (positions.at(hop['public_key'], received)
-               if hop['public_key'] and not visibility.hidden(hop['public_key'], hop['node_type']) else None)
+               if hop['public_key'] and hop['public_key'] not in conflicts and not visibility.hidden(
+                   hop['public_key'], hop['node_type'], len(hop['hash']) // 2) else None)
         hop['position'] = pos if distance_km(pos, pos) is not None else None
     return item
 

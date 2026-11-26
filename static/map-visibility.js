@@ -31,9 +31,11 @@ class RepeaterMapVisibility {
     }
   }
 
-  hidden(value, nodeType = 2) {
+  hidden(value, nodeType = 2, prefixBytes = 3) {
     const key = value?.toLowerCase();
-    return (nodeType == null || nodeType === 2) && this.keys.has(key) && this.collisions.has(key.slice(0, 6));
+    if ((nodeType != null && nodeType !== 2) || !this.keys.has(key) || !this.collisions.has(key.slice(0, 6))) return false;
+    return prefixBytes <= 3 || [...this.prefixes.get(key.slice(0, 6))]
+      .some(other => other !== key && other.startsWith(key.slice(0, prefixBytes * 2)));
   }
 
   repeaterKey(packet) {

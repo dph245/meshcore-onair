@@ -18,6 +18,8 @@ import onair_channels
 from onair_archive import Archive
 from onair_replay import ReplayLimitError
 from onair_distance import AnalysisLimitError, MAX_PAIR_RECEPTIONS
+from onair_positions import PositionUnavailable
+import onair_trace_history as trace_history
 from onair_neighbors import MAX_LINK_DISTANCE_KM
 from onair_routes import route_nodes, plan_routes
 from fastapi.responses import JSONResponse, Response
@@ -177,6 +179,7 @@ class Dashboard:
                 "noise_history": history,
                 "noise_observers": observers,
                 "radio_observers": self.archive.observer_radio_status() if self.archive else (),
+                "trace_revision": getattr(self.archive, 'trace_revision', 0),
                 "observer_activity": activity,
                 "dropped": self.dropped, "max_groups": MAX_GROUPS,
                 "max_receptions": MAX_RECEPTIONS}
@@ -205,6 +208,8 @@ class Dashboard:
         updates = {}
         update_status = status.copy()
         if previous_status is not None:
+            if status.get('trace_revision') == previous_status.get('trace_revision'):
+                update_status.pop('trace_revision', None)
             if status["radio_observers"] is previous_status["radio_observers"]:
                 update_status.pop("radio_observers")
             previous_activity = previous_status["observer_activity"]
@@ -401,11 +406,40 @@ def map_trace_detail(identity: int):
         raise HTTPException(422, 'Ungültige Empfangs-ID.')
     try:
         item = app.state.archive.trace_map_detail(identity)
-    except sqlite3.OperationalError as exc:
+    except (sqlite3.OperationalError, PositionUnavailable) as exc:
         raise HTTPException(503, 'Historische Positionen momentan nicht verfügbar. Bitte erneut versuchen.') from exc
     if item is None:
         raise HTTPException(404, 'Keine auswertbare TRACE-Beobachtung.')
     return item
+
+
+def trace_response(query, *args):
+    try:
+        result = app.state.archive.trace_history(query, *args)
+    except (sqlite3.OperationalError, PositionUnavailable) as exc:
+        raise HTTPException(503, 'TRACE-Historie momentan nicht verfügbar.') from exc
+    if result is None:
+        raise HTTPException(404, 'TRACE-Messung nicht gefunden.')
+    return JSONResponse(result, headers={'Cache-Control': 'no-store'})
+
+
+@app.get('/api/trace-links')
+def trace_links(start: float = Query(0, ge=0, le=4102444800),
+                end: float = Query(4102444800, ge=0, le=4102444800),
+                sf: str = Query('all', pattern=r'^(all|unknown|[5-9]|1[0-2])$'),
+                a: str | None = Query(None, pattern=r'^[0-9a-f]{64}$'),
+                b: str | None = Query(None, pattern=r'^[0-9a-f]{64}$'),
+                offset: int = Query(0, ge=0, le=10000000)):
+    if end <= start or (a is None) != (b is None) or a is not None and a >= b:
+        raise HTTPException(422, 'Zeitraum und sortiertes Repeater-Paar prüfen.')
+    return trace_response(trace_history.links, start, end, sf, (a, b) if a else None, offset)
+
+
+@app.get('/api/trace-measurements/{identity}')
+def trace_measurement(identity: int):
+    if not 1 <= identity <= 9223372036854775807:
+        raise HTTPException(422, 'Ungültige Messungs-ID.')
+    return trace_response(trace_history.measurement, identity)
 
 
 @app.get("/api/repeaters")

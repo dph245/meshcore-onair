@@ -19,3 +19,9 @@
 - Tests lassen sich mit `.venv/bin/python -m unittest discover -s tests -v`
   sowie den Deno- und Chromium-Skripten unter `tests/` ausführen.
   Der aktuelle Arbeitsstand steht in [PROJECT_STATUS.md](PROJECT_STATUS.md).
+- Schema 18 projektiert TRACE-Empfänge inkrementell in
+  `onair_trace_history.py`. Der Archivschreiber nutzt `packets_kind_id`
+  für den wiederaufnehmbaren Backfill; maßgeblich sind Rohpaket-ID, Protokollfolge
+  und SNR am empfangenden Hop. Die Übersicht in `static/trace-links.js` verwendet
+  dieselbe Leaflet-Karte wie der Einzelvergleich. Modell, Korrelation und
+  Offline-Benchmarks stehen in [Historische TRACE-Linkstrecken](docs/trace-history.md).

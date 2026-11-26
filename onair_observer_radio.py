@@ -3,6 +3,8 @@ import json
 import math
 import re
 import time
+from bisect import bisect_right
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -295,18 +297,54 @@ def radio_profile_at(db, origin_id, received_at):
     if row is None:
         return dict(match='unknown', reason='no_observation')
     conflict = db.execute(_CONFLICT_AT, (identity, received_at)).fetchone()
+    following = db.execute(_NEXT, (identity, received_at)).fetchone()
+    return _profile_result(received_at, row, conflict, following)
+
+
+def _profile_result(received_at, row, conflict, following):
+    if row is None:
+        return dict(match='unknown', reason='no_observation')
     if conflict and (conflict[0] is None or received_at < conflict[0]):
         return dict(match='unknown', reason='conflicting_status')
 
     raw, observed, detected, first_full, last_full = row
     exact = received_at in (first_full, last_full)
-    if not exact:
-        following = db.execute(_NEXT, (identity, received_at)).fetchone()
-        if following and following[0] is not None and received_at > following[0]:
-            return dict(match='unknown', reason='transition')
+    if not exact and following and following[0] is not None and received_at > following[0]:
+        return dict(match='unknown', reason='transition')
 
-    profile = json.loads(raw)
+    profile = json.loads(raw) if isinstance(raw, str) else raw
     if not any(field in profile for field in CORE_FIELDS):
         return dict(match='unknown', reason='no_radio_parameters')
     return dict(match='confirmed' if exact else 'last_known', profile=profile,
                 observed_at=observed, detected_at=detected, known_valid_from=None)
+
+
+class RadioProfiles:
+    """Bulk history for an existing set of receptions, with the Schema 17 rules."""
+    def __init__(self, db, observers):
+        self.timeline = defaultdict(list)
+        self.times = defaultdict(list)
+        self.conflicts = defaultdict(list)
+        self.conflict_times = defaultdict(list)
+        keys = json.dumps(sorted(filter(None, observers)))
+        for identity, raw, observed, detected, first, last, transition in db.execute('''
+                SELECT origin_id,profile,observed_at,detected_at,first_full_at,last_full_at,transition_after
+                FROM observer_radio_history WHERE origin_id IN (SELECT value FROM json_each(?))
+                ORDER BY origin_id,observed_at''', (keys,)):
+            self.timeline[identity].append((json.loads(raw), observed, detected, first, last, transition))
+            self.times[identity].append(observed)
+        for identity, observed, resolved in db.execute('''
+                SELECT origin_id,observed_at,resolved_at FROM observer_radio_conflicts
+                WHERE origin_id IN (SELECT value FROM json_each(?)) ORDER BY origin_id,observed_at''', (keys,)):
+            self.conflicts[identity].append((resolved,))
+            self.conflict_times[identity].append(observed)
+
+    def at(self, identity, stamp):
+        index = bisect_right(self.times.get(identity, ()), stamp) - 1
+        if index < 0:
+            return dict(match='unknown', reason='no_observation')
+        rows = self.timeline[identity]
+        conflict = bisect_right(self.conflict_times.get(identity, ()), stamp) - 1
+        following = rows[index + 1][-1:] if index + 1 < len(rows) else None
+        return _profile_result(stamp, rows[index][:-1],
+                               self.conflicts[identity][conflict] if conflict >= 0 else None, following)

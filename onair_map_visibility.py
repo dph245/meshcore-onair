@@ -15,5 +15,6 @@ class MapVisibility:
             prefixes[key[:6]].add(key)
         self.collisions = {prefix for prefix, identities in prefixes.items() if len(identities) > 1}
 
-    def hidden(self, key, node_type=2):
-        return node_type == 2 and bool(key) and key[:6].lower() in self.collisions
+    def hidden(self, key, node_type=2, prefix_bytes=None):
+        return ((prefix_bytes is None or prefix_bytes <= 3) and node_type == 2
+                and bool(key) and key[:6].lower() in self.collisions)

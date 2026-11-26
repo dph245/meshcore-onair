@@ -17,7 +17,8 @@ from onair_advert import decode_advert
 from onair_scopes import scope_label
 from onair_payload import decode_payload_details
 from onair_rf_neighbors import topic_identity
-from onair_observer_radio import radio_report, status_origin_id, status_timestamp
+from onair_observer_radio import (MAX_CLOCK_LEAD, radio_report, status_origin_id,
+                                  status_reported_time, status_timestamp)
 
 
 # ============================================================
@@ -353,13 +354,20 @@ class Packet:
     last_hop: str
     origin_id: str | None = None
     origin: str | None = None
+    source_at: float | None = None
+    mqtt_retained: bool = False
 
     @cached_property
     def raw_text(self):
         return format_packet(self)
 
     def to_dict(self):
-        return asdict(self)
+        data = asdict(self)
+        if self.source_at is None:
+            data.pop('source_at')
+        if not self.mqtt_retained:
+            data.pop('mqtt_retained')
+        return data
 
 
 def build_packet(data):
@@ -405,18 +413,25 @@ def build_packet(data):
         if len(seen_hashes) > MAX_SEEN_HASHES:
             seen_hashes.popitem(last=False)
     now = datetime.now().astimezone()
+    source_at = status_reported_time(data) if is_trace else None
+    if source_at is not None and source_at > now.timestamp() + MAX_CLOCK_LEAD:
+        source_at = None
+    origin_id = data.get('origin_id')
+    if is_trace and data.get('_mqtt_topic', '').endswith('/packets'):
+        origin_id = status_origin_id({**data, '_mqtt_topic': data['_mqtt_topic'].removesuffix('/packets') + '/status'})
     return Packet(
         number=packet_number, received_at=now.isoformat(),
         time=str(data.get("time") or now.strftime("%H:%M:%S")),
         direction=str(data.get("direction", "?")).lower(),
         observer_hash=observer_hash,
-        origin_id=data.get('origin_id') if isinstance(data.get('origin_id'), str) and data['origin_id'].strip() else None,
+        origin_id=origin_id if isinstance(origin_id, str) and origin_id.strip() else None,
         origin=data.get('origin') if isinstance(data.get('origin'), str) and data['origin'].strip() else None,
         group_id=observer_hash or f"unhashed-{uuid.uuid4().hex}",
         repeat_count=entry["count"], first_number=entry["first_number"],
         rssi=parse_int(data.get("RSSI")), snr=parse_float(data.get("SNR")),
         length=parse_int(data.get("len")), raw_hex=raw_hex,
-        decoded=decoded, path=path, last_hop=last_hop,
+        decoded=decoded, path=path, last_hop=last_hop, source_at=source_at,
+        mqtt_retained=is_trace and bool(data.get('_mqtt_retained')),
     )
 
 
@@ -599,6 +614,8 @@ def on_message(client, userdata, msg):
 
     elif msg.topic.endswith("/packets"):
         sinks = userdata if isinstance(userdata, dict) else {}
+        data['_mqtt_retained'] = bool(getattr(msg, 'retain', False))
+        data['_mqtt_topic'] = msg.topic
         packet = handle_packet(data, sinks.get("packet_sink"))
         contact_sink = sinks.get("reception_contact_sink")
         if (contact_sink is not None and packet is not None and packet.direction == "rx"

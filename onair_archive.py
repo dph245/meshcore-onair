@@ -25,6 +25,7 @@ from onair_scopes import scope_label
 from onair_payload import decode_payload_details
 from onair_discovery import discovery_sessions
 from onair_trace import trace_sessions, WINDOW_SECONDS as TRACE_WINDOW_SECONDS
+import onair_trace_history as trace_history
 from onair_observers import record_observer, observer_comparison
 from onair_observer_radio import current_radio_profiles, migrate_radio, radio_profile_at, record_radio
 from onair_neighbors import (record_path, record_path_pairs, rebuild_path_pairs,
@@ -55,6 +56,7 @@ class Archive:
         self.error = None
         self.dropped = 0
         self.saved = 0
+        self.trace_revision = 0
         self.rf_neighbor_queue = Queue(maxsize=128)
         self.rf_neighbor_saved = 0
         self.rf_neighbor_dropped = 0
@@ -217,6 +219,9 @@ class Archive:
                     migrate_positions(db)
                 if db.execute('PRAGMA user_version').fetchone()[0] < 17:
                     migrate_radio(db)
+                if db.execute('PRAGMA user_version').fetchone()[0] < 18:
+                    trace_history.migrate(db)
+            self._trace_backfill = trace_history.status(db)
             self._load_names(db)
             self._radio_profiles = current_radio_profiles(db)
             self._radio_status = list(self._radio_profiles.values())
@@ -360,7 +365,7 @@ class Archive:
                 mode = 'legacy' if self.position_failure else self.position_mode
                 end = time.time() + 1
                 return evaluate_positions(db, mode, lambda factory:
-                    detail(db, identity, factory(db, 0, end)), self._position_failed)
+                    detail(db, identity, factory(db, 0, end), trace_history.position_conflicts), self._position_failed)
             cache = getattr(self, '_trace_positions', None)
             if cache is None or now - cache[0] > 60:
                 deadline = now + 10
@@ -370,7 +375,15 @@ class Archive:
                 finally:
                     db.set_progress_handler(None, 0)
                 self._trace_positions = (time.monotonic(), positions)
-            return detail(db, identity, self._trace_positions[1])
+            return detail(db, identity, self._trace_positions[1], trace_history.position_conflicts)
+
+    def trace_history(self, query, *args):
+        # Serialize expensive map requests without blocking the archive writer.
+        with self._distance_lock, self.connect() as db:
+            deadline = time.monotonic() + 12
+            db.set_progress_handler(lambda: time.monotonic() > deadline, 10000)
+            db.execute('BEGIN')
+            return query(db, *args)
 
     def _position_failed(self, exc):
         # Latch comparison failures until restart; never cache a normalized mismatch.
@@ -469,6 +482,7 @@ class Archive:
     def _write(self, db, batch):
         updated_names = {}
         updated_radio = {}
+        trace_packets = []
         with db:
             for p in batch:
                 if 'observer_status' in p:
@@ -492,14 +506,17 @@ class Archive:
                 search = ' '.join(str(v) for v in (p['observer_hash'] or '', p['path'],
                     ' '.join(d['hops']), d.get('group_text') or '', d.get('group_channel') or '',
                     a.get('name') or '' if a else '', a.get('public_key') or '' if a else '')).casefold()
-                db.execute('INSERT INTO packets(received,kind,channel,observer_hash,search_text,packet_json,repeater_token,origin_id,origin) VALUES(?,?,?,?,?,?,?,?,?)',
+                ins = db.execute('INSERT INTO packets(received,kind,channel,observer_hash,search_text,packet_json,repeater_token,origin_id,origin) VALUES(?,?,?,?,?,?,?,?,?)',
                     (received, d['payload_name'], d.get('group_channel'), p['observer_hash'], search,
                      json.dumps(p, ensure_ascii=False), repeater_token(p), p.get('origin_id'), p.get('origin')))
+                if d['payload_name'] == 'TRACE':
+                    trace_packets.append((ins.lastrowid, received, p))
                 node = self._record_node(db, p)
                 if node is not None:
                     key, name = node
                     updated_names[key] = name
                 self._record_advert_path(db, p)
+            trace_history.record_batch(db, trace_packets)
             record_path_pairs(db, batch)
             maintain_positions(db)
         # Publish only after commit. A failed batch leaves the resolver untouched.
@@ -512,6 +529,8 @@ class Archive:
                     if key not in self._names:
                         insort(self._name_keys, key)
                     self._names[key] = name
+        if trace_packets or updated_radio or updated_names:
+            self.trace_revision += 1
         self.saved += sum('observer_status' not in p for p in batch)
 
     @staticmethod
@@ -791,6 +810,7 @@ class Archive:
     def _run(self):
         batch = []
         deadline = time.monotonic() + self.interval
+        retry_backfill = 0
         with self.connect() as db:
             while not self.stopping.is_set() or batch or not self.queue.empty():
                 if len(batch) < 100:
@@ -815,6 +835,20 @@ class Archive:
                     batch.clear()
                     self.error = None
                     deadline = time.monotonic() + self.interval
+                if (not self.stopping.is_set() and self.queue.empty()
+                        and not self._trace_backfill['done'] and time.monotonic() >= retry_backfill):
+                    try:
+                        previous = self._trace_backfill
+                        self._trace_backfill = trace_history.backfill_batch(db)
+                        self.trace_revision += 1
+                        done = self._trace_backfill['done']
+                        count = self._trace_backfill['scanned']
+                        if done or count // 1000 != previous['scanned'] // 1000:
+                            logging.info('TRACE-Backfill: %s Archivempfänge gelesen%s',
+                                         count, ' (fertig)' if done else '')
+                    except (sqlite3.Error, ValueError, TypeError):
+                        logging.exception('TRACE-Backfill unterbrochen, neuer Versuch in 10 Sekunden')
+                        retry_backfill = time.monotonic() + 10
 
     def close(self):
         self.stopping.set()
