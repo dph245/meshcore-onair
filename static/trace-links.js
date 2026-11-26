@@ -6,9 +6,23 @@ window.TraceLinks = (() => {
   const active = () => selected() && !paused;
   const labels = new Map();
   const views = new Map();
+  const positions = new Map();
+  const workspace = document.getElementById('map-traces');
+  const hoverCapability = matchMedia('(any-hover: hover)');
+  const wide = matchMedia('(min-width: 901px)');
+  const settingsKey = 'onair-trace-links-view';
+  const labelZoom = {snr: 11, full: 9};
+  const tooltipPadding = 8;
   const REFRESH_INTERVAL_MS = 10000;
-  let layer, renderer, result, query, filters, controller, detailsController, frame, timer;
+  let layer, renderer, hoverTooltip, hovered, result, query, filters, controller, detailsController, frame, timer;
   let choice = '', boundsSet = false, dirty = true, visible = false, revision, lastRequest = 0;
+  let tooltipControls = [];
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(settingsKey)) || {}; } catch { /* Optional persistence. */ }
+  let labelMode = ['snr', 'full'].includes(saved.labelMode) ? saved.labelMode : 'none';
+  let detailsOpen = saved.detailsOpen !== false;
+  let panelWidth = Number.isInteger(saved.panelWidth) && saved.panelWidth >= 28 && saved.panelWidth <= 54 ?
+    saved.panelWidth : 36;
   const time = value => new Date(value * 1000).toLocaleString('de-DE');
   const name = endpoint => endpoint.name || endpoint.public_key.slice(0, 8);
   const linkName = link => link.endpoints.map(name).join(' ↔ ');
@@ -34,20 +48,83 @@ window.TraceLinks = (() => {
     uncertain_position: 'Position unsicher', same_identity: 'Gleiche Repeater-ID'
   };
 
+  function saveView() {
+    try { localStorage.setItem(settingsKey, JSON.stringify({labelMode, detailsOpen, panelWidth})); }
+    catch { /* Optional persistence. */ }
+  }
+
+  function updateDetailsToggle() {
+    workspace.dataset.detailsOpen = detailsOpen;
+    const button = el('toggle-details');
+    button.setAttribute('aria-expanded', String(detailsOpen));
+    const action = detailsOpen ? 'ausblenden' : 'einblenden';
+    button.setAttribute('aria-label', `Details ${action}`);
+    el('toggle-verb').textContent = ` ${action}`;
+  }
+
+  function updatePanelWidth() {
+    workspace.style.setProperty('--trace-links-panel-width', `${panelWidth}%`);
+    el('panel-width').setAttribute('aria-valuetext', `${panelWidth} Prozent`);
+  }
+
+  function sizeTooltips() {
+    if (!visible) return;
+    const map = traceMap.getContainer();
+    const width = Math.max(0, traceMap.getSize().x - 2 * tooltipPadding);
+    map.style.setProperty('--trace-link-tooltip-space', `${width}px`);
+    const bounds = map.getBoundingClientRect();
+    const left = bounds.left + map.clientLeft, top = bounds.top + map.clientTop;
+    tooltipControls = [...map.querySelectorAll('.leaflet-control-zoom, .leaflet-control-attribution')].map(control => {
+      const rect = control.getBoundingClientRect();
+      return {left: rect.left - left, right: rect.right - left, top: rect.top - top, bottom: rect.bottom - top};
+    });
+  }
+
+  function positionTooltip(tooltip) {
+    const element = tooltip.getElement();
+    const {offsetWidth: width, offsetHeight: height} = element;
+    const size = traceMap.getSize();
+    const point = traceMap.latLngToContainerPoint(tooltip.getLatLng());
+    let x = point.x - width / 2;
+    let y = point.y - height / 2;
+    if (!tooltip.options.permanent) {
+      const gap = 10;
+      if (point.x + gap + width <= size.x - tooltipPadding) x = point.x + gap;
+      else if (point.x - gap - width >= tooltipPadding) x = point.x - gap - width;
+      else y = point.y < size.y / 2 ? point.y + gap : point.y - gap - height;
+    }
+    const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
+    x = clamp(x, tooltipPadding, size.x - width - tooltipPadding);
+    let top = tooltipPadding, bottom = size.y - tooltipPadding;
+    for (const control of tooltipControls) {
+      if (x >= control.right || x + width <= control.left) continue;
+      if (control.top < size.y / 2) top = Math.max(top, control.bottom + 3);
+      else bottom = Math.min(bottom, control.top - 3);
+    }
+    y = top + height <= bottom ? clamp(y, top, bottom - height) :
+      clamp(y, tooltipPadding, size.y - height - tooltipPadding);
+    const position = L.point(x, y).round();
+    L.DomUtil.setPosition(element, traceMap.containerPointToLayerPoint(position));
+  }
+
   function scheduleLabels() {
-    if (!visible || frame != null) return;
+    if (!visible || labelMode === 'none' || frame != null) return;
     frame = requestAnimationFrame(() => {
       frame = null;
-      if (!visible) return;
+      if (!visible || labelMode === 'none') return;
       const bounds = traceMap.getBounds();
       const zoom = traceMap.getZoom();
+      const compact = labelMode === 'snr';
       for (const [id, view] of views) {
-        const open = zoom >= 9 && bounds.contains(view.center);
+        const open = zoom >= labelZoom[labelMode] && bounds.contains(view.center);
         if (open && !labels.has(id)) {
-          const label = L.tooltip({direction: 'center', permanent: true, className: 'trace-link-tooltip',
-            interactive: false}).setLatLng(view.center).setContent(labelContent(view.link)).addTo(layer);
+          const className = compact ? 'trace-link-tooltip trace-link-compact' : 'trace-link-tooltip';
+          const label = L.tooltip({direction: 'center', permanent: true, className})
+            .setLatLng(view.center).setContent(labelContent(view.link, compact)).addTo(layer);
           labels.set(id, label);
-        } else if (!open && labels.has(id)) {
+        }
+        if (open) positionTooltip(labels.get(id));
+        else if (labels.has(id)) {
           layer.removeLayer(labels.get(id));
           labels.delete(id);
         }
@@ -60,31 +137,81 @@ window.TraceLinks = (() => {
     return link.profiles.filter(group => sf === 'all' || sf === String(group.profile.spreading_factor ?? 'unknown'));
   }
 
-  function labelContent(link) {
+  function labelContent(link, compact = false) {
+    const groups = profilesOnMap(link);
+    const stat = el('stat').value;
+    const describe = (direction, missing) => direction ? traceMapSnrText(direction[stat]) : missing;
+    const readings = (group, missing) => [
+      text('span', `→ ${describe(group?.forward, missing)}`, 'trace-link-reading'), ' · ',
+      text('span', `← ${describe(group?.reverse, missing)}`, 'trace-link-reading')
+    ];
+    if (compact) {
+      // Keep both directions in one real profile, using the dataset's order for ties.
+      const count = group => (group.forward?.count || 0) + (group.reverse?.count || 0);
+      const group = groups.reduce((best, current) => !best || count(current) > count(best) ? current : best, null);
+      const row = text('div', '');
+      row.append(...readings(group, '—'));
+      return row;
+    }
     const box = text('div', '');
     const [a, b] = link.endpoints.map(name);
     box.append(text('strong', `${a} ↔ ${b}`));
-    const groups = profilesOnMap(link);
     for (const group of groups) {
-      const stat = el('stat').value;
       const sf = group.profile.spreading_factor;
       const title = groups.filter(other => other.profile.spreading_factor === sf).length > 1 ?
         profileName(group.profile) : sf == null ? 'Unbekannt' : `SF${sf}`;
-      const describe = direction => direction ? traceMapSnrText(direction[stat]) : 'fehlt';
-      box.append(text('div', `${title} · → ${describe(group.forward)} · ← ${describe(group.reverse)}`));
+      const row = text('div', `${title} · `);
+      row.append(...readings(group, 'fehlt'));
+      box.append(row);
     }
     return box;
+  }
+
+  function closeHover() {
+    hoverTooltip?.remove();
+    hovered = null;
+  }
+
+  function hover(id, event) {
+    if (!hoverCapability.matches || event.originalEvent?.sourceCapabilities?.firesTouchEvents ||
+        labelMode === 'full' && labels.has(id)) return;
+    if (!hoverTooltip) hoverTooltip = L.tooltip({direction: 'center', opacity: 1,
+      className: 'trace-link-tooltip trace-link-hover'});
+    if (hovered !== id) {
+      hovered = id;
+      hoverTooltip.setContent(labelContent(views.get(id).link)).setLatLng(event.latlng).addTo(traceMap);
+    } else hoverTooltip.setLatLng(event.latlng);
+    positionTooltip(hoverTooltip);
   }
 
   function style(link, id) {
     const groups = profilesOnMap(link);
     const forward = groups.some(group => group.forward), reverse = groups.some(group => group.reverse);
-    return {color: forward ? '#3388ff' : '#d97706', weight: id === choice ? 6 : 4,
-      opacity: .9, dashArray: forward && reverse ? null : '7 5'};
+    return {color: forward ? '#3388ff' : '#d97706', weight: id === choice ? 7 : 4,
+      opacity: choice && id !== choice ? .55 : .9, dashArray: forward && reverse ? null : '7 5'};
+  }
+
+  function reconcilePositions() {
+    const wanted = new Map();
+    for (const {points} of views.values()) {
+      for (const point of points) wanted.set(`${point.lat}/${point.lng}`, point);
+    }
+    for (const [id, marker] of positions) {
+      if (wanted.has(id)) continue;
+      layer.removeLayer(marker);
+      positions.delete(id);
+    }
+    for (const [id, point] of wanted) {
+      if (positions.has(id)) continue;
+      const marker = L.circleMarker(point, {renderer, radius: 3, interactive: false,
+        color: '#374151', weight: 1, fillColor: '#fff', fillOpacity: .9}).addTo(layer).bringToBack();
+      positions.set(id, marker);
+    }
   }
 
   function reconcile() {
     if (!result || !visible) return;
+    closeHover();
     const available = new Map(result.links.filter(link => !link.endpoints.some((endpoint, i) =>
       repeaterMapVisibility.hidden(endpoint.public_key, 2, link.prefix_bytes[i]))).map(link => [key(link), link]));
     for (const [id, view] of views) {
@@ -94,12 +221,17 @@ window.TraceLinks = (() => {
       labels.delete(id);
       views.delete(id);
     }
-    if (!available.has(choice)) choice = '';
+    const selectionRemoved = choice && !available.has(choice);
+    if (selectionRemoved) choice = '';
     for (const [id, link] of available) {
-      if (views.get(id)?.link === link) continue;
+      const view = views.get(id);
+      if (view?.link === link) {
+        if (selectionRemoved) view.line.setStyle(style(link, id));
+        continue;
+      }
       const points = link.positions.map(p => L.latLng(p.latitude, p.longitude));
       const center = L.latLng((points[0].lat + points[1].lat) / 2, (points[0].lng + points[1].lng) / 2);
-      let old = views.get(id);
+      let old = view;
       const colocated = points[0].equals(points[1]);
       if (old && old.colocated !== colocated) {
         layer.removeLayer(old.line);
@@ -116,10 +248,14 @@ window.TraceLinks = (() => {
       }
       const options = {...style(link, id), renderer};
       const line = old?.line || (colocated ? L.circleMarker(center, {...options, radius: 5}) : L.polyline(points, options))
-        .on('click', () => choose(id, true)).addTo(layer);
-      if (labels.has(id)) labels.get(id).setLatLng(center).setContent(labelContent(link));
-      views.set(id, {line, center, link, colocated});
+        .on('click', () => choose(id, true))
+        .on('mouseover mousemove', event => hover(id, event))
+        .on('mouseout', () => { if (hovered === id) closeHover(); }).addTo(layer);
+      if (labels.has(id)) labels.get(id).setLatLng(center).setContent(labelContent(link, labelMode === 'snr'));
+      views.set(id, {line, center, points, link, colocated});
     }
+    reconcilePositions();
+    views.get(choice)?.line.bringToFront();
     const select = el('pair');
     select.replaceChildren(new Option('Linkstrecke wählen', ''),
       ...[...available].sort((a, b) => linkName(a[1]).localeCompare(linkName(b[1]), 'de'))
@@ -141,35 +277,38 @@ window.TraceLinks = (() => {
     panel.replaceChildren();
     if (!link) return;
     panel.append(text('h3', linkName(link)), text('p', `Kartengeometrie zum jüngsten darstellbaren Messpunkt · ${time(link.position_at)}`));
-    const table = text('table', '', 'trace-link-table'), head = text('tr', '');
-    for (const title of ['Observer-Funkprofil', 'Richtung', 'Anzahl', 'Zuletzt', 'Min.', 'Median', 'Max.', 'Erste / letzte Messung', 'Zuordnung']) {
-      head.append(text('th', title));
-    }
-    const header = table.createTHead();
-    header.append(head);
-    const body = table.createTBody();
+    const [a, b] = link.endpoints.map(name);
     for (const {profile, forward, reverse} of link.profiles) {
-      const [a, b] = link.endpoints.map(name);
+      const group = text('section', '', 'trace-link-profile');
+      const directions = text('div', '', 'trace-link-directions');
+      group.append(text('h4', profileName(profile)), directions);
       for (const [direction, values] of [[`${a} → ${b}`, forward], [`${b} → ${a}`, reverse]]) {
-        const row = body.insertRow();
-        row.append(text('td', profileName(profile)), text('td', direction));
+        const card = text('section', '', 'trace-link-direction');
+        card.append(text('h5', direction));
+        directions.append(card);
         if (!values) {
-          const cell = text('td', 'Keine Messung');
-          cell.colSpan = 7;
-          row.append(cell);
+          card.append(text('p', 'Keine Messung', 'muted'));
           continue;
         }
-        row.append(text('td', values.count), ...['last', 'min', 'median', 'max'].map(stat =>
-          text('td', traceMapSnrText(values[stat]))), text('td', `${time(values.first_at)} / ${time(values.last_at)}`),
-          text('td', Object.entries(values.quality).map(([quality, count]) => `${count} × ${qualityText[quality]}`).join(' · ')));
+        const stats = text('dl', '', 'trace-link-stats');
+        for (const [label, value] of [
+          ['Anzahl', values.count], ...[['Zuletzt', 'last'], ['Min.', 'min'], ['Median', 'median'], ['Max.', 'max']]
+            .map(([title, stat]) => [title, traceMapSnrText(values[stat])])
+        ]) {
+          const entry = text('div', '');
+          entry.append(text('dt', label), text('dd', value));
+          stats.append(entry);
+        }
+        card.append(stats,
+          text('p', `Erste / letzte Messung · ${time(values.first_at)} / ${time(values.last_at)}`),
+          text('p', Object.entries(values.quality).map(([quality, count]) => `${count} × ${qualityText[quality]}`).join(' · ')));
       }
+      panel.append(group);
     }
-    const scroll = text('div', '', 'trace-link-scroll');
-    scroll.append(table);
     const button = text('button', 'Einzelmessungen laden');
     button.type = 'button';
     button.onclick = () => loadSamples(items);
-    panel.append(scroll, button, items);
+    panel.append(button, items);
   }
 
   async function loadSamples(panel, offset = 0) {
@@ -236,16 +375,46 @@ window.TraceLinks = (() => {
     }
   }
 
-  function choose(id, scroll = false) {
+  function choose(id, fromMap = false) {
     const previous = choice;
     choice = id;
     el('pair').value = choice;
-    for (const id of new Set([previous, choice])) {
-      const view = views.get(id);
-      if (view) view.line.setStyle(style(view.link, id));
+    if (choice !== previous) {
+      const changed = previous && choice ? [previous, choice] : views.keys();
+      for (const id of changed) {
+        const view = views.get(id);
+        if (view) view.line.setStyle(style(view.link, id));
+      }
+      views.get(choice)?.line.bringToFront();
+      renderDetails();
     }
-    renderDetails();
-    if (scroll) el('detail').scrollIntoView({block: 'nearest'});
+    if (fromMap) {
+      if (!detailsOpen) {
+        detailsOpen = true;
+        updateDetailsToggle();
+        saveView();
+      }
+      el('details').scrollTop = 0;
+      if (!wide.matches) el('details').scrollIntoView({block: 'start'});
+    }
+  }
+
+  function renderStatus({links, summary, backfill}) {
+    const linkCount = `${links.length} Linkstrecke${links.length === 1 ? '' : 'n'}`;
+    el('status').textContent = [
+      `${linkCount} · ${summary.visible_samples} gerichtete Messwerte · ${summary.measurements} TRACE-Messungen`,
+      backfill.done ? '' : `Archivaufarbeitung läuft · ${backfill.scanned} TRACE-Empfänge gelesen`
+    ].filter(Boolean).join(' · ');
+    const unmapped = Object.values(summary.unmapped_samples).reduce((total, n) => total + n, 0);
+    const notes = [
+      summary.partial ? `${summary.partial} TRACE-Messungen teilweise mitgehört` : '',
+      summary.without_visible_links ? `${summary.without_visible_links} TRACE-Messungen ohne darstellbare Linkstrecke` : '',
+      summary.undecodable ? `${summary.undecodable} TRACE-Empfänge nicht dekodierbar` : '',
+      ...Object.entries(summary.unmapped_samples).map(([reason, n]) => `${locationIssues[reason]} · ${n}`)
+    ].filter(Boolean);
+    el('coverage-title').textContent = unmapped ? `${unmapped} Messwert${unmapped === 1 ? '' : 'e'} ohne Karte` : 'Messabdeckung';
+    el('coverage-list').replaceChildren(...notes.map(note => text('li', note)));
+    el('coverage').hidden = !notes.length;
   }
 
   async function refresh(manual = false) {
@@ -263,6 +432,7 @@ window.TraceLinks = (() => {
       period === 'all' ? 0 : end - Number(period) * 3600;
     if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end || start < 0) {
       el('status').textContent = 'Bitte einen gültigen Von-/Bis-Zeitraum auswählen.';
+      el('coverage').hidden = true;
       return;
     }
     controller?.abort();
@@ -284,17 +454,7 @@ window.TraceLinks = (() => {
           el('sf').add(new Option(`SF${sf}`, sf));
         }
       }
-      const {summary, backfill} = result;
-      const unmapped = Object.values(summary.unmapped_samples).reduce((total, n) => total + n, 0);
-      const reasons = Object.entries(summary.unmapped_samples).map(([reason, n]) => `${locationIssues[reason]} ${n}`).join(', ');
-      el('status').textContent = [
-        `${result.links.length} Linkstrecken · ${summary.visible_samples} gerichtete Messwerte`,
-        unmapped ? `${unmapped} Messwerte ohne Karte (${reasons})` : '',
-        `Im Zeitraum ${summary.measurements} TRACE-Messungen, davon ${summary.partial} teilweise mitgehört`,
-        summary.without_visible_links !== undefined ? `${summary.without_visible_links} ohne darstellbare Strecke` : '',
-        summary.undecodable ? `${summary.undecodable} Empfänge nicht dekodierbar` : '',
-        backfill.done ? '' : `Archivaufarbeitung läuft · ${backfill.scanned} TRACE-Empfänge gelesen`
-      ].filter(Boolean).join(' · ');
+      renderStatus(result);
       const previous = choice;
       repeaterMapVisibility.addKeys(result.links.flatMap(link => link.endpoints.map(node => node.public_key)));
       reconcile();
@@ -303,6 +463,7 @@ window.TraceLinks = (() => {
       if (error.name !== 'AbortError') {
         dirty = true;
         el('status').textContent = `Linkstrecken konnten nicht geladen werden (${error.message}).`;
+        el('coverage').hidden = true;
       }
     } finally {
       if (controller === request) controller = null;
@@ -322,6 +483,7 @@ window.TraceLinks = (() => {
     if (!selected() || !traceMap) {
       if (visible) {
         visible = false;
+        closeHover();
         controller?.abort();
         detailsController?.abort();
         clearTimeout(timer); timer = null;
@@ -332,12 +494,15 @@ window.TraceLinks = (() => {
       return;
     }
     if (!layer) {
-      renderer = L.canvas({padding: .25});
+      renderer = L.canvas({padding: .25, tolerance: 4});
       layer = L.layerGroup();
+      traceMap.on('resize', sizeTooltips);
       traceMap.on('zoomend moveend resize', scheduleLabels);
+      traceMap.on('zoomstart movestart resize', closeHover);
     }
     if (!visible) {
       visible = true;
+      sizeTooltips();
       layer.addTo(traceMap);
       scheduleLabels();
     }
@@ -348,15 +513,47 @@ window.TraceLinks = (() => {
     } else if (dirty && !controller) refresh();
   }
 
+  function updateDates() {
+    const custom = el('period').value === 'custom';
+    for (const id of ['start', 'end']) el(id).parentElement.hidden = el(id).disabled = !custom;
+    return custom;
+  }
+  updateDates();
   el('form').onsubmit = event => { event.preventDefault(); refresh(true); };
   el('period').onchange = () => {
-    el('start').disabled = el('end').disabled = el('period').value !== 'custom';
-    if (el('period').value !== 'custom' || el('start').value && el('end').value) refresh(true);
+    if (!updateDates() || el('start').value && el('end').value) refresh(true);
   };
   el('sf').onchange = () => refresh(true);
   el('stat').onchange = () => {
-    for (const [id, label] of labels) label.setContent(labelContent(views.get(id).link));
+    for (const [id, label] of labels) label.setContent(labelContent(views.get(id).link, labelMode === 'snr'));
+    scheduleLabels();
+    if (hovered) {
+      hoverTooltip.setContent(labelContent(views.get(hovered).link));
+      positionTooltip(hoverTooltip);
+    }
   };
+  el('label-mode').value = labelMode;
+  el('label-mode').onchange = () => {
+    labelMode = el('label-mode').value;
+    closeHover();
+    for (const label of labels.values()) layer.removeLayer(label);
+    labels.clear();
+    saveView();
+    scheduleLabels();
+  };
+  updateDetailsToggle();
+  el('toggle-details').onclick = () => {
+    detailsOpen = !detailsOpen;
+    updateDetailsToggle();
+    saveView();
+  };
+  el('panel-width').value = panelWidth;
+  updatePanelWidth();
+  el('panel-width').oninput = () => {
+    panelWidth = el('panel-width').valueAsNumber;
+    updatePanelWidth();
+  };
+  el('panel-width').onchange = saveView;
   el('pair').onchange = () => choose(el('pair').value);
   repeaterMapVisibility.listeners.add(() => {
     if (visible && result) {

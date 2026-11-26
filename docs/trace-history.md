@@ -15,16 +15,26 @@ Letzter Wert, Minimum und Maximum lassen sich lokal umschalten.
 
 Jede geografisch belegte Verbindung hat ein Canvas-Objekt. Zwei
 Repeater mit derselben belegten Position erscheinen als Punkt.
-Beschriftungen werden ab Zoom 9 im Kartenausschnitt eingeblendet.
-Pfeile beziehen sich auf die Reihenfolge der im Feld genannten
-Endpunkte. Für jede Profilkombination zeigt die Detailansicht beide
-Richtungen und kennzeichnet fehlende Gegenmessungen. Messwerte mit
+Kleine Punkte markieren die Repeater-Positionen. Standardmäßig
+erscheint das vollständige Label beim Überfahren einer Verbindung.
+Wählbar sind kompakte SNR-Labels ab Zoom 11 und vollständige Labels
+ab Zoom 9, jeweils für Streckenmitten im Kartenausschnitt. Kompakte
+Labels zeigen die beiden Richtungen des gefilterten Profils mit den
+meisten Messwerten. Ein Gedankenstrich markiert eine fehlende Messung.
+Die Pfeile folgen der Endpunktreihenfolge im vollständigen Label und
+in der Linkstrecken-Auswahlliste. Die Detailansicht führt beide
+Richtungen je Profilkombination auf. Messwerte mit
 eindeutig identifizierten Endpunkten zählen auch dann in die
 Linkstatistik, wenn zu ihrem Zeitpunkt keine sichere Geometrie vorliegt.
 Die sichtbare Geometrie stammt vom jüngsten kartierbaren Messwert
 innerhalb des gewählten Filters. Die Übersicht nennt teilweise
 beobachtete Messungen, Empfänge ohne Dekodierung und unkartierbare
-Messwerte mit Grund.
+Messwerte mit Grund. Die Gründe stehen in einer aufklappbaren
+Statusübersicht. Klick oder Tippen auf eine Strecke hebt diese hervor
+und öffnet bei Bedarf die Details. Auf breiten Fenstern steht das
+einklappbare Detailpanel mit verstellbarer Breite neben der Karte,
+auf schmalen Fenstern darunter. Der Browser speichert die
+Panel-Einstellungen und den Labelmodus lokal.
 
 Die Karte behält ihre Filter und Layer bei archivbedingten
 Aktualisierungen. Snapshots enthalten die TRACE-Revision vollständig.

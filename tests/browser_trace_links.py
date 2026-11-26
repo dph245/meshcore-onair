@@ -42,8 +42,97 @@ def fixture(sf):
         spreading_factors=[7, 9], backfill=dict(done=True, scanned=8))
 
 
+def line_point(page):
+    return page.evaluate('''() => {
+      const point = traceMap.latLngToContainerPoint([52.103, 10.203]);
+      const box = traceMap.getContainer().getBoundingClientRect();
+      return [box.left + point.x, box.top + point.y];
+    }''')
+
+
+def assert_tooltip_layout(tooltip, min_width):
+    layout = tooltip.evaluate(r'''el => {
+      const {width, height, left, right, top, bottom} = el.getBoundingClientRect();
+      const container = el.closest('#trace-map');
+      const map = container.getBoundingClientRect();
+      const range = document.createRange();
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const splitWords = [];
+      for (let node; (node = walker.nextNode());) {
+        for (const match of node.textContent.matchAll(/\S+/gu)) {
+          range.setStart(node, match.index);
+          range.setEnd(node, match.index + match[0].length);
+          if (range.getClientRects().length !== 1) splitWords.push(match[0]);
+        }
+      }
+      const readings = [...el.querySelectorAll('.trace-link-reading')];
+      const coversControls = [...container.querySelectorAll('.leaflet-control-zoom, .leaflet-control-attribution')]
+        .some(control => {
+          const rect = control.getBoundingClientRect();
+          return left < rect.right && right > rect.left && top < rect.bottom && bottom > rect.top;
+        });
+      return {width, height, maxWidth: parseFloat(getComputedStyle(el).maxWidth),
+        mapWidth: map.width, splitWords, readings: readings.length,
+        readingsOnOneLine: readings.every(reading => reading.getClientRects().length === 1),
+        contained: left >= map.left && right <= map.right && top >= map.top && bottom <= map.bottom,
+        overflows: el.scrollWidth > el.clientWidth, coversControls};
+    }''')
+    assert min_width <= layout['width'] <= layout['maxWidth'] <= min(400, layout['mapWidth'] - 16), layout
+    assert layout['contained'] and not layout['overflows'] and not layout['splitWords'], layout
+    assert not layout['coversControls'], layout
+    assert layout['readings'] and layout['readingsOnOneLine'], layout
+    return layout
+
+
+def run_tooltip_layout(browser):
+    page = browser.new_page(viewport=dict(width=1280, height=900))
+    payload = fixture('all')
+    west = 'Westlicher Repeater auf dem Höhenzug hinter der ehemaligen Relaisstation'
+    east = 'Östlicher Repeater am Aussichtspunkt oberhalb der Gemeinde mit Blick zum Tal'
+    link = payload['links'][0]
+    link['endpoints'][0]['name'], link['endpoints'][1]['name'] = west, east
+    link['profiles'].append(dict(profile=dict(P7, tx_power_dbm=22, radio_ic='Semtech SX1262'),
+                                 forward=stats(2, -17.875), reverse=stats(2, -11.25)))
+    route_page(page, [])
+    page.route('**/api/trace-links?*', lambda route: route.fulfill(json=payload))
+    page.goto('http://trace-tooltip.test/')
+    page.locator('#tab-trace').click()
+    expect(page.locator('#trace-links-status')).to_contain_text('2 Linkstrecken')
+    page.locator('#trace-links-panel-width').press('End')
+
+    tooltip = page.locator('.trace-link-hover')
+    for width, mode, right in ((1280, 'light', True), (360, 'dark', False)):
+        page.set_viewport_size(dict(width=width, height=940))
+        page.evaluate('mode => document.documentElement.dataset.theme = mode', mode)
+        page.locator('#trace-map').scroll_into_view_if_needed()
+        page.mouse.move(0, 0)
+        page.evaluate('''right => {
+          traceMap.setView([52.105, 10.22], 12, {animate:false});
+          const size = traceMap.getSize();
+          const edge = right ? L.point(size.x - 18, size.y - 14) : L.point(50, 16);
+          const point = traceMap.latLngToContainerPoint([52.103, 10.203]);
+          traceMap.panBy(point.subtract(edge), {animate:false});
+        }''', right)
+        frames(page)
+        page.mouse.move(*line_point(page))
+        expect(tooltip).to_contain_text(f'{west} ↔ {east}')
+        expect(tooltip).to_contain_text('← −11,25 dB')
+        expect(tooltip).to_contain_text('→ −17,875 dB')
+        layout = assert_tooltip_layout(tooltip, 280)
+        assert abs(layout['width'] - layout['maxWidth']) <= 1, layout
+        assert layout['height'] < 150, layout
+
+    page.mouse.move(0, 0)
+    page.locator('#trace-links-label-mode').select_option('full')
+    permanent = page.locator('.trace-link-tooltip:not(.trace-link-hover)').filter(has_text=west)
+    expect(permanent).to_contain_text('← −11,25 dB')
+    assert_tooltip_layout(permanent, 280)
+    expect(tooltip).to_have_count(0)
+    page.close()
+
+
 def run_regression(browser):
-    page = browser.new_page(viewport=dict(width=390, height=900))
+    page = browser.new_page(viewport=dict(width=1280, height=900))
     page.clock.install()
     errors, requests, queries, sample_queries = [], [], [], []
     page.on('pageerror', lambda error: errors.append(str(error)))
@@ -72,21 +161,113 @@ def run_regression(browser):
     page.locator('#tab-trace').click()
     expect(page.locator('#trace-links-status')).to_contain_text('2 Linkstrecken')
     expect(page.locator('#trace-map canvas')).to_have_count(1)
+    expect(page.locator('#trace-links-start')).to_be_hidden()
+    expect(page.locator('#trace-links-end')).to_be_hidden()
+    expect(page.locator('#trace-links-label-mode')).to_have_value('none')
+    expect(page.locator('#trace-links-coverage-list')).to_be_hidden()
+    page.locator('#trace-links-coverage summary').click()
+    expect(page.locator('#trace-links-coverage-list')).to_contain_text('Identität unbekannt · 1')
+    page.locator('#trace-links-coverage summary').click()
     page.evaluate('traceMap.setView([52.105,10.22], 12, {animate:false})')
-    expect(page.locator('.trace-link-tooltip')).to_have_count(2)
-    expect(page.locator('.trace-link-tooltip').first).to_contain_text('+0,125 dB')
+    frames(page)
+    expect(page.locator('.trace-link-tooltip')).to_have_count(0)
     expect(page.locator('#trace-links-sf option[value="9"]')).to_have_count(1)
     assert not sample_queries
-    page.evaluate('window.savedTraceLines = Object.values(traceMap._layers).filter(layer => layer instanceof L.Polyline)')
+    page.evaluate('''() => {
+      savedTraceMap = traceMap;
+      savedTraceCanvas = document.querySelector('#trace-map canvas');
+      savedTraceLines = Object.values(traceMap._layers).filter(layer => layer instanceof L.Polyline);
+      savedTraceDots = Object.values(traceMap._layers).filter(layer => layer instanceof L.CircleMarker);
+      savedCenter = traceMap.getCenter();
+    }''')
+    assert page.evaluate('savedTraceLines.length === 2 && savedTraceDots.length === 3 && savedTraceDots.every(dot => !dot.options.interactive)')
+    assert page.evaluate("savedTraceLines[0].options.color === '#3388ff' && !savedTraceLines[0].options.dashArray")
+    assert page.evaluate("savedTraceLines[1].options.color === '#d97706' && savedTraceLines[1].options.dashArray === '7 5'")
+
+    page.mouse.move(*line_point(page))
+    tooltip = page.locator('.trace-link-hover')
+    expect(tooltip).to_have_count(1)
+    expect(tooltip).to_contain_text('West ↔ Ost')
+    expect(tooltip).to_contain_text('SF9')
+    expect(tooltip).to_contain_text('+0,125 dB')
+    layout = assert_tooltip_layout(tooltip, 130)
+    assert layout['height'] < 75, layout
     for mode in ('light', 'dark'):
         page.evaluate('(mode) => document.documentElement.dataset.theme=mode', mode)
-        color = page.locator('.trace-link-tooltip').first.evaluate('(el) => getComputedStyle(el).color')
+        color = tooltip.evaluate('(el) => getComputedStyle(el).color')
         assert color == ('rgb(38, 52, 66)' if mode == 'light' else 'rgb(203, 211, 221)'), color
+    page.mouse.click(*line_point(page))
+    expect(page.locator('#trace-links-pair')).to_have_value(f'{A}/{B}')
+    expect(page.locator('#trace-links-detail h3')).to_have_text('West ↔ Ost')
+    expect(page.locator('.trace-link-stats').first).to_contain_text('+0,125 dB')
+    assert page.evaluate('savedTraceLines[0].options.weight === 7 && savedTraceLines[1].options.opacity < .9')
+    page.mouse.move(0, 0)
+    expect(tooltip).to_have_count(0)
+    page.locator('#trace-links-pair').select_option(f'{B}/{C}')
+    expect(page.locator('#trace-links-detail h3')).to_have_text('Ost ↔ Süd')
+    assert page.evaluate('savedTraceLines[1].options.weight === 7 && savedTraceLines[0].options.weight === 4')
+    page.locator('#trace-links-pair').select_option('')
+    assert page.evaluate('savedTraceLines.every(line => line.options.weight === 4 && line.options.opacity === .9)')
+
+    mode = page.locator('#trace-links-label-mode')
+    mode.select_option('snr')
+    compact = page.locator('.trace-link-compact')
+    expect(compact).to_have_count(2)
+    expect(compact.first).to_have_text('→ +0,125 dB · ← +0,25 dB')
+    expect(compact.last).to_have_text('→ — · ← +0,125 dB')
+    page.evaluate('traceMap.setZoom(10, {animate:false})')
+    expect(compact).to_have_count(0)
+    mode.select_option('full')
+    full = page.locator('.trace-link-tooltip')
+    expect(full).to_have_count(2)
+    expect(full.first).to_contain_text('West ↔ Ost')
+    expect(full.first).to_contain_text('SF9')
     page.locator('#trace-links-stat').select_option('last')
-    expect(page.locator('.trace-link-tooltip').first).to_contain_text('+0,25 dB')
+    expect(full.first).to_contain_text('+0,25 dB')
+    mode.select_option('none')
+    expect(full).to_have_count(0)
+
+    page.evaluate('''() => {
+      traceMap.setZoom(12, {animate:false});
+      savedCenter = traceMap.getCenter();
+      resizeEvents = 0;
+      traceMap.on('resize', () => resizeEvents++);
+    }''')
+    map_box = lambda: page.locator('#trace-map').bounding_box()
+    details = page.locator('#trace-links-details')
+    toggle = page.locator('#trace-links-toggle-details')
+    assert details.bounding_box()['x'] >= map_box()['x'] + map_box()['width']
+    width = map_box()['width']
+    toggle.click()
+    expect(details).to_be_hidden()
+    assert map_box()['width'] > width
+    frames(page)
+    page.mouse.click(*line_point(page))
+    expect(details).to_be_visible()
+    expect(toggle).to_have_attribute('aria-expanded', 'true')
+    expect(page.locator('#trace-links-pair')).to_have_value(f'{A}/{B}')
+    panel_width = details.bounding_box()['width']
+    page.locator('#trace-links-panel-width').press('End')
+    assert details.bounding_box()['width'] > panel_width
+    height = map_box()['height']
+    page.set_viewport_size(dict(width=1280, height=740))
+    frames(page)
+    assert map_box()['height'] < height
+    page.set_viewport_size(dict(width=820, height=740))
+    frames(page)
+    assert details.bounding_box()['y'] >= map_box()['y'] + map_box()['height']
+    expect(page.locator('#trace-links-panel-width')).to_be_hidden()
+    assert page.evaluate('''() => traceMap === savedTraceMap && traceMap.getZoom() === 12 &&
+      traceMap.latLngToContainerPoint(savedCenter).distanceTo(traceMap.getSize().divideBy(2)) <= 1.5 &&
+      document.querySelector('#trace-map canvas') === savedTraceCanvas &&
+      [...savedTraceLines, ...savedTraceDots].every(layer => traceMap.hasLayer(layer)) && resizeEvents > 0''')
+    before = page.evaluate('resizeEvents')
+    frames(page)
+    assert page.evaluate('resizeEvents') == before
     assert len(queries) == 1
+
     page.locator('#trace-links-sf').select_option('9')
-    expect(page.locator('#trace-links-status')).to_contain_text('1 Linkstrecken')
+    expect(page.locator('#trace-links-status')).to_contain_text('1 Linkstrecke ·')
     assert page.evaluate('traceMap.hasLayer(savedTraceLines[0]) && !traceMap.hasLayer(savedTraceLines[1])')
     page.locator('#trace-links-pair').select_option(f'{A}/{B}')
     expect(page.locator('#trace-links-detail')).to_contain_text('Keine Messung')
@@ -99,10 +280,12 @@ def run_regression(browser):
     expect(page.locator('#trace-links-detail')).to_contain_text('Observer-RSSI -92 dBm')
     assert len(sample_queries) == 1
     page.locator('#trace-links-period').select_option('custom')
+    expect(page.locator('#trace-links-start')).to_be_visible()
+    expect(page.locator('#trace-links-end')).to_be_visible()
     page.locator('#trace-links-start').fill('2026-11-10T18:00')
     page.locator('#trace-links-end').fill('2026-11-18T18:00')
-    page.locator('#trace-links-form button').click()
-    page.wait_for_function('document.querySelector("#trace-links-status").textContent.includes("1 Linkstrecken")')
+    page.locator('#trace-links-form button[type=submit]').click()
+    page.wait_for_function('document.querySelector("#trace-links-status").textContent.includes("1 Linkstrecke ·")')
     page.wait_for_timeout(50)
     original = queries[-1]
     assert float(original['end'][0]) - float(original['start'][0]) == 8 * 86400
@@ -124,9 +307,46 @@ def run_regression(browser):
     assert page.locator('#trace-map canvas').count() == 0
     page.locator('#tab-trace').click()
     expect(page.locator('#trace-links-start')).to_have_value('2026-11-10T18:00')
-    expect(page.locator('#trace-links-status')).to_contain_text('1 Linkstrecken')
+    expect(page.locator('#trace-links-status')).to_contain_text('1 Linkstrecke ·')
     assert page.evaluate('traceMap.hasLayer(savedTraceLines[0])')
+    mode.select_option('full')
+    toggle.click()
+    page.reload()
+    page.locator('#tab-trace').click()
+    expect(mode).to_have_value('full')
+    expect(toggle).to_have_attribute('aria-expanded', 'false')
+    expect(details).to_be_hidden()
+    page.set_viewport_size(dict(width=1280, height=900))
+    toggle.click()
+    expect(page.locator('#trace-links-panel-width')).to_have_value('54')
     assert not errors, errors
+    page.close()
+
+
+def run_touch(browser, width, height):
+    page = browser.new_page(viewport=dict(width=width, height=height), is_mobile=True, has_touch=True)
+    route_page(page, [])
+    page.route('**/api/trace-links?*', lambda route: route.fulfill(json=fixture('all')))
+    page.goto('http://trace-touch.test/')
+    page.locator('#tab-trace').tap()
+    expect(page.locator('#trace-links-status')).to_contain_text('2 Linkstrecken')
+    page.locator('#trace-links-toggle-details').tap()
+    page.evaluate('traceMap.setView([52.105,10.22], 12, {animate:false})')
+    frames(page)
+    point = line_point(page)
+    assert page.evaluate('([x,y]) => document.elementFromPoint(x,y) instanceof HTMLCanvasElement', point)
+    page.touchscreen.tap(*point)
+    expect(page.locator('#trace-links-pair')).to_have_value(f'{A}/{B}')
+    expect(page.locator('#trace-links-detail h3')).to_be_in_viewport()
+    expect(page.locator('.trace-link-tooltip')).to_have_count(0)
+    page.locator('#trace-links-pair').select_option(f'{B}/{C}')
+    expect(page.locator('#trace-links-detail h3')).to_have_text('Ost ↔ Süd')
+    assert page.evaluate('document.querySelector("main").scrollWidth === document.querySelector("main").clientWidth')
+    page.locator('#trace-links-label-mode').select_option('full')
+    label = page.locator('.trace-link-tooltip').filter(has_text='West ↔ Ost')
+    expect(label).to_contain_text('+0,125 dB')
+    assert_tooltip_layout(label, 130)
+    expect(page.locator('.trace-link-hover')).to_have_count(0)
     page.close()
 
 
@@ -193,13 +413,15 @@ def benchmark(browser, folder):
     page.wait_for_function('window.traceRenderMs !== undefined')
     elapsed = (perf_counter() - begin) * 1000
     render = page.evaluate('traceRenderMs')
+    permanent_labels = page.locator('#trace-map .trace-link-tooltip').count()
+    assert permanent_labels == 0
     active = idle()
     page.locator('#tab-live').click()
     frames(page)
     inactive_after = idle()
     browser_cdp.detach()
     page.close()
-    return dict(links=len(payload['links']), decoded_data_to_paint_ms=round(render, 2),
+    return dict(links=len(payload['links']), permanent_labels=permanent_labels, decoded_data_to_paint_ms=round(render, 2),
                 click_to_confirmed_render_ms=round(elapsed, 2), active=active,
                 inactive_before=inactive_before, inactive_after=inactive_after)
 
@@ -211,7 +433,10 @@ if __name__ == '__main__':
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox'])
         run_regression(browser)
-        print('Historische TRACE-Karte: Canvas, Layer, Auswahl, Filter, beide Themes und Lazy Loading bestanden')
+        run_tooltip_layout(browser)
+        run_touch(browser, 390, 844)
+        run_touch(browser, 667, 375)
+        print('Historische TRACE-Karte: Canvas, Labelmodi, Themes, Auswahl, Touch, Layout, Filter und Lazy Loading bestanden')
         if args.benchmark:
             print(json.dumps(benchmark(browser, args.benchmark), indent=2))
         browser.close()

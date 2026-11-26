@@ -363,24 +363,27 @@ let traceMap;
   });
   el('start').disabled = el('end').disabled = true;
   repeaterMapVisibility.listeners.add(() => { details(); traceMap?.closePopup(); });
+  function resizeMap() {
+    if (!document.getElementById('panel-trace').hidden && !document.getElementById('map-traces').hidden) {
+      traceMap.invalidateSize(); // Leaflet compensates the pixel offset to keep the geographic center.
+    }
+  }
   window.showTraceMap = function() {
     if (!window.L) {
       el('status').textContent = 'Kartenbibliothek konnte nicht geladen werden. Bitte Seite neu laden.';
       return;
     }
     if (!traceMap) {
-      traceMap = L.map('trace-map').setView([52.1, 10.1], 7);
+      traceMap = L.map('trace-map', {trackResize: false}).setView([52.1, 10.1], 7);
       const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       }).addTo(traceMap);
       tiles.on('tileerror', () => { document.getElementById('trace-tiles-status').hidden = false; });
       traceMap.on('zoomend moveend resize', scheduleDraw);
-      new ResizeObserver(() => {
-        if (!document.getElementById('panel-trace').hidden && !document.getElementById('map-traces').hidden) traceMap.invalidateSize({pan: false});
-      }).observe(traceMap.getContainer());
+      new ResizeObserver(resizeMap).observe(traceMap.getContainer());
     }
     if (layer && !active()) layer.remove();
     else if (layer && !traceMap.hasLayer(layer)) layer.addTo(traceMap);
-    traceMap.invalidateSize({pan: false}); scheduleDraw();
+    resizeMap(); scheduleDraw();
   };
 })();
