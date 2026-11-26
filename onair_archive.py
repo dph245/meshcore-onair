@@ -26,6 +26,7 @@ from onair_payload import decode_payload_details
 from onair_discovery import discovery_sessions
 from onair_trace import trace_sessions, WINDOW_SECONDS as TRACE_WINDOW_SECONDS
 from onair_observers import record_observer, observer_comparison
+from onair_observer_radio import current_radio_profiles, migrate_radio, radio_profile_at, record_radio
 from onair_neighbors import (record_path, record_path_pairs, rebuild_path_pairs,
                              neighbor_summary, neighbor_page, neighbor_map)
 from onair_distance import INDEX_SQL, analyze as analyze_distance, response as distance_response
@@ -214,7 +215,11 @@ class Archive:
                     db.execute('PRAGMA user_version=15')
                 if db.execute('PRAGMA user_version').fetchone()[0] < 16:
                     migrate_positions(db)
+                if db.execute('PRAGMA user_version').fetchone()[0] < 17:
+                    migrate_radio(db)
             self._load_names(db)
+            self._radio_profiles = current_radio_profiles(db)
+            self._radio_status = list(self._radio_profiles.values())
         self.worker = Thread(target=self._run, name='onair-archive', daemon=True)
         self.worker.start()
         self.rf_neighbor_worker = Thread(target=self._run_rf_neighbors,
@@ -375,7 +380,11 @@ class Archive:
         self._enqueue(packet.to_dict())
 
     def accept_noise(self, sample):
-        self._enqueue({'noise_sample': dict(sample)})
+        self.accept_observer_status(sample, None)
+
+    def accept_observer_status(self, sample, report):
+        if sample is not None or report is not None:
+            self._enqueue({'observer_status': (dict(sample) if sample is not None else None, report)})
 
     def accept_rf_neighbors(self, message):
         # Callback does no JSON parsing or SQLite work. Each delivery is an event;
@@ -459,13 +468,19 @@ class Archive:
 
     def _write(self, db, batch):
         updated_names = {}
+        updated_radio = {}
         with db:
             for p in batch:
-                if 'noise_sample' in p:
-                    sample = p['noise_sample']
-                    db.execute('INSERT INTO noise_samples(received_at,noise_floor,origin_id,origin,status_at) VALUES(?,?,?,?,?)',
-                               (sample['received_at'], sample['noise_floor'],
-                                sample.get('origin_id'), sample.get('origin'), sample.get('status_at')))
+                if 'observer_status' in p:
+                    sample, report = p['observer_status']
+                    if sample is not None:
+                        db.execute('INSERT INTO noise_samples(received_at,noise_floor,origin_id,origin,status_at) VALUES(?,?,?,?,?)',
+                                   (sample['received_at'], sample['noise_floor'],
+                                    sample.get('origin_id'), sample.get('origin'), sample.get('status_at')))
+                    if report is not None:
+                        current = record_radio(db, report)
+                        if current is not None:
+                            updated_radio[report.origin_id] = current
                     continue
                 d = p['decoded']
                 record_repeater(db, p)
@@ -488,13 +503,16 @@ class Archive:
             record_path_pairs(db, batch)
             maintain_positions(db)
         # Publish only after commit. A failed batch leaves the resolver untouched.
+        if updated_radio:
+            self._radio_profiles.update(updated_radio)
+            self._radio_status = list(self._radio_profiles.values())
         if updated_names:
             with self._names_lock:
                 for key, name in updated_names.items():
                     if key not in self._names:
                         insort(self._name_keys, key)
                     self._names[key] = name
-        self.saved += sum('noise_sample' not in p for p in batch)
+        self.saved += sum('observer_status' not in p for p in batch)
 
     @staticmethod
     def _record_node(db, packet):
@@ -671,6 +689,15 @@ class Archive:
         with self.connect() as db, db:
             db.execute('BEGIN')
             return observer_comparison(db)
+
+    def observer_radio_status(self):
+        # The archive worker replaces the snapshot after commit and never mutates it.
+        return self._radio_status
+
+    def observer_radio_at(self, origin_id, received_at):
+        with self.connect() as db, db:
+            db.execute('BEGIN')
+            return radio_profile_at(db, origin_id, received_at)
 
     def noise_history(self, limit=500):
         """Latest readings per observer, in receipt order (legacy IDs stay NULL)."""

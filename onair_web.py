@@ -24,6 +24,7 @@ from onair_assets import VersionedStaticFiles, index_response
 import onair_rf_neighbor_view as rf_neighbor_view
 
 from onair_mqtt import BROKER_HOST, BROKER_PORT, create_client, noise_sample
+from onair_observer_radio import radio_report
 
 MAX_RAW_PACKETS = 500
 MAX_GROUPS = 500
@@ -92,8 +93,8 @@ class Dashboard:
             with self.noise_lock:
                 self.noise_history.setdefault(sample.get('origin_id'), deque(maxlen=500)).append(sample)
                 self.noise_floor = sample['noise_floor'] if len(self.noise_history) == 1 else None
-            if self.archive is not None:
-                self.archive.accept_noise(sample)
+        if self.archive is not None:
+            self.archive.accept_observer_status(sample, radio_report(data))
 
     def accept_packet(self, packet):
         # Called from the MQTT thread; no event-loop or browser work here.
@@ -111,6 +112,7 @@ class Dashboard:
                 "noise_floor": self.noise_floor,
                 "noise_history": history,
                 "noise_observers": observers,
+                "radio_observers": self.archive.observer_radio_status() if self.archive else (),
                 "dropped": self.dropped, "max_groups": MAX_GROUPS,
                 "max_receptions": MAX_RECEPTIONS}
 
@@ -128,12 +130,16 @@ class Dashboard:
         if not self.listeners:
             self._websocket_snapshot = None
 
-    def _broadcast(self, receptions, changed, evictions, status, raw_packets):
+    def _broadcast(self, receptions, changed, evictions, status, raw_packets, radio_changed=True):
         # The pump publishes the entire batch without yielding. A snapshot at seq N
         # includes this batch, so the first update following it must be N + 1.
         self.sequence += 1
         self._websocket_snapshot = None
         updates = {}
+        update_status = status
+        if not radio_changed:
+            update_status = status.copy()
+            update_status.pop("radio_observers", None)
         for queue, delta in self.listeners.items():
             if queue.full():
                 while not queue.empty():
@@ -149,7 +155,8 @@ class Dashboard:
                         body = {"type": "update", "groups": list(changed.values()),
                                 "removed": list(evictions.values())}
                     updates[delta] = _encode_websocket_message({
-                        **body, "seq": self.sequence, "status": status, "raw_packets": raw_packets,
+                        **body, "seq": self.sequence, "status": update_status,
+                        "raw_packets": raw_packets,
                     })
                 queue.put_nowait(updates[delta])
 
@@ -173,7 +180,9 @@ class Dashboard:
                     changed.pop(evicted, None)
             status = self.status()
             if receptions or status != previous_status:
-                self._broadcast(receptions, changed, evictions, status, raw_packets)
+                radio_changed = (previous_status is None or
+                                 status["radio_observers"] is not previous_status["radio_observers"])
+                self._broadcast(receptions, changed, evictions, status, raw_packets, radio_changed)
                 previous_status = status
             await asyncio.sleep(0.25)
 

@@ -151,9 +151,9 @@ def main():
         click('#pause')
         assert page.locator('#noise-charts .noise-observer').count() == 0
         # Versioned snapshots and deltas use the same rendering and raw ring.
-        def frame(kind, seq, **data):
+        def frame(kind, seq, status=None, **data):
             page.evaluate('data => __sockets.at(-1).onmessage({data: JSON.stringify(data)})',
-                          dict(type=kind, seq=seq, status=dict(connected=True, max_receptions=2), **data))
+                          dict(type=kind, seq=seq, status=dict(connected=True, max_receptions=2) | (status or {}), **data))
 
         click('#tab-live')
         first = packet(800)
@@ -192,9 +192,51 @@ def main():
         check(page, "groups.size === 1 && groups.has('HASH808') && rawPackets.join(',') === 'restart,resume'")
         frame('delta', 2, receptions=[packet(808)], raw_packets=['resume'])
         check(page, "__sockets.at(-1).readyState === 3 && groups.get('HASH808').count === 1 && rawPackets.length === 2")
+        page.wait_for_function('__sockets.length === 3')
+        assert 'SF8' not in page.locator('header').inner_text()
+        stamp = page.evaluate('Date.now() / 1000')
+        reading = page.evaluate('({origin_id, origin}) => ({origin_id, origin, noise_floor:-115, received_at:new Date().toISOString()})',
+                                dict(origin_id='AB' * 32, origin='Gleicher Name'))
+        east = dict(frequency_hz=869618000, bandwidth_hz=62500, spreading_factor=8, coding_rate=8)
+        west = dict(spreading_factor=11)
+        radios = [
+            dict(origin_id='ab' * 32, origin='Gleicher Name',
+                 profile=dict(east, firmware='MeshCore', firmware_version='1.14'),
+                 field_times=dict.fromkeys(east, stamp), last_confirmed_at=stamp),
+            dict(origin_id='cd' * 32, origin='Gleicher Name', profile=west,
+                 field_times=dict.fromkeys(west, stamp - 90000), last_confirmed_at=stamp - 90000)
+        ]
+        header = page.locator('#noise-floor')
+        latest_noise = [reading, dict(reading, origin_id='legacy', origin='Alt')]
+        frame('snapshot', 1, groups=[], status=dict(noise_observers=latest_noise, radio_observers=radios))
+        assert header.locator('.observer-status-row').count() == 3
+        assert '-115 dBm' in header.locator('.observer-status-row').first.inner_text()
+        assert header.locator('strong').first.inner_text() == 'SF8'
+        assert '869,618 MHz · BW 62,5 kHz · SF8 · CR 4/8' in header.inner_text()
+        assert 'Funkprofil unbekannt' in header.inner_text()
+        assert 'SF11 · CR — · veraltet' in header.inner_text()
+        assert 'MeshCore 1.14' in header.locator('.observer-status-row').first.get_attribute('title')
+        page.evaluate('''() => {
+          const header = document.querySelector('#noise-floor');
+          window.headerWrites = 0;
+          window.westRow = header.lastElementChild;
+          window.headerObserver = new MutationObserver(records => headerWrites += records.length);
+          headerObserver.observe(header, {subtree:true, childList:true, attributes:true, characterData:true});
+        }''')
+        frame('delta', 2, receptions=[packet(809)], status=dict(noise_observers=latest_noise))
+        check(page, "headerWrites === 0 && headerObserver.takeRecords().length === 0")
+        radios[0]['profile']['spreading_factor'] = 7
+        frame('delta', 3, receptions=[], status=dict(noise_observers=latest_noise, radio_observers=radios))
+        assert header.locator('strong').first.inner_text() == 'SF7'
+        check(page, "westRow === document.querySelector('#noise-floor').lastElementChild && headerWrites === 1")
+        page.set_viewport_size(dict(width=390, height=844))
+        check(page, 'document.documentElement.scrollWidth === innerWidth')
+        frame('snapshot', 5, groups=[], status=dict(noise_observers=latest_noise, radio_observers=[]))
+        assert 'SF7' not in header.inner_text()
+        assert header.locator('.observer-status-row').count() == 2
         assert not errors, errors
         browser.close()
-    print('Live rendering: stable nodes, status-only, order, details, eviction, filters, pause, snapshots and scroll passed')
+    print('Live rendering: packet rows, snapshots, deltas, radio profiles and stable Observer header passed')
 
 
 if __name__ == '__main__':

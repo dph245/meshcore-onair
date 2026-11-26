@@ -259,7 +259,9 @@ serialisiert und von allen Clients dieses Formats geteilt.
 Ein-Byte-Hop-Hashes werden niemals auf Aliase abgebildet. Bekannte Präfixe ab zwei
 Byte bleiben wie im vorhandenen Parser aufgelöst. Die Tabellenzeit kommt vom
 Observer; die Details enthalten zusätzlich die lokale Empfangszeit mit Zeitzone.
-Die Radioangaben im Kopf sind die konfigurierte Vorgabe, keine Live-Telemetrie.
+Die Kopfzeile zeigt Noise Floor und das zuletzt über MQTT gemeldete Funkprofil
+je Observer. Details zu Datenquellen, Historie und Zeitabfragen stehen in
+[Observer-Radioprofile](docs/observer-radio.md).
 Andere Payload-Typen werden weiterhin als Hex in den Details angezeigt.
 
 ## SQLite-Archiv und gelernte Namen

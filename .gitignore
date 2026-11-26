@@ -20,6 +20,7 @@ tests/*
 !tests/test_routes.py
 !tests/test_routes_ui.js
 !tests/test_observers.py
+!tests/test_observer_radio.py
 !tests/test_observers_ui.js
 !tests/test_noise_observers.py
 !tests/test_noise_ui.js

@@ -18,6 +18,94 @@ const noiseObserverMaxAge = 24 * 60 * 60 * 1000;
 function noiseObserverActive(sample, now = Date.now()) {
   return Date.parse(sample.status_at || sample.received_at) > now - noiseObserverMaxAge;
 }
+
+const observerStatusRows = new Map();
+const headerRadioFields = ['frequency_hz', 'bandwidth_hz', 'spreading_factor', 'coding_rate'];
+const radioNumber = new Intl.NumberFormat('de-DE', {maximumFractionDigits: 6, useGrouping: false});
+
+function renderObserverStatus(readings, radios, connected, now = Date.now()) {
+  const container = document.getElementById('noise-floor');
+  const observers = new Map();
+  for (const reading of readings) {
+    if (!noiseObserverActive(reading, now)) continue;
+    const id = reading.origin_id?.trim() || null;
+    const key = /^[0-9a-f]{64}$/i.test(id) ? id.toLowerCase() : id;
+    const previous = observers.get(key);
+    if (!previous || Date.parse(reading.status_at || reading.received_at) >=
+                     Date.parse(previous.status_at || previous.received_at)) {
+      observers.set(key, reading);
+    }
+  }
+  const profiles = new Map(radios.map(radio => [radio.origin_id, radio]));
+  for (const [id, radio] of profiles) if (!observers.has(id)) observers.set(id, radio);
+
+  if (!observers.size) {
+    if (observerStatusRows.size) {
+      container.textContent = 'Noise Floor: —';
+      observerStatusRows.clear();
+    }
+    return;
+  }
+  if (!observerStatusRows.size) container.textContent = '';
+  for (const [id, row] of observerStatusRows) {
+    if (!observers.has(id)) {
+      row.element.remove();
+      observerStatusRows.delete(id);
+    }
+  }
+  for (const [id, observer] of observers) {
+    const radio = profiles.get(id);
+    const aged = radio && headerRadioFields.some(field =>
+      radio.field_times[field] != null && radio.field_times[field] * 1000 <= now - noiseObserverMaxAge);
+    const noise = connected ? observer.noise_floor : null;
+    const noiseAt = observer.status_at || observer.received_at;
+    let row = observerStatusRows.get(id);
+    if (!row) {
+      const element = text('span', '', 'observer-status-row');
+      const reading = text('span', '');
+      const profile = text('span', '', 'observer-radio');
+      const band = text('span', '');
+      const sf = text('strong', '');
+      const rate = text('span', '');
+      profile.append(band, sf, rate);
+      element.append(reading, profile);
+      container.append(element);
+      row = {element, reading, profile, band, sf, rate};
+      observerStatusRows.set(id, row);
+    }
+    const signature = [radio, aged, noise, noiseAt, observer.origin, connected];
+    if (row.signature?.every((value, index) => value === signature[index])) continue;
+    row.signature = signature;
+    const fields = radio?.profile || {};
+    const hasRadio = headerRadioFields.some(field => fields[field] != null);
+    const suffix = radio?.ambiguous ? ' · widersprüchlich' : aged ? ' · veraltet'
+      : hasRadio && !connected ? ' · zuletzt gemeldet' : '';
+    const freq = fields.frequency_hz == null ? 'Frequenz —' : `${radioNumber.format(fields.frequency_hz / 1e6)} MHz`;
+    const bw = fields.bandwidth_hz == null ? 'BW —' : `BW ${radioNumber.format(fields.bandwidth_hz / 1e3)} kHz`;
+    const label = `${observerLabel(observer, true)} · ${measurement(noise, 'dBm')}`;
+    const band = hasRadio ? `${freq} · ${bw} · ` : `Funkprofil unbekannt${suffix}`;
+    const sf = hasRadio ? `SF${fields.spreading_factor ?? ' —'}` : '';
+    const rate = hasRadio ? ` · CR ${fields.coding_rate == null ? '—' : '4/' + fields.coding_rate}${suffix}` : '';
+    for (const [element, value] of [[row.reading, label], [row.band, band], [row.sf, sf], [row.rate, rate]]) {
+      if (element.textContent !== value) element.textContent = value;
+    }
+    const details = [observerLabel(observer)];
+    if (noiseAt) details.push(`Noise Floor · ${new Date(noiseAt).toLocaleString('de-DE')}`);
+    if (radio) {
+      details.push(`Letzte Profilangabe · ${new Date(radio.last_confirmed_at * 1000).toLocaleString('de-DE')}`);
+      if (fields.firmware || fields.firmware_version) {
+        details.push([fields.firmware, fields.firmware_version].filter(Boolean).join(' '));
+      }
+      if (fields.radio_ic) details.push(fields.radio_ic);
+      if (fields.tx_power_dbm != null) details.push(`TX ${fields.tx_power_dbm} dBm`);
+      if (fields.preamble_length != null) details.push(`Präambel ${fields.preamble_length} Symbole`);
+      if (fields.sync_word != null) details.push(`Sync Word 0x${fields.sync_word.toString(16).toUpperCase()}`);
+    }
+    const title = details.join(' · ');
+    if (row.element.title !== title) row.element.title = title;
+  }
+}
+
 function noiseSeries(samples) {
   const series = new Map();
   for (const sample of samples) {

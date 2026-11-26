@@ -530,14 +530,16 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
                     text = await next_text(fast)
                     self.assertIs(await next_text(other_fast), text)
                     eviction = {'evictions': {'0': 'AABB'}} if count == 12 else {}
+                    update_status = dashboard.status()
+                    update_status.pop('radio_observers')
                     self.assertEqual(text, legacy_json({
                         'type': 'delta', 'receptions': [item.to_dict()], **eviction,
-                        'seq': count + 1, 'status': dashboard.status(), 'raw_packets': [item.raw_text],
+                        'seq': count + 1, 'status': update_status, 'raw_packets': [item.raw_text],
                     }))
                     self.assertEqual(await next_text(legacy), legacy_json({
                         'type': 'update', 'groups': list(dashboard.store.groups.values()),
                         'removed': ['AABB'] if count == 12 else [], 'seq': count + 1,
-                        'status': dashboard.status(),
+                        'status': update_status,
                         'raw_packets': [item.raw_text],
                     }))
                     updates.append(text)

@@ -88,7 +88,7 @@ def rebuild_path_pairs(db):
 def record_path_pairs(db, batch):
     pairs = {}
     for packet in batch:
-        if 'noise_sample' in packet:
+        if 'observer_status' in packet:
             continue
         decoded = packet['decoded']
         hops = decoded['hops']

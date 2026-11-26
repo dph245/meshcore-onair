@@ -408,18 +408,13 @@ document.getElementById('live-filter-reset').onclick = () => {
 };
 function connection() {
   const online = socket.readyState === WebSocket.OPEN;
+  const connected = online && status.connected;
   const node = document.getElementById('connection');
-  node.textContent = online ? (status.connected ? '● MQTT verbunden · Live' : '● MQTT getrennt · warte auf Verbindung') : '● WebSocket getrennt · verbinde erneut …';
-  node.className = online && status.connected ? 'online' : 'offline';
-  const noise = document.getElementById('noise-floor');
-  noise.replaceChildren();
-  for (const observer of status.noise_observers || []) {
-    if (!noiseObserverActive(observer)) continue;
-    const reading = text('span', `Noise Floor ${observerLabel(observer, true)}: ${measurement(online && status.connected ? observer.noise_floor : null, 'dBm')}`);
-    reading.title = `${observerLabel(observer)} · Letzter Status: ${new Date(observer.status_at || observer.received_at).toLocaleString('de-DE')}`;
-    noise.append(reading);
-  }
-  if (!noise.children.length) noise.textContent = 'Noise Floor: —';
+  const label = online ? (connected ? '● MQTT verbunden · Live' : '● MQTT getrennt · warte auf Verbindung') : '● WebSocket getrennt · verbinde erneut …';
+  if (node.textContent !== label) node.textContent = label;
+  const className = connected ? 'online' : 'offline';
+  if (node.className !== className) node.className = className;
+  renderObserverStatus(status.noise_observers || [], status.radio_observers || [], Boolean(connected));
 }
 function applyReceptionDelta({receptions, status, evictions}) {
   const changedIds = new Set();
@@ -472,7 +467,11 @@ function connect() {
     for (const id of data.removed || []) groups.delete(id);
     for (const group of data.groups || []) groups.set(group.id, group);
     for (const id of expanded) if (!groups.has(id)) expanded.delete(id);
-    status = data.status || status;
+    if (data.status) {
+      // Packet updates omit unchanged radio profiles. Snapshots reset the baseline.
+      const radio = data.type === 'snapshot' ? undefined : status.radio_observers;
+      status = {radio_observers: radio, ...data.status};
+    }
     connection(); render(false, changedIds);
     repeaterMapVisibility.receive(data);
     window.MeshLive?.receive(data);

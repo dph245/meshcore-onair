@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import ssl
+import time
 import uuid
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
@@ -16,6 +17,7 @@ from onair_advert import decode_advert
 from onair_scopes import scope_label
 from onair_payload import decode_payload_details
 from onair_rf_neighbors import topic_identity
+from onair_observer_radio import radio_report, status_origin_id, status_timestamp
 
 
 # ============================================================
@@ -155,15 +157,8 @@ def noise_sample(data):
         return None
     sample = {'received_at': datetime.now().astimezone().isoformat(),
               'noise_floor': int(number)}
-    timestamp = data.get('timestamp')
-    try:
-        status_at = datetime.fromisoformat(timestamp) if isinstance(timestamp, str) else None
-    except ValueError:
-        status_at = None
+    status_at = status_timestamp(data)
     if status_at is not None:
-        # Observer timestamps without an offset are UTC, not browser local time.
-        if status_at.tzinfo is None:
-            status_at = status_at.replace(tzinfo=timezone.utc)
         sample['status_at'] = status_at.isoformat()
     elif data.get('_mqtt_retained'):
         # A retained message without a usable source time cannot prove activity.
@@ -172,6 +167,8 @@ def noise_sample(data):
         value = data.get(field)
         if isinstance(value, str) and value.strip():
             sample[field] = value
+    if 'origin_id' not in sample and (identity := status_origin_id(data)):
+        sample['origin_id'] = identity
     return sample
 
 
@@ -593,6 +590,8 @@ def on_message(client, userdata, msg):
 
     if msg.topic.endswith("/status"):
         data['_mqtt_retained'] = bool(getattr(msg, 'retain', False))
+        data['_mqtt_received_at'] = time.time()
+        data['_mqtt_topic'] = msg.topic
         handle_status(data)
         status_sink = userdata.get("status_sink") if isinstance(userdata, dict) else None
         if status_sink is not None:
@@ -642,9 +641,7 @@ def main():
     archive = Archive()
     learned_alias = archive.resolve
     def accept_status(data):
-        sample = noise_sample(data)
-        if sample is not None:
-            archive.accept_noise(sample)
+        archive.accept_observer_status(noise_sample(data), radio_report(data))
     client = create_client(archive.accept, status_sink=accept_status,
                            rf_neighbor_sink=archive.accept_rf_neighbors)
     print(
