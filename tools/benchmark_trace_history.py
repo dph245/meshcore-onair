@@ -142,7 +142,7 @@ def measure_window(db, start, end, days, run, position_cache):
                   for mode in ('reserve', 'asymmetry', 'coverage', 'sf7')}
     profile_directions = [group[direction] for link in result['links'] for group in link['profiles']
                           for direction in ('forward', 'reverse') if group[direction]]
-    return result['links'], payload, dict(days=days, median_ms=round(median(times), 2),
+    return result['links'], dict(days=days, median_ms=round(median(times), 2),
         first_ms=round(times[0], 2), sample_sql_median_ms=round(median(sql_times), 2),
         json_ms=json_ms, json_bytes=len(payload), gzip_ms=gzip_ms, gzip_bytes=gzip_bytes,
         analysis_categories=categories,
@@ -204,11 +204,12 @@ def benchmark(path, fixture_dir=None, sample_id=None, *, run=None):
                 with run.section(f'window_{days}d' if days else 'window_all',
                                  f'{days} Tage auswerten' if days else 'Gesamten Bestand auswerten'):
                     start = max(0, end - days * 86400) if days else 0
-                    map_links, payload, summary = measure_window(db, start, end, days, run, position_cache)
+                    map_links, summary = measure_window(db, start, end, days, run, position_cache)
                     results.append(summary)
                     if fixture_dir:
                         name = f'trace-links-{days}.json'
-                        (folder / name).write_bytes(payload)
+                        payload = links(db, start, end, compact=True, position_cache=position_cache)
+                        (folder / name).write_text(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
                         filenames.append(name)
             if map_links:
                 with run.section('single_link', 'Eine Seite Einzelwerte für die erste Linkstrecke laden'):

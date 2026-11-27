@@ -70,8 +70,8 @@ class TraceHistoryTests(unittest.TestCase):
         self.archive._write(self.db, [packet])
         return self.db.execute('SELECT MAX(id) FROM packets').fetchone()[0]
 
-    def read(self, start=0, end=10000, sf='all', pair=None, offset=0):
-        return links(self.db, BASE + start, BASE + end, sf, pair, offset)
+    def read(self, start=0, end=10000, sf='all', pair=None, offset=0, *, compact=False):
+        return links(self.db, BASE + start, BASE + end, sf, pair, offset, compact)
 
     def radio(self, observer, stamp, sf, cr=8):
         with self.db:
@@ -144,6 +144,17 @@ class TraceHistoryTests(unittest.TestCase):
         self.assertEqual([item['snr'] for item in page['items']], [-2, .25])
         before_window = self.read(0, 4)
         self.assertEqual(before_window['links'], [])
+        compact = self.read(compact=True)
+        self.assertNotIn('analysis_rules', compact)
+        link, = compact['links']
+        self.assertNotIn('analysis', link)
+        self.assertEqual(link['snr']['reverse'],
+                         dict(count=4, last=-2, min=-2, median=.125, max=9, last_at=BASE + 30))
+        self.assertEqual(link['snr']['forward']['median'], -2.5)
+        sf8, = self.read(sf='8', compact=True)['links']
+        self.assertIsNone(sf8['snr']['forward'])
+        self.assertEqual(sf8['snr']['reverse']['last'], 9)
+        self.assertEqual(self.read(sf='unknown', compact=True)['links'][0]['snr']['reverse']['median'], -2)
 
     def test_conflicting_profiles_and_uncertain_transition(self):
         self.advert(A, 1, 52)
@@ -215,6 +226,10 @@ class TraceHistoryTests(unittest.TestCase):
         page = self.read(sf='8', pair=(B, A))
         self.assertEqual(page['total'], 30)
         self.assertEqual(page['observers'], sorted([EAST, WEST]))
+        history = self.read(sf='8', pair=(B, A), compact=True)['history']
+        self.assertEqual(len(history['reverse']), 10)
+        self.assertEqual(history['reverse'][:2], [[BASE + 10, -12], [BASE + 20, -4]])
+        self.assertEqual(self.read(sf='8', compact=True)['links'][0]['snr']['reverse']['count'], 10)
 
     def test_exact_profiles_and_temporal_comparability(self):
         self.advert(A, 1, 52)
@@ -295,6 +310,12 @@ class TraceHistoryTests(unittest.TestCase):
         self.assertEqual(result['summary']['unmapped_samples']['position_conflict'], 1)
         self.assertEqual(measurement(self.db, during)['hops'][0]['state'], 'resolved')
         self.assertEqual(measurement(self.db, during)['hops'][0]['location_issue'], 'position_conflict')
+        compact, = self.read(compact=True)['links']
+        self.assertEqual(compact['prefix_bytes'], [4, 4])
+        self.assertEqual(compact['snr']['reverse']['count'], 1)
+        page = self.read(pair=(B, A), compact=True)
+        self.assertEqual(page['history']['reverse'], [[BASE + 4, 3]])
+        self.assertEqual(page['items'][0]['location_issue'], 'position_conflict')
 
     def test_real_c5355091_and_four_resolved_repeaters(self):
         # Raw TRACE from archive #2654833. Coordinates and old stamp ties are
@@ -476,7 +497,8 @@ class TraceHistoryTests(unittest.TestCase):
     def test_http_validation_and_lazy_pagination(self):
         self.advert(A, 1, 52)
         self.advert(B, 1, 51)
-        ids = [self.packet(4 + i, (2, 3), tag=i, path=(A, B)) for i in range(51)]
+        ids = [self.packet(3, (2, 3, 4), tag=0, path=(A, B, A))]
+        ids.extend(self.packet(4 + i, (2, 3), tag=i + 1, path=(A, B)) for i in range(50))
 
         async def direct(fn, **kwargs):
             return fn(**kwargs)
@@ -489,8 +511,16 @@ class TraceHistoryTests(unittest.TestCase):
                 self.assertEqual(asyncio.run(get('/api/trace-links', **query))[0], 422)
             page = asyncio.run(get('/api/trace-links', a=B, b=A))[1]
             tail = asyncio.run(get('/api/trace-links', a=B, b=A, offset=page['next']))[1]
-            self.assertEqual((page['total'], len(page['items']), len(tail['items'])), (51, 50, 1))
+            self.assertEqual((page['total'], len(page['items']), len(tail['items'])), (52, 50, 2))
             self.assertEqual(tail['items'][0]['measurement_id'], ids[0])
+            compact = asyncio.run(get('/api/trace-links', compact='true'))[1]
+            self.assertEqual(compact['links'][0]['snr']['forward']['last'], 4)
+            page = asyncio.run(get('/api/trace-links', a=B, b=A, compact='true'))[1]
+            self.assertTrue(all(item['source'] == A for item in page['items']))
+            self.assertEqual(page['history']['forward'], [[BASE + 3, 4]])
+            self.assertEqual(len(page['history']['reverse']), 51)
+            tail = asyncio.run(get('/api/trace-links', a=B, b=A, offset=page['next'], compact='true'))[1]
+            self.assertNotIn('history', tail)
             http_status, detail = asyncio.run(get(f'/api/trace-measurements/{ids[0]}'))
             self.assertEqual(http_status, 200)
             self.assertEqual(detail['observations'][0]['observer_rssi'], -93)

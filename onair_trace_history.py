@@ -9,7 +9,7 @@ from onair_observer_radio import CORE_FIELDS, RadioProfiles, observer_identity, 
 from onair_payload import decode_payload_details
 from onair_trace import WINDOW_SECONDS
 from onair_trace_positions import TracePositionCache
-from onair_trace_quality import DirectionSamples, RULES, assess_link, assess_profile, directional_coverage
+from onair_trace_quality import DirectionSamples, RULES, assess_link, assess_profile, directional_coverage, percentiles
 
 BACKFILL_BATCH = 100
 SAME_STAGE_SECONDS = 3
@@ -311,7 +311,22 @@ def _summary(db, start, end):
     return dict(measurements=groups, partial=partial, undecodable=invalid, receptions=receptions)
 
 
-def links(db, start, end, sf='all', pair=None, offset=0, *, position_cache=None):
+def _snr_readings(profiles, forward):
+    return [(stamp, ident, hop, snr) for directions in profiles.values() if forward in directions
+            for ident, (snr, stamp, hop, _) in directions[forward].readings.items()]
+
+
+def _snr_summary(readings):
+    if not readings:
+        return None
+    histogram = Counter(reading[3] for reading in readings)
+    count = len(readings)
+    minimum, median, maximum = percentiles(histogram, count, (0, .5, 1))
+    stamp, _, _, last = max(readings)
+    return dict(count=count, last=last / 4, last_at=stamp, min=minimum, median=median, max=maximum)
+
+
+def links(db, start, end, sf='all', pair=None, offset=0, compact=False, *, position_cache=None):
     """Aggregate the normalized projection and page a single link on demand."""
     identities = Identities(db)
     where, args = _sample_query(start, end, pair)
@@ -355,11 +370,11 @@ def links(db, start, end, sf='all', pair=None, offset=0, *, position_cache=None)
                     samples.append(dict(measurement_id=ident, hop=hop + 1, source=ka, target=kb,
                         snr=snr / 4, time=stamp, profile=dict(profile), quality=quality, location_issue=reason,
                         observations=[o['packet_id'] for o in evidence]))
+            if not compact or offset or not selected or points is None:
+                continue
+        elif points is None:
             continue
-        if points is None:
-            continue
-        visible_ids.add(ident)
-        if selected:
+        elif selected:
             selected_visible_ids.add(ident)
             sample_count += 1
             pa, pb = points
@@ -370,15 +385,28 @@ def links(db, start, end, sf='all', pair=None, offset=0, *, position_cache=None)
                                                        position_at=stamp, prefix_bytes=widths))
             # Descending time order makes the newest location evidence the display geometry.
             link['prefix_bytes'] = list(map(min, link['prefix_bytes'], widths))
+        visible_ids.add(ident)
+        if compact and not selected:
+            continue
         directions = stats[key][profile]
         direction = directions.get(forward)
         if direction is None:
             direction = directions[forward] = DirectionSamples()
         direction.add(stamp, ident, hop, snr, quality)
     if pair:
-        return dict(items=samples, total=sample_count, observers=sorted(observers),
+        page = dict(items=samples, total=sample_count, observers=sorted(observers),
                     next=offset + PAGE if sample_count > offset + PAGE else None)
+        if compact and offset == 0:
+            page['history'] = {
+                label: [[stamp, snr / 4] for stamp, _, _, snr in sorted(_snr_readings(stats[pair], direction))]
+                for label, direction in (('forward', True), ('reverse', False))
+            }
+        return page
     for key, link in links_by_key.items():
+        if compact:
+            link['snr'] = {label: _snr_summary(_snr_readings(stats[key], direction))
+                           for label, direction in (('forward', True), ('reverse', False))}
+            continue
         groups = []
         selected_groups = []
         selected_samples = []
@@ -401,8 +429,11 @@ def links(db, start, end, sf='all', pair=None, offset=0, *, position_cache=None)
     summary.update(without_visible_links=summary['measurements'] - len(visible_ids),
                    visible_samples=sample_count, unmapped_samples=dict(missing),
                    unmapped_measurements=len(selected_ids - selected_visible_ids))
-    return dict(links=list(links_by_key.values()), summary=summary, spreading_factors=sorted(sfs),
-                analysis_rules=RULES, backfill=status(db), start=start, end=end)
+    result = dict(links=list(links_by_key.values()), summary=summary, spreading_factors=sorted(sfs),
+                  backfill=status(db), start=start, end=end)
+    if not compact:
+        result['analysis_rules'] = RULES
+    return result
 
 
 def measurement(db, ident, *, position_cache=None):

@@ -1,5 +1,25 @@
 # Projektstand
 
+## Historische TRACE-Karte mit gemessener SNR
+
+Stand 27.11.2026. Die Linkübersicht startet mit dem gesamten Bestand,
+allen SF und dem Median. Die SNR-Farbskala verwendet je Strecke den
+kleineren verfügbaren Richtungswert. Im Tooltip stehen beide
+Richtungswerte. Klick oder Touch öffnet den Verlauf für den
+gewählten Zeitraum. Die Kartenlabels sind standardmäßig aus.
+Die Karte lädt kompakte SNR-Aggregate. Die ausführliche API-Antwort
+enthält weiterhin die frühere Netzqualitätsbewertung.
+
+Der Vergleich im Lesemodus ergab für beide API-Varianten dieselben
+124 Strecken mit identischen Endpunkten, Positionen und Präfixbreiten.
+Die aggregierte Antwort lag bei 25,81 ms im Median und 14.834 Bytes
+mit Gzip, gegenüber 28,86 ms und 28.630 Bytes für die ausführliche
+Antwort. Chromium benötigte 28,4 ms von der dekodierten Antwort bis
+zur Darstellung. Die vier SNR-Statistiken wechselten ohne zusätzliche
+Archivabfragen.
+
+[Historische TRACE-Linkstrecken](docs/trace-history.md)
+
 ## Initiale TRACE-Kartenzeichnung
 
 Stand 27.11.2026. Beim erneuten Öffnen konnte Leaflet 1.9.4
@@ -37,9 +57,9 @@ und konkretem Ausschlussgrund in den Details zugänglich.
 Regeln, Referenzdaten und Messwerte stehen in der
 [zeitbezogenen Standortvalidierung](docs/trace-history.md#zeitbezogene-standortvalidierung).
 
-## Verständliche TRACE-Netzqualitätsanalyse, Sprint 3
+## Frühere TRACE-Netzqualitätsansicht, Sprint 3
 
-Stand 26.11.2026. Die historische TRACE-Karte bietet Linkqualität,
+Stand 26.11.2026. Die damalige historische TRACE-Karte bot Linkqualität,
 Asymmetrie, Messabdeckung und eine theoretische SF7-Reserveprognose.
 Die kompakte Legende filtert Karte und Auswahlliste. Das vorhandene
 Detailpanel führt vom Befund über getrennte Richtungs- und

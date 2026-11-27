@@ -454,10 +454,10 @@ def trace_links(request: Request, start: float = Query(0, ge=0, le=4102444800),
                 sf: str = Query('all', pattern=r'^(all|unknown|[5-9]|1[0-2])$'),
                 a: str | None = Query(None, pattern=r'^[0-9a-f]{64}$'),
                 b: str | None = Query(None, pattern=r'^[0-9a-f]{64}$'),
-                offset: int = Query(0, ge=0, le=10000000)):
+                offset: int = Query(0, ge=0, le=10000000), compact: bool = False):
     if end <= start or (a is None) != (b is None) or a is not None and a >= b:
         raise HTTPException(422, 'Zeitraum und sortiertes Repeater-Paar prüfen.')
-    return trace_response(trace_history.links, start, end, sf, (a, b) if a else None, offset,
+    return trace_response(trace_history.links, start, end, sf, (a, b) if a else None, offset, compact,
                           encoding=request.headers.get('Accept-Encoding', ''))
 
 

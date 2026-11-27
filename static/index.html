@@ -34,14 +34,13 @@
 <section id="map-traces">
 <section id="trace-links-controls">
 <form id="trace-links-form" class="map-toolbar">
-<label>Zeitraum <select id="trace-links-period"><option value="24">24 Stunden</option><option value="168">7 Tage</option><option value="720">30 Tage</option><option value="all">Gesamter Bestand</option><option value="custom">Benutzerdefiniert</option></select></label>
-<label><span><span class="trace-links-observer-prefix">Observer-</span>Funkprofil</span><select id="trace-links-sf"><option value="all">Alle Funkprofile</option><option value="unknown">Unbekannt</option><option value="7">SF7</option><option value="8">SF8</option></select></label>
-<label>Analyse <select id="trace-links-mode"><option value="reserve">Linkqualität</option><option value="asymmetry">Asymmetrie</option><option value="coverage">Messabdeckung</option><option value="sf7">SF7-Reserveprognose</option></select></label>
+<label>Zeitraum <select id="trace-links-period"><option value="24">24 Stunden</option><option value="168">7 Tage</option><option value="720">30 Tage</option><option value="all" selected>Gesamter Bestand</option><option value="custom">Benutzerdefiniert</option></select></label>
+<label>Spreading Factor <select id="trace-links-sf"><option value="all">Alle SF</option><option value="unknown">Unbekannt</option><option value="7">SF7</option><option value="8">SF8</option></select></label>
+<label>SNR-Anzeige <select id="trace-links-stat"><option value="median">Median</option><option value="last">Letzter Messwert</option><option value="min">Minimum</option><option value="max">Maximum</option></select></label>
 <div class="trace-links-view-actions">
 <details id="trace-links-options"><summary aria-label="Kartenoptionen">Kartenoptionen</summary>
 <div class="trace-links-options-body">
-<label>SNR-Anzeige <select id="trace-links-stat"><option value="median">Median</option><option value="last">Letzte Messung</option><option value="min">Minimum</option><option value="max">Maximum</option></select></label>
-<label title="Kompakte Labels zeigen das Funkprofil mit den meisten Messwerten je Linkstrecke.">Kartenlabels <select id="trace-links-label-mode"><option value="none">Ohne Labels</option><option value="snr">Kompakt (SNR)</option><option value="full">Vollständig</option></select></label>
+<label>Kartenlabels <select id="trace-links-label-mode"><option value="none">Ohne Labels</option><option value="snr">Kompakt (SNR)</option><option value="full">Vollständig</option></select></label>
 <button type="submit">Aktualisieren</button>
 </div>
 </details>
@@ -51,13 +50,9 @@
 <label hidden>Bis <input id="trace-links-end" type="datetime-local" disabled required></label>
 <button id="trace-links-apply" type="submit" hidden>Zeitraum anwenden</button>
 </form>
-<div id="trace-links-analysis" hidden>
-<div id="trace-links-categories" role="group" aria-label="Kartenlegende und Kategoriefilter"></div>
-<p id="trace-links-legend"></p>
-</div>
 <div class="trace-links-status-row">
 <p id="trace-links-status" role="status"></p>
-<details id="trace-links-coverage" hidden><summary id="trace-links-coverage-title">Messabdeckung</summary><ul id="trace-links-coverage-list"></ul></details>
+<p id="trace-links-legend" aria-label="SNR-Farbskala" hidden></p>
 </div>
 </section>
 <section id="trace-compare-controls" hidden>
@@ -85,14 +80,10 @@
 <div id="trace-map" aria-label="Historische TRACE-Routen"></div>
 <p id="trace-tiles-status" role="status" hidden>Kartenkacheln konnten nicht geladen werden. Bitte Internetverbindung prüfen.</p>
 </div>
-<section id="trace-links-details" aria-label="Linkstatistik">
+<section id="trace-links-details" aria-label="Messhistorie">
 <div class="trace-links-detail-controls">
 <label>Linkstrecke <select id="trace-links-pair"><option value="">Linkstrecke wählen</option></select></label>
 <label class="trace-links-panel-size">Panelbreite <input id="trace-links-panel-width" type="range" min="28" max="54" value="36"></label>
-</div>
-<div class="trace-links-detail-controls trace-links-list-controls">
-<label>Sortieren nach <select id="trace-links-sort"><option value="reserve">Geringste Signalreserve</option><option value="asymmetry">Größte Asymmetrie</option><option value="coverage">Geringste Messabdeckung</option><option value="sf7">Geringste SF7-Reserve</option><option value="last">Letzte Messung</option><option value="distance">Entfernung</option></select></label>
-<label class="trace-links-priority"><input id="trace-links-priority" type="checkbox"> Nur Prüfbedarf</label>
 </div>
 <div id="trace-links-detail" aria-live="polite"></div>
 </section>

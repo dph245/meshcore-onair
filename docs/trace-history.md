@@ -6,36 +6,42 @@ verfügbar. Die Chronik mit Routenverlauf behält ihren bisherigen,
 zeitlich begrenzten Datenpfad. Die Linkübersicht arbeitet auf der
 vollständigen TRACE-Projektion des Archivs.
 
-Die Übersicht unterstützt 24 Stunden, 7 und 30 Tage, den gesamten
-Bestand und einen festen Von-/Bis-Zeitraum. „Unbekannt“ filtert
-Messwerte mit unbekanntem, widersprüchlichem oder zeitlich unsicherem
-Observer-Profil. SF7 und SF8 sind direkt wählbar. Weitere SF erscheinen,
-sobald sie im geladenen Zeitraum vorkommen. In den Kartenoptionen ist der
-Median für die SNR-Labels voreingestellt. Letzter Wert, Minimum und Maximum
-lassen sich lokal umschalten.
+Die Übersicht startet mit dem gesamten Bestand und allen Spreading
+Factors. Wählbar sind außerdem 24 Stunden, 7 und 30 Tage und ein fester
+Von-/Bis-Zeitraum. Der SF-Filter verwendet die historisch zugeordneten
+Observer-Profile. Messwerte ohne bekannte SF-Zuordnung lassen sich
+über „Unbekannt“ auswählen. Weitere SF erscheinen, sobald sie im
+geladenen Zeitraum vorkommen.
 
-Jede geografisch belegte Verbindung hat ein Canvas-Objekt. Zwei
-Repeater mit derselben belegten Position erscheinen als Punkt.
-Kleine Punkte markieren die Repeater-Positionen. Standardmäßig
-erscheint das vollständige Label beim Überfahren einer Verbindung.
-Wählbar sind kompakte SNR-Labels ab Zoom 11 und vollständige Labels
-ab Zoom 9, jeweils für Streckenmitten im Kartenausschnitt. Kompakte
-Labels zeigen die beiden Richtungen des gefilterten Profils mit den
-meisten Messwerten. Ein Gedankenstrich markiert eine fehlende Messung.
-Die Pfeile folgen der Endpunktreihenfolge im vollständigen Label und
-in der Linkstrecken-Auswahlliste. Die Detailansicht führt beide
-Richtungen je Profilkombination auf. Messwerte mit
-eindeutig identifizierten Endpunkten zählen auch dann in die
-Linkstatistik, wenn zu ihrem Zeitpunkt keine sichere Geometrie vorliegt.
-Die sichtbare Geometrie stammt vom jüngsten kartierbaren Messwert
-innerhalb des gewählten Filters. Die Übersicht nennt teilweise
-beobachtete Messungen, Empfänge ohne Dekodierung und unkartierbare
-Messwerte mit Grund. Die Gründe stehen in einer aufklappbaren
-Statusübersicht. Klick oder Tippen auf eine Strecke hebt diese hervor
-und öffnet bei Bedarf die Details. Auf breiten Fenstern steht das
-einklappbare Detailpanel mit verstellbarer Breite neben der Karte,
-auf schmalen Fenstern darunter. Der Browser speichert die
-Panel-Einstellungen und den Labelmodus lokal.
+Jede geografisch eindeutig auflösbare Verbindung im Filter erscheint
+als Canvas-Linie. Zwei Repeater mit derselben belegten Position
+erscheinen als Punkt. Die Geometrie stammt vom jüngsten kartierbaren
+Messwert im Filter. Für die Linienfarbe gilt der kleinere der beiden
+Richtungswerte. Unter −2 dB ist die Linie rot, von −2 bis 0 dB orange
+und über 0 dB grün. Liegt nur ein Richtungswert vor, ist die Linie
+gestrichelt und übernimmt dessen Farbe. Die Schwellen entsprechen
+der SNR-Anzeige im Live-Tab.
+
+Der Tooltip zeigt die SNR beider Richtungen. Der Median ist
+voreingestellt. Letzter Messwert, Minimum und Maximum lassen sich
+direkt in der Werkzeugleiste wählen. Beim Umschalten bleiben
+Kartenausschnitt und Streckenauswahl erhalten. Ein Gedankenstrich
+markiert einen fehlenden Richtungswert. Kompakte Kartenlabels sind
+ab Zoom 11 verfügbar, vollständige ab Zoom 9. Beide sind
+standardmäßig ausgeschaltet.
+
+Klick oder Tippen auf eine Strecke hebt sie hervor und lädt ihren
+Messverlauf für beide Richtungen im ausgewählten Zeitraum und SF.
+Die Kurven enthalten dieselben geografisch belegten Messwerte, aus
+denen die Richtungsstatistik der Karte berechnet wird. Pro korrelierter
+TRACE, Richtung und exaktem Observer-Profil zählt bei wiederholtem Hop
+der kleinste SNR-Wert. Bei „Alle SF“ fließen alle passenden Profile in
+die jeweilige Richtungsstatistik ein. Die aufklappbaren Einzelmessungen
+enthalten die gerichteten Hop-Werte mit den Empfangsbelegen und
+gegebenenfalls dem Grund für den Ausschluss aus Karte und Diagramm.
+Auf breiten Fenstern steht das einklappbare Detailpanel mit
+verstellbarer Breite neben der Karte, auf schmalen darunter.
+Der Browser speichert die Karten- und Panel-Einstellungen lokal.
 
 ## Initiale Kartenzeichnung
 
@@ -97,7 +103,9 @@ zusätzlichen Archivabruf aus.
 
 ## Netzqualitätsanalyse
 
-„Linkqualität“ ist die Startansicht. In der Werkzeugleiste stehen außerdem
+Die folgenden Abschnitte dokumentieren die frühere Browseransicht
+und die weiterhin verfügbaren ausführlichen API-Daten. Die damalige
+Startansicht war „Linkqualität“. Die Werkzeugleiste enthielt außerdem
 „Asymmetrie“, „Messabdeckung“ und „SF7-Reserveprognose“. Die anklickbare
 Legende zählt kartierbare Paare vollständiger Repeater-IDs innerhalb des
 gewählten Zeitraum- und Profilfilters. Jede Strecke zählt in einer
@@ -480,16 +488,20 @@ und SF8 und die Auswertung einer Messkampagne folgen separat.
 
 `GET /api/trace-links` liefert je Zeitraum und SF aggregierte
 Verbindungen. `start` ist einschließlich, `end` ausschließlich.
-Die Antwort enthält `analysis_rules`, je Strecke `analysis`,
-`coverage`, `distance_km` und profilgetrennte Richtungswerte.
-Ein Befund mit berechenbarem Wert referenziert das maßgebliche
-Profil über seinen Index in `profiles`. Bei explizit akzeptiertem
-Gzip werden Antworten ab 1.024 Bytes komprimiert.
+Der Browser ruft die Übersicht mit `compact=true` ab. Je Strecke
+enthält `snr` für die beiden Richtungen Anzahl, letzten Messwert,
+Median, Minimum und Maximum. Die ausführliche API-Antwort führt
+die bisherigen profilgetrennten Statistiken und Analysedaten.
+Bei explizit akzeptiertem Gzip werden Antworten ab 1.024 Bytes
+komprimiert.
+
 Zwei sortierte vollständige Public Keys als `a` und `b` laden
-seitenweise bis zu 50 gerichtete Hop-Werte einer Verbindung. Die
-Einzelwerte zeigen Richtung, Profilgüte und Rohpaket-Referenzen.
-Die beteiligten bekannten Observer-IDs beziehen sich auf den gesamten
-gefilterten Bestand dieser Strecke.
+seitenweise bis zu 50 gerichtete Hop-Werte einer Verbindung.
+Die erste Seite mit `compact=true` liefert zusätzlich in `history`
+beide Richtungen als Folge von Ereigniszeit und SNR in dB für den
+gewählten Zeitraum. Die Einzelwerte zeigen Richtung, Funkprofil
+und Rohpaket-Referenzen. Die beteiligten bekannten Observer-IDs
+beziehen sich auf den gesamten gefilterten Bestand dieser Strecke.
 `GET /api/trace-measurements/{id}` liefert die geordnete Route,
 alle Empfangsbelege, RSSI und SNR je Observer und die Zuordnungsgründe.
 
