@@ -27,6 +27,22 @@ def main():
         page.goto('http://live.test/')
         page.wait_for_function('__sockets.length === 1')
         click = lambda selector: page.locator(selector).evaluate('(el) => el.click()')
+        # TRACE and other packets can carry different casing of the same key.
+        observer = page.locator('#live-observer')
+        emit(page, [dict(packet(1), origin_id=KEYS[2].upper()), packet(2),
+                    dict(packet(3, observer=3), origin='Observer 2')], 'snapshot', seq=1)
+        assert observer.locator('option').evaluate_all('options => options.map(option => option.value)') == [
+            '', KEYS[2], KEYS[3]]
+        observer.select_option(KEYS[2])
+        check(page, "liveRows.has('HASH1') && liveRows.has('HASH2') && !liveRows.has('HASH3')")
+        page.evaluate('data => __sockets.at(-1).onmessage({data: JSON.stringify(data)})',
+                      dict(type='delta', seq=2, status=dict(connected=True, received=4, max_receptions=2),
+                           receptions=[dict(packet(4), origin_id=KEYS[2].upper())]))
+        assert observer.input_value() == KEYS[2]
+        assert observer.locator('option').count() == 3
+        check(page, "liveRows.has('HASH4') && !liveRows.has('HASH3')")
+        click('#live-filter-reset')
+
         emit(page, [packet(i) for i in range(1, 501)], 'snapshot')
         page.evaluate('''() => {
           window.saved = [...document.querySelectorAll('#packets tr')];

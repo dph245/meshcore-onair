@@ -121,14 +121,20 @@ function scopeLabel(decoded) {
 const liveFilter = document.getElementById('live-repeater');
 const liveObserver = document.getElementById('live-observer');
 const liveObservers = new Map();
+function liveObserverId(packet) {
+  const id = packet.origin_id;
+  // TRACE and other receptions can serialize the same public key differently.
+  return id && /^[0-9a-f]{64}$/i.test(id) ? id.toLowerCase() : id;
+}
 function updateLiveObservers(source) {
   let changed = false;
   for (const group of source) {
     for (const packet of group.receptions) {
-      if (!packet.origin_id) continue;
-      const label = observerLabel(packet, true);
-      if (liveObservers.get(packet.origin_id) !== label) {
-        liveObservers.set(packet.origin_id, label);
+      const id = liveObserverId(packet);
+      if (!id) continue;
+      const label = observerLabel({origin_id: id, origin: packet.origin}, true);
+      if (liveObservers.get(id) !== label) {
+        liveObservers.set(id, label);
         changed = true;
       }
     }
@@ -163,7 +169,7 @@ function filteredLiveGroups(source, query, observerId = '') {
   return source.flatMap(group => {
     if (!query && !observerId) return [group];
     const receptions = group.receptions.filter(packet =>
-      (!observerId || packet.origin_id === observerId) && (!query || matchesRepeater(packet, query)));
+      (!observerId || liveObserverId(packet) === observerId) && (!query || matchesRepeater(packet, query)));
     if (!receptions.length) return [];
     return [{...group, receptions, latest: receptions[receptions.length - 1]}];
   }).sort((a, b) => b.latest.number - a.latest.number);
