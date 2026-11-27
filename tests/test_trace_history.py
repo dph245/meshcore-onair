@@ -1,21 +1,29 @@
-from contextlib import closing
+from contextlib import closing, ExitStack
 from datetime import datetime, timezone
 import asyncio
+import gzip
 import json
 import os
 from pathlib import Path
+import socket
 import sqlite3
 import subprocess
 import sys
 import tempfile
+from threading import Thread
 import time
 import unittest
+from collections import Counter
+from http.client import HTTPConnection
 from unittest.mock import patch
+import uvicorn
 
 from onair_archive import Archive
 from onair_mqtt import build_packet
 from onair_observer_radio import RadioReport, radio_profile_at, record_radio
-from onair_trace_history import POSITION_CONFLICTS_SQL, backfill_batch, links, measurement, record, status
+from onair_trace_history import backfill_batch, links, measurement, record, status
+from onair_trace_positions import QUIET_SECONDS, TracePositionCache
+from onair_trace_quality import DAY, asymmetry_category, percentiles, reserve_category
 from onair_web import app
 from test_archive_http import get
 from test_trace import reception
@@ -28,6 +36,7 @@ EAST = 'ff' * 32
 WEST = 'ee' * 32
 BASE = 1795000000
 REAL_RAW = '26072C311E292925318256CBA8508BDF260277730034747400E76F33A924BF92B9896F33A924747400E777730034'
+C5355091 = '2607312F262A2A2B33915035C5E0DC6EFD0277730034747400E76F33A924BF92B9896F33A924747400E777730034'
 
 
 def iso(stamp):
@@ -44,12 +53,12 @@ class TraceHistoryTests(unittest.TestCase):
         self.db = sqlite3.connect(self.path)
         self.addCleanup(self.db.close)
 
-    def advert(self, key, offset, lat, *, stamp=None):
+    def advert(self, key, offset, lat, *, stamp=None, lon=11):
         packet = build_packet(dict(raw='1500', direction='rx')).to_dict()
         packet['received_at'] = iso(offset)
         packet['decoded'].update(payload_name='ADVERT', payload_type=4, advert=dict(
             signature_status='Gültig', public_key=key, name=key[:8], node_type=2,
-            latitude=lat, longitude=11, timestamp=BASE + (offset if stamp is None else stamp)))
+            latitude=lat, longitude=lon, timestamp=BASE + (offset if stamp is None else stamp)))
         self.archive._write(self.db, [packet])
 
     def packet(self, stamp, snrs, *, tag=1, observer=EAST, size=1,
@@ -122,12 +131,14 @@ class TraceHistoryTests(unittest.TestCase):
         self.assertEqual([p['public_key'] for p in link['endpoints']], [B, A])
         groups = {group['profile'].get('spreading_factor'): group for group in link['profiles']}
         sf7 = groups[7]
-        self.assertEqual(sf7['reverse'], dict(count=2, last=.25, min=0, median=.125, max=.25,
-                    first_at=BASE + 4, last_at=BASE + 10, quality=dict(confirmed=1, last_known=1)))
+        self.assertEqual(sf7['reverse'], dict(count=2, last=.25, min=0, p10=.025, median=.125, p90=.225, max=.25,
+                    first_at=BASE + 4, last_at=BASE + 10, quality=dict(confirmed=1, last_known=1), reserve=None, sf7=None))
         self.assertEqual(sf7['forward']['median'], -2.5)
         self.assertIsNone(groups[8]['forward'])
         self.assertEqual(self.read(sf='8')['summary']['visible_samples'], 1)
         self.assertEqual(self.read(sf='unknown')['summary']['visible_samples'], 1)
+        self.assertEqual(link['analysis']['reserve']['category'], 'unknown')
+        self.assertEqual(link['analysis']['sf7']['category'], 'unknown')
         page = self.read(10, 20, '7', (B, A))
         self.assertEqual(page['total'], 2)
         self.assertEqual([item['snr'] for item in page['items']], [-2, .25])
@@ -151,6 +162,115 @@ class TraceHistoryTests(unittest.TestCase):
         self.assertEqual(profile['reason'], 'transition')
         quality = self.read(sf='unknown')['links'][0]['profiles'][0]['reverse']['quality']
         self.assertEqual(quality, {'uncertain': 1, 'conflicting_profiles': 1})
+        self.assertEqual(self.read(sf='unknown')['links'][0]['analysis']['sf7'], dict(category='unknown'))
+
+    def test_reserve_boundaries_and_histogram_interpolation(self):
+        self.assertEqual([reserve_category(x) for x in (-1, 2.999, 3, 5.999, 6)], ['low', 'low', 'watch', 'watch', 'good'])
+        self.assertEqual([asymmetry_category(x) for x in (0, 3, 3.001, 6, 6.001)], ['good', 'good', 'watch', 'watch', 'low'])
+        q = (0, .1, .5, .9, 1)
+        self.assertEqual(percentiles(Counter({-12: 1}), 1, q), [-3] * 5)
+        self.assertEqual(percentiles(Counter({-12: 2, -4: 1, 0: 1, 8: 1}), 5, q), [-3, -3, -1, 1.2, 2])
+
+    def test_sf_only_is_insufficient_for_reserve_and_forecast(self):
+        self.advert(A, 1, 52)
+        self.advert(B, 1, 51)
+        with self.db:
+            record_radio(self.db, RadioReport(EAST, None, BASE + 2, BASE + 3, False, dict(spreading_factor=8)))
+        for index in range(3):
+            self.packet(10 + index, (1, -3, -5), tag=index, path=(A, B, A))
+        link, = self.read(sf='8')['links']
+        self.assertEqual(link['profiles'][0]['profile'], dict(spreading_factor=8))
+        self.assertEqual(link['profiles'][0]['forward']['count'], 3)
+        self.assertEqual(link['coverage']['forward']['assigned'], 0)
+        self.assertEqual(link['analysis']['reserve']['category'], 'unknown')
+        self.assertEqual(link['analysis']['sf7']['category'], 'unknown')
+
+    def test_lower_tail_forecast_and_single_direction_use_one_trace_per_profile(self):
+        self.advert(A, 1, 52)
+        self.advert(B, 1, 51)
+        self.radio(EAST, 2, 8)
+        self.radio(WEST, 2, 8)
+        for index in range(10):
+            # A → B twice in the same TRACE. Keep the lower SNR while retaining both raw hops.
+            stamp = 10 + index * 10
+            snr = -12 if index == 0 else -4
+            self.packet(stamp, (1, 2, -3, snr), tag=index, path=(A, B, A, B))
+            self.packet(stamp + 1, (1, 2, -3, snr), tag=index, path=(A, B, A, B), observer=WEST)
+        self.assertEqual(self.read(end=35)['links'][0]['analysis']['reserve']['category'], 'good')
+        summary = self.read(sf='8')
+        link, = summary['links']
+        group, = link['profiles']
+        self.assertEqual(group['reverse']['count'], 10)
+        self.assertEqual((group['reverse']['min'], group['reverse']['p10'], group['reverse']['median']), (-12, -4.8, -4))
+        self.assertAlmostEqual(group['reverse']['reserve']['db'], 5.2)
+        self.assertEqual(group['reverse']['reserve']['statistic'], 'p10')
+        self.assertEqual(link['analysis']['reserve'], dict(category='watch', db=5.2, profile_index=0,
+                                                          direction='reverse', directions=2))
+        self.assertEqual(link['analysis']['sf7'], dict(category='low', db=2.7, profile_index=0,
+                                                       direction='reverse', directions=2))
+        self.assertEqual(link['analysis']['asymmetry']['category'], 'unknown')  # Same-hour burst.
+        self.assertEqual(link['coverage']['reverse']['count'], 10)
+        self.assertEqual(link['analysis']['coverage']['category'], 'low')
+        self.assertEqual(summary['summary']['visible_samples'], 30)
+        page = self.read(sf='8', pair=(B, A))
+        self.assertEqual(page['total'], 30)
+        self.assertEqual(page['observers'], sorted([EAST, WEST]))
+
+    def test_exact_profiles_and_temporal_comparability(self):
+        self.advert(A, 1, 52)
+        self.advert(B, 1, 51)
+        self.radio(EAST, 2, 8, cr=5)
+        self.radio(WEST, 2, 8, cr=8)
+        for index in range(4):
+            delta = index // 2 * 3600 + index % 2 * 10
+            self.packet(30 + delta, (1, -4), tag=10 + index, path=(B, A))
+            self.packet(40 + delta, (1, -9), tag=20 + index, path=(A, B), observer=WEST)
+            self.packet(7300 + delta, (1, -9), tag=30 + index, path=(A, B))
+        link, = self.read(end=15000)['links']
+        self.assertEqual(len(link['profiles']), 2)
+        self.assertEqual(link['analysis']['asymmetry']['category'], 'unknown')
+        driver = link['profiles'][link['analysis']['reserve']['profile_index']]
+        self.assertEqual(driver['profile']['coding_rate'], 5)
+        self.assertEqual(link['analysis']['reserve']['directions'], 2)
+        before = self.read(end=7200)['links'][0]
+        selected = before['profiles'][before['analysis']['reserve']['profile_index']]
+        self.assertEqual(selected['profile']['coding_rate'], 8)
+        self.assertEqual(before['analysis']['reserve']['directions'], 1)
+        self.assertEqual(before['analysis']['asymmetry']['category'], 'unknown')
+        for index in range(4):
+            delta = index // 2 * 3600 + index % 2 * 10
+            self.packet(50 + delta, (1, -9), tag=40 + index, path=(A, B))
+        link, = self.read(end=15000, sf='8')['links']
+        finding = link['analysis']['asymmetry']
+        self.assertEqual((finding['category'], finding['db']), ('watch', 5))
+        self.assertEqual(link['profiles'][finding['profile_index']]['asymmetry'],
+                         dict(db=5, signed_db=5, windows=2, counts=[4, 4]))
+        for index in range(8):
+            self.packet(80 + index, (1, -4), tag=50 + index, path=(B, A))
+        link, = self.read(end=15000)['links']
+        self.assertEqual(link['analysis']['asymmetry']['category'], 'unknown')  # One window is now 10:2.
+
+    def test_temporal_coverage_age_and_missing_counter_direction(self):
+        self.advert(A, 1, 52)
+        self.advert(B, 1, 51)
+        self.radio(EAST, 2, 8)
+        for index in range(12):
+            stamp = 10 + (index // 4) * DAY + (index % 4) * 2
+            self.packet(stamp, (1, -4, -6), tag=index, path=(B, A, B))
+        def category(end):
+            return self.read(end=end)['links'][0]['analysis']['coverage']['category']
+
+        self.assertEqual(category(900), 'low')
+        self.assertEqual(category(2 * DAY), 'watch')
+        self.assertEqual(category(3 * DAY), 'good')
+        self.assertEqual(category(13 * DAY), 'watch')
+        self.assertEqual(category(40 * DAY), 'low')
+        self.packet(3 * DAY, (1, -4), tag=20, path=(A, B), observer=None)
+        link, = self.read(end=4 * DAY, sf='unknown')['links']
+        self.assertIsNone(link['coverage']['forward'])
+        self.assertEqual(link['coverage']['reverse']['assigned'], 0)
+        self.assertEqual(link['analysis']['coverage']['category'], 'low')
+        self.assertEqual(link['analysis']['sf7']['category'], 'unknown')
 
     def test_later_identity_resolution_collisions_and_position_conflict(self):
         competing = '777300a4' + '1' * 56
@@ -169,9 +289,137 @@ class TraceHistoryTests(unittest.TestCase):
         self.assertEqual(result['links'][0]['prefix_bytes'], [4, 4])
         self.advert(A, 7, 52)
         self.advert(A, 8, 54, stamp=7)
+        during = self.packet(9, (1, 3), tag=4, size=4, path=(A, B))
         result = self.read()
-        self.assertEqual(result['links'], [])
-        self.assertEqual(result['summary']['unmapped_samples']['uncertain_position'], 2)
+        self.assertEqual(result['summary']['visible_samples'], 1)
+        self.assertEqual(result['summary']['unmapped_samples']['position_conflict'], 1)
+        self.assertEqual(measurement(self.db, during)['hops'][0]['state'], 'resolved')
+        self.assertEqual(measurement(self.db, during)['hops'][0]['location_issue'], 'position_conflict')
+
+    def test_real_c5355091_and_four_resolved_repeaters(self):
+        # Raw TRACE from archive #2654833. Coordinates and old stamp ties are
+        # reproduced from the companion ADVERT evidence with compact test times.
+        self.advert(A, 1, 52.167070, lon=10.554380)
+        self.advert(A, 2, 0, lon=0, stamp=1)
+        self.advert(A, 3, 52.167090, lon=10.554400, stamp=1)
+        self.advert(B, 4, 52.168030, lon=10.554110)
+        self.advert(C, 5, 52.173110, lon=10.550730)
+        self.advert(D, 6, 52.165830, lon=10.540430)
+        self.advert(D, 7, 52.165853, lon=10.538736, stamp=6)
+        later = QUIET_SECONDS + 10
+        self.advert(D, later - 1, 52.165853, lon=10.538736)
+        self.advert(D, later, 52.165853, lon=10.538736)
+        raw = build_packet(dict(raw=C5355091, direction='rx', origin_id=EAST)).to_dict()
+        self.archive._write(self.db, [dict(raw, received_at=iso(later + 2), source_at=BASE + later + 1)])
+        ident = self.db.execute('SELECT id FROM trace_measurement').fetchone()[0]
+        details = measurement(self.db, ident)
+        self.assertEqual(details['tag'], 'c5355091')
+        self.assertEqual({hop['public_key'] for hop in details['hops']}, {A, B, C, D})
+        self.assertTrue(all(hop['state'] == 'resolved' and hop['location_issue'] is None for hop in details['hops']))
+        samples = self.db.execute('SELECT source,target,snr_qdb FROM trace_sample ORDER BY hop').fetchall()
+        self.assertEqual([(a.hex(), b.hex(), q / 4) for a, b, q in samples],
+            [(A[:8], B[:8], 11.75), (B[:8], C[:8], 9.5), (C[:8], D[:8], 10.5),
+             (D[:8], C[:8], 10.5), (C[:8], B[:8], 10.75), (B[:8], A[:8], 12.75)])
+        result = self.read(start=later + 1, end=later + 2)
+        self.assertEqual(result['summary']['visible_samples'], 6)
+        self.assertEqual(len(result['links']), 3)
+        self.assertTrue(all(link['profiles'][0]['forward']['count'] == link['profiles'][0]['reverse']['count'] == 1
+                            for link in result['links']))
+        individual = self.archive.trace_map_detail(ident)
+        self.assertEqual([(h['position'], h['location_issue']) for h in individual['hops']],
+                         [(h['position'], h['location_issue']) for h in details['hops']])
+        self.assertEqual(self.db.execute('SELECT source,target,snr_qdb FROM trace_sample ORDER BY hop').fetchall(), samples)
+
+    def test_location_moves_and_duplicate_adverts_do_not_confirm(self):
+        self.advert(A, 1, 52)
+        self.advert(B, 1, 51)
+        before = self.packet(2, (1, 2), path=(A, B))
+        change = QUIET_SECONDS + 2
+        self.advert(A, change, 53)
+        self.advert(A, change + 1, 53, stamp=change)
+        pending = self.packet(change + 2, (1, 2), path=(A, B), tag=2)
+        self.assertEqual(measurement(self.db, pending)['hops'][0]['location_issue'], 'position_unconfirmed')
+        self.advert(A, change + 3, 53)
+        after = self.packet(change + 4, (1, 2), path=(A, B), tag=3)
+        for ident, lat in ((before, 52), (after, 53)):
+            self.assertEqual(measurement(self.db, ident)['hops'][0]['position']['latitude'], lat)
+        self.assertIsNone(measurement(self.db, pending)['hops'][0]['position'])
+        self.assertEqual(self.read(0, 10)['links'][0]['positions'][1]['latitude'], 52)
+        self.assertEqual(self.read(change, change + 5)['links'][0]['positions'][1]['latitude'], 53)
+
+    def test_alternating_sites_and_a_historical_conflict_interval(self):
+        self.advert(A, 1, 52)
+        self.advert(B, 1, 51)
+        before = self.packet(2, (1, 9), path=(A, B))
+        self.advert(A, 3, 53, stamp=1)
+        for offset, lat in enumerate((52, 53, 52, 53, 53), start=4):
+            self.advert(A, offset, lat)
+        during = self.packet(9, (1, 99), tag=2, path=(A, B))
+        self.assertEqual(measurement(self.db, during)['hops'][0]['location_issue'], 'position_conflict')
+        later = QUIET_SECONDS + 10
+        self.advert(A, later, 53, stamp=8)
+        self.assertEqual(self.read(9, later + 1)['summary']['unmapped_samples'], {'position_conflict': 1})
+        self.advert(A, later + 1, 53)
+        after = self.packet(later + 2, (1, 10), tag=3, path=(A, B))
+        for ident, lat in ((before, 52), (after, 53)):
+            self.assertEqual(measurement(self.db, ident)['hops'][0]['position']['latitude'], lat)
+        self.assertEqual(measurement(self.db, during)['hops'][0]['location_issue'], 'historical_position_conflict')
+        self.assertEqual(self.archive.trace_map_detail(during)['hops'][0]['location_issue'],
+                         'historical_position_conflict')
+        self.assertEqual(self.read(0, later + 3)['links'][0]['profiles'][0]['reverse']['max'], 10)
+
+    def test_position_tolerance_and_unset_coordinates(self):
+        self.advert(A, 1, None, lon=None)
+        self.advert(A, 2, 0, lon=0)
+        self.advert(B, 2, 51)
+        early = self.packet(3, (1, 2), path=(A, B))
+        self.advert(A, 4, 52)
+        self.advert(A, 5, 52.00001, stamp=4)
+        self.advert(A, 6, 0, lon=0)
+        late = self.packet(7, (1, 2), tag=2, path=(A, B))
+        self.assertEqual(measurement(self.db, early)['hops'][0]['location_issue'], 'missing_position')
+        self.assertEqual(measurement(self.db, late)['hops'][0]['position']['latitude'], 52)
+        self.assertEqual(measurement(self.db, late, position_cache=TracePositionCache(0))['hops'][0]['location_issue'],
+                         'position_conflict')
+
+    def test_funkfeuer_prefix_collision_and_unset_bridge(self):
+        bridge = 'dd4c42a153b97c11'.ljust(64, '0')
+        ampleben = 'dd4c42d1ac55b5ac'.ljust(64, '0')
+        self.advert(bridge, 1, 0, lon=0)
+        self.advert(ampleben, 1, 52.18563, lon=10.75014)
+        self.advert(B, 1, 51)
+        short = self.packet(2, (1, 2), path=(ampleben, B), size=2)
+        exact = self.packet(3, (1, 2), tag=2, path=(bridge, B), size=4)
+        for ident, expected in ((short, 'ambiguous'), (exact, 'missing_position')):
+            self.assertEqual(measurement(self.db, ident)['hops'][0]['location_issue'], expected)
+            self.assertEqual(self.archive.trace_map_detail(ident)['hops'][0]['location_issue'], expected)
+        self.assertEqual(self.read()['links'], [])
+
+    def test_cached_evidence_catches_up_and_reloads_after_archive_edit(self):
+        cache = TracePositionCache()
+        self.advert(A, 1, 52)
+        self.advert(B, 1, 51)
+        ident = self.packet(3, (1, 2), path=(A, B))
+        self.assertIsNone(measurement(self.db, ident, position_cache=cache)['hops'][0]['location_issue'])
+        self.advert(A, 2, 53, stamp=1)
+        self.assertEqual(measurement(self.db, ident, position_cache=cache)['hops'][0]['location_issue'],
+                         'position_conflict')
+        with self.db:
+            self.db.execute('DELETE FROM packets WHERE id=?', (ident + 1,))
+        self.assertIsNone(measurement(self.db, ident, position_cache=cache)['hops'][0]['location_issue'])
+
+    def test_both_link_endpoints_use_the_receiver_measurement_time(self):
+        self.advert(B, 1, 51)
+        ident = self.packet(25, (1,), size=4, path=(A, B), source=20)
+        self.advert(A, 21, 52)
+        full = self.packet(26, (1, 2), size=4, path=(A, B), source=22)
+        self.assertEqual(self.read()['summary']['visible_samples'], 1)
+        correlated = measurement(self.db, ident)['hops']
+        individual = self.archive.trace_map_detail(full)['hops']
+        self.assertIsNone(correlated[0]['position'])
+        self.assertEqual(correlated[1]['from_position'], dict(latitude=52, longitude=11))
+        self.assertEqual(individual[1]['from_position'], correlated[1]['from_position'])
+        self.assertEqual(individual[1]['position'], correlated[1]['position'])
 
     def test_incomplete_and_asymmetric_paths_do_not_bridge_unresolved_hop(self):
         self.advert(A, 1, 52)
@@ -268,6 +516,54 @@ class TraceHistoryTests(unittest.TestCase):
         self.assertEqual(reports[0].source_at, BASE)
         self.assertTrue(reports[0].mqtt_retained)
 
+    def test_trace_overview_gzip_respects_accept_encoding(self):
+        self.advert(A, 1, 52)
+        self.advert(B, 1, 51)
+        self.packet(3, (1, -5), path=(A, B))
+        # Use the real HTTP server and worker pool, with the MQTT lifespan off.
+        with ExitStack() as resources:
+            listener = resources.enter_context(socket.socket())
+            resources.enter_context(patch.object(app.state, 'archive', self.archive, create=True))
+            listener.bind(('127.0.0.1', 0))
+            server = uvicorn.Server(uvicorn.Config(app, lifespan='off', loop='asyncio',
+                                                   log_level='error', access_log=False))
+            worker = Thread(target=server.run, kwargs={'sockets': [listener]}, daemon=True)
+            worker.start()
+
+            def stop_server():
+                server.should_exit = True
+                worker.join(4)
+                self.assertFalse(worker.is_alive())
+
+            resources.callback(stop_server)
+            deadline = time.monotonic() + 4
+            while worker.is_alive() and not server.started and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(server.started)
+
+            def request(encoding=None):
+                with closing(HTTPConnection(*listener.getsockname(), timeout=3)) as client:
+                    client.putrequest('GET', '/api/trace-links', skip_accept_encoding=True)
+                    if encoding is not None:
+                        client.putheader('Accept-Encoding', encoding)
+                    client.endheaders()
+                    response = client.getresponse()
+                    return response.status, response.headers, response.read()
+
+            status, headers, original = request()
+            self.assertEqual(status, 200)
+            self.assertEqual(headers['vary'], 'Accept-Encoding')
+            self.assertNotIn('content-encoding', headers)
+            status, headers, body = request('br, gzip;q=0.7')
+            self.assertEqual(status, 200)
+            self.assertEqual(headers['content-encoding'], 'gzip')
+            self.assertEqual(headers['cache-control'], 'no-store')
+            self.assertLess(len(body), len(original))
+            self.assertEqual(gzip.decompress(body), original)
+            _, headers, body = request('gzip;q=0, br')
+            self.assertNotIn('content-encoding', headers)
+            self.assertEqual(body, original)
+
     def test_advert_conflict_uses_expression_index_seek_in_attached_archive(self):
         from tools.benchmark_trace_history import build_projection, connect_source
 
@@ -275,11 +571,14 @@ class TraceHistoryTests(unittest.TestCase):
         with closing(sqlite3.connect(other)) as db:
             connect_source(db, self.path)
             build_projection(db)
+            cache = TracePositionCache(attached_source=True)
             plan = [description for _, _, _, description in db.execute(
-                'EXPLAIN QUERY PLAN ' + POSITION_CONFLICTS_SQL, (json.dumps([A, B]),))]
+                'EXPLAIN QUERY PLAN ' + cache.evidence_sql, (json.dumps([A, B]),))]
             self.assertTrue(any('SEARCH' in line and 'packets_advert_key_received' in line
                                 for line in plan), plan)
             self.assertFalse(any('SCAN source.packets' in line for line in plan), plan)
+            plan = str(db.execute('EXPLAIN QUERY PLAN ' + cache.new_sql, (0, 10)).fetchall())
+            self.assertIn('packets_kind_id (kind=? AND id>? AND id<?)', plan)
 
     def test_benchmark_cli_timeout_progress_and_cleanup(self):
         self.packet(3, (1, 2))

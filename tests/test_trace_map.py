@@ -2,7 +2,9 @@ import json
 import sqlite3
 import unittest
 from onair_trace_map import browse, detail, grouped_snapshot, grouped_page
-from onair_distance import Positions
+from onair_positions import migrate as migrate_positions
+from onair_trace_history import migrate as migrate_trace
+from onair_trace_positions import QUIET_SECONDS
 from test_trace import reception
 
 
@@ -12,8 +14,10 @@ class TraceMapTests(unittest.TestCase):
         self.db.executescript('''CREATE TABLE packets(id INTEGER PRIMARY KEY, received REAL, kind TEXT, packet_json TEXT);
             CREATE INDEX packets_kind_id ON packets(kind,id);
             CREATE TABLE nodes(public_key TEXT, name TEXT, node_type INTEGER DEFAULT 2);
-            CREATE TABLE manual_nodes(public_key TEXT);''')
+            CREATE TABLE manual_nodes(public_key TEXT,name TEXT);''')
         self.addCleanup(self.db.close)
+        migrate_positions(self.db)
+        migrate_trace(self.db)
         self.a, self.b = 'aa' + '00'*31, 'bb' + '00'*31
         self.db.executemany('INSERT INTO nodes(public_key,name) VALUES(?,?)', [(self.a, 'A'), (self.b, 'B')])
 
@@ -29,19 +33,20 @@ class TraceMapTests(unittest.TestCase):
         self.advert(1, self.a, 50)
         self.advert(1, self.b, 51)
         first = self.add(2, reception(snrs=(2, 3)))
-        self.advert(3, self.a, 52)
-        second = self.add(4, reception(route='aaccbb', snrs=(1, 2)))
-        positions = Positions(self.db, 0, 10)
-        full = detail(self.db, first, positions)
-        partial = detail(self.db, second, positions)
+        changed = QUIET_SECONDS + 2
+        self.advert(changed, self.a, 52)
+        self.advert(changed + 1, self.a, 52)
+        second = self.add(changed + 2, reception(route='aaccbb', snrs=(1, 2)))
+        full = detail(self.db, first)
+        partial = detail(self.db, second)
         self.assertEqual(full['hops'][0]['position']['latitude'], 50)
         self.assertEqual(partial['hops'][0]['position']['latitude'], 52)
         self.assertIsNone(partial['hops'][1]['position'])
         self.assertIsNone(partial['hops'][2]['snr_min'])
         self.assertIsNone(full['source'])
-        self.assertEqual(len(browse(self.db, 0, 10, first='aa', last='bb')['items']), 2)
-        self.assertEqual(len(browse(self.db, 0, 10, hops=3)['items']), 1)
-        self.assertEqual(len(browse(self.db, 3, 5)['items']), 1)
+        self.assertEqual(len(browse(self.db, 0, changed + 3, first='aa', last='bb')['items']), 2)
+        self.assertEqual(len(browse(self.db, 0, changed + 3, hops=3)['items']), 1)
+        self.assertEqual(len(browse(self.db, changed, changed + 3)['items']), 1)
         self.assertEqual(browse(self.db, 0, 10, first='ff')['items'], [])
 
     def test_bounded_scan_and_pagination(self):
@@ -66,7 +71,7 @@ class TraceMapTests(unittest.TestCase):
         self.db.execute('INSERT INTO nodes(public_key,name) VALUES(?,?)', ('aa'+'11'*31, 'Collision'))
         identity = self.add(1, reception(snrs=(1,2)))
         self.advert(2, self.b, 51)
-        item = detail(self.db, identity, Positions(self.db, 0, 10))
+        item = detail(self.db, identity)
         self.assertTrue(item['hops'][0]['ambiguous'])
         self.assertTrue(all(h['position'] is None for h in item['hops']))
 
@@ -80,7 +85,7 @@ class TraceMapTests(unittest.TestCase):
         self.assertEqual(decoded['route'], ['aa', 'bb', 'aa'])
         self.assertEqual(decoded['snrs'], [12, 7.5, -3])
         identity = self.add(2, packet)
-        result = detail(self.db, identity, Positions(self.db, 0, 10))
+        result = detail(self.db, identity)
         self.assertEqual([h['snr_min'] for h in result['hops']], [12, 7.5, -3])
         self.assertEqual([h['snr_max'] for h in result['hops']], [12, 7.5, -3])
         self.assertEqual(result['hops'][0]['public_key'], result['hops'][2]['public_key'])
@@ -89,7 +94,7 @@ class TraceMapTests(unittest.TestCase):
         packet['decoded']['hops'] = ['30', '1e', 'f4']
         packet['decoded'].pop('trace')
         legacy = self.add(3, packet)
-        self.assertEqual([h['snr_min'] for h in detail(self.db, legacy, Positions(self.db, 0, 10))['hops']],
+        self.assertEqual([h['snr_min'] for h in detail(self.db, legacy)['hops']],
                          [12, 7.5, -3])
 
     def test_grouped_progress_and_single_representative(self):
@@ -111,7 +116,7 @@ class TraceMapTests(unittest.TestCase):
         group = grouped_snapshot(self.db, 0, 200)['items'][0]
         self.assertEqual(group['weakest_snr'], -20)
         self.assertEqual(group['representative_id'], ids[-1])
-        representative = detail(self.db, group['representative_id'], Positions(self.db, 0, 200))
+        representative = detail(self.db, group['representative_id'])
         self.assertEqual([h['snr_min'] for h in representative['hops']], [0, 1, 2, 3, 4])
 
     def test_grouped_boundaries_filter_and_pagination(self):

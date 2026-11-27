@@ -26,6 +26,7 @@ from onair_payload import decode_payload_details
 from onair_discovery import discovery_sessions
 from onair_trace import trace_sessions, WINDOW_SECONDS as TRACE_WINDOW_SECONDS
 import onair_trace_history as trace_history
+from onair_trace_positions import TracePositionCache
 from onair_observers import record_observer, observer_comparison
 from onair_observer_radio import current_radio_profiles, migrate_radio, radio_profile_at, record_radio
 from onair_neighbors import (record_path, record_path_pairs, rebuild_path_pairs,
@@ -57,6 +58,7 @@ class Archive:
         self.dropped = 0
         self.saved = 0
         self.trace_revision = 0
+        self._trace_locations = TracePositionCache()
         self.rf_neighbor_queue = Queue(maxsize=128)
         self.rf_neighbor_saved = 0
         self.rf_neighbor_dropped = 0
@@ -354,28 +356,7 @@ class Archive:
 
     def trace_map_detail(self, identity):
         from onair_trace_map import detail
-        from onair_distance import Positions
-        # Shared lock bounds concurrent historical work; cache independent of map motion.
-        with self._distance_lock, self.connect() as db:
-            db.execute('BEGIN')
-            if db.execute("SELECT 1 FROM packets WHERE id=? AND kind='TRACE'", (identity,)).fetchone() is None:
-                return None
-            now = time.monotonic()
-            if self.position_mode != 'legacy':
-                mode = 'legacy' if self.position_failure else self.position_mode
-                end = time.time() + 1
-                return evaluate_positions(db, mode, lambda factory:
-                    detail(db, identity, factory(db, 0, end), trace_history.position_conflicts), self._position_failed)
-            cache = getattr(self, '_trace_positions', None)
-            if cache is None or now - cache[0] > 60:
-                deadline = now + 10
-                db.set_progress_handler(lambda: time.monotonic() > deadline, 10000)
-                try:
-                    positions = Positions(db, 0, time.time() + 1)
-                finally:
-                    db.set_progress_handler(None, 0)
-                self._trace_positions = (time.monotonic(), positions)
-            return detail(db, identity, self._trace_positions[1], trace_history.position_conflicts)
+        return self.trace_history(detail, identity)
 
     def trace_history(self, query, *args):
         # Serialize expensive map requests without blocking the archive writer.
@@ -383,7 +364,7 @@ class Archive:
             deadline = time.monotonic() + 12
             db.set_progress_handler(lambda: time.monotonic() > deadline, 10000)
             db.execute('BEGIN')
-            return query(db, *args)
+            return query(db, *args, position_cache=self._trace_locations)
 
     def _position_failed(self, exc):
         # Latch comparison failures until restart; never cache a normalized mismatch.

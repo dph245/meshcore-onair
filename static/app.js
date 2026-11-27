@@ -483,6 +483,7 @@ function connect() {
     repeaterMapVisibility.receive(data);
     window.MeshLive?.receive(data);
     window.TraceLinks?.receive(data.status?.trace_revision, data.type === 'snapshot');
+    window.TraceComparison?.receive(data.status?.trace_revision, data.type === 'snapshot');
   };
   stream.onclose = () => { connection(); setTimeout(connect, 2000); };
   stream.onerror = () => stream.close();
@@ -490,6 +491,7 @@ function connect() {
 document.getElementById('pause').onclick = event => {
   paused = !paused;
   window.TraceLinks?.sync();
+  window.TraceComparison?.sync();
   event.target.textContent = paused ? 'Live fortsetzen' : 'Ansicht pausieren';
   event.target.setAttribute('aria-pressed', String(paused));
   if (!paused) {

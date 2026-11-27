@@ -2,8 +2,12 @@
 
 Lokaler, kompakter MQTT-Netzmonitor für den MeshCore Observer.
 
-Die gemeinsame historische Positionsquelle für DX und TRACE ist über
-`ONAIR_POSITION_MODE=legacy|compare|normalized` wählbar (Vorgabe: `legacy`).
+Für DX ist die historische Positionsquelle über
+`ONAIR_POSITION_MODE=legacy|compare|normalized` wählbar (Vorgabe `legacy`).
+TRACE prüft Standorte zum Messzeitpunkt. Die Entfernungstoleranz ist mit
+`ONAIR_TRACE_POSITION_TOLERANCE_M` konfigurierbar und beträgt standardmäßig
+25 Meter. [Zeitbezogene Standortvalidierung](docs/trace-history.md#zeitbezogene-standortvalidierung)
+
 Schema 16 erstellt vor der Migration vorhandener Archive eine SQLite-Sicherung.
 [Datenmodell, Vergleichsbetrieb, Wiederaufbau und lokaler Benchmark](docs/positions-history.md).
 

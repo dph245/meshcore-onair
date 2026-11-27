@@ -2,8 +2,7 @@
 import json
 from onair_payload import decode_payload_details
 from onair_trace import trace_sessions
-from onair_neighbors import distance_km
-from onair_map_visibility import MapVisibility
+from onair_trace_history import Identities, load_locations, locate
 
 BATCH = 500
 PAGE = 50
@@ -37,30 +36,34 @@ def browse(db, start, end, before=9223372036854775807, first='', last='', hops=N
                 before=before if len(rows) > consumed else None)
 
 
-def detail(db, identity, positions, position_conflicts=None):
+def detail(db, identity, *, position_cache=None):
     row = db.execute("SELECT id,received,packet_json FROM packets WHERE id=? AND kind='TRACE'", (identity,)).fetchone()
     if row is None:
         return None
     row_id, received, raw = row
-    nodes = [dict(public_key=key, name=name, node_type=kind)
-             for key, name, kind in db.execute('SELECT public_key,name,node_type FROM nodes')]
-    manual = [dict(public_key=row[0]) for row in db.execute('SELECT public_key FROM manual_nodes')]
-    visibility = MapVisibility(nodes, manual)
-    names = {node['public_key']: node['name'] for node in nodes}
-    types = {node['public_key']: node['node_type'] for node in nodes}
-    sessions, _, _ = trace_sessions([(row_id, received, json.loads(raw))], names)
+    packet = json.loads(raw)
+    identities = Identities(db)
+    names = {key: node['name'] for key, node in identities.nodes.items()}
+    sessions, _, _ = trace_sessions([(row_id, received, packet)], names)
     if not sessions:
         return None
     item = sessions[0]
-    item.update(source=None, target=None, map_repeater_keys=visibility.repeater_keys)
-    conflicts = (position_conflicts(db, {hop['public_key'] for hop in item['hops']
-                 if types.get(hop['public_key']) == 2}) if position_conflicts else set())
-    for hop in item['hops']:
-        hop['node_type'] = types.get(hop['public_key'])
-        pos = (positions.at(hop['public_key'], received)
-               if hop['public_key'] and hop['public_key'] not in conflicts and not visibility.hidden(
-                   hop['public_key'], hop['node_type'], len(hop['hash']) // 2) else None)
-        hop['position'] = pos if distance_km(pos, pos) is not None else None
+    item.update(source=None, target=None, map_repeater_keys=identities.visibility.repeater_keys)
+    nodes = [identities.resolve(bytes.fromhex(hop['hash'])) for hop in item['hops']]
+    locations = load_locations(db, nodes, position_cache, include_non_repeaters=True)
+    stamp = packet.get('source_at')
+    if stamp is None:
+        stamp = received
+    sample_times = {}
+    if db.execute('PRAGMA user_version').fetchone()[0] >= 18:
+        sample_times = dict(db.execute('''SELECT s.hop,s.event_at FROM trace_observation o
+            JOIN trace_sample s USING(measurement_id) WHERE o.packet_id=?''', (row_id,)))
+    for index, (hop, node) in enumerate(zip(item['hops'], nodes)):
+        hop.update(node)
+        measured_at = sample_times.get(index, stamp)
+        hop['position'], hop['location_issue'] = locate(node, locations, measured_at)
+        if index and hop['snr_min'] is not None:
+            hop['from_position'], hop['from_location_issue'] = locate(nodes[index - 1], locations, measured_at)
     return item
 
 

@@ -16,6 +16,7 @@ from onair_distance import Positions, analyze
 from onair_positions import (NormalizedPositions, backup_before_migration, evaluate,
                              migrate, current_generation)
 from onair_trace_map import detail
+from onair_trace_positions import TracePositionCache
 
 
 def digest(value):
@@ -129,16 +130,13 @@ def main():
                                     for mode, runs in report['runs'].items()}
         report['position_medians_seconds'] = {mode: statistics.median(r['positions_seconds'] for r in runs)
                                              for mode, runs in report['runs'].items()}
-        print('Comparing all TRACE details on the same snapshot', flush=True)
+        print('Fingerprinting all TRACE details on the same snapshot', flush=True)
         ids = [row[0] for row in db.execute("SELECT id FROM packets WHERE kind='TRACE' ORDER BY id")]
-        cutoff = db.execute('SELECT max(received)+1 FROM packets').fetchone()[0]
-        legacy, normalized = Positions(db, 0, cutoff), NormalizedPositions(db, 0, cutoff)
+        position_cache = TracePositionCache()
         trace_hash = hashlib.sha256()
         for ident in ids:
-            old, new = detail(db, ident, legacy), detail(db, ident, normalized)
-            if old != new or digest(old) != digest(new):
-                raise RuntimeError('Unresolved TRACE comparison mismatch at ' + str(ident))
-            trace_hash.update(bytes.fromhex(digest(old)))
+            item = detail(db, ident, position_cache=position_cache)
+            trace_hash.update(bytes.fromhex(digest(item)))
         report['trace'] = dict(receptions=len(ids), sha256=trace_hash.hexdigest())
         # Exercise the production comparison orchestrator as well.
         failures = []

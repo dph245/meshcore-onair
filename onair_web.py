@@ -1,5 +1,6 @@
 """Local, subscribe-only dashboard. Run one Uvicorn worker."""
 import asyncio
+from gzip import compress
 import json
 import sqlite3
 from collections import OrderedDict, deque
@@ -410,21 +411,45 @@ def map_trace_detail(identity: int):
         raise HTTPException(503, 'Historische Positionen momentan nicht verfügbar. Bitte erneut versuchen.') from exc
     if item is None:
         raise HTTPException(404, 'Keine auswertbare TRACE-Beobachtung.')
-    return item
+    return JSONResponse(item, headers={'Cache-Control': 'no-store'})
 
 
-def trace_response(query, *args):
+def trace_response(query, *args, encoding=None):
     try:
         result = app.state.archive.trace_history(query, *args)
     except (sqlite3.OperationalError, PositionUnavailable) as exc:
         raise HTTPException(503, 'TRACE-Historie momentan nicht verfügbar.') from exc
     if result is None:
         raise HTTPException(404, 'TRACE-Messung nicht gefunden.')
-    return JSONResponse(result, headers={'Cache-Control': 'no-store'})
+    headers = {'Cache-Control': 'no-store'}
+    if encoding is not None:
+        headers['Vary'] = 'Accept-Encoding'
+    response = JSONResponse(result, headers=headers)
+    if encoding is not None and len(response.body) >= 1024 and accepts_gzip(encoding):
+        headers['Content-Encoding'] = 'gzip'
+        return Response(compress(response.body, compresslevel=3, mtime=0),
+                        media_type=response.media_type, headers=headers)
+    return response
+
+
+def accepts_gzip(header):
+    for item in header.lower().split(','):
+        coding, *parameters = item.split(';')
+        if coding.strip() != 'gzip':
+            continue
+        for parameter in parameters:
+            key, _, value = parameter.partition('=')
+            if key.strip() == 'q':
+                try:
+                    return 0 < float(value) <= 1
+                except ValueError:
+                    return False
+        return True
+    return False
 
 
 @app.get('/api/trace-links')
-def trace_links(start: float = Query(0, ge=0, le=4102444800),
+def trace_links(request: Request, start: float = Query(0, ge=0, le=4102444800),
                 end: float = Query(4102444800, ge=0, le=4102444800),
                 sf: str = Query('all', pattern=r'^(all|unknown|[5-9]|1[0-2])$'),
                 a: str | None = Query(None, pattern=r'^[0-9a-f]{64}$'),
@@ -432,7 +457,8 @@ def trace_links(start: float = Query(0, ge=0, le=4102444800),
                 offset: int = Query(0, ge=0, le=10000000)):
     if end <= start or (a is None) != (b is None) or a is not None and a >= b:
         raise HTTPException(422, 'Zeitraum und sortiertes Repeater-Paar prüfen.')
-    return trace_response(trace_history.links, start, end, sf, (a, b) if a else None, offset)
+    return trace_response(trace_history.links, start, end, sf, (a, b) if a else None, offset,
+                          encoding=request.headers.get('Accept-Encoding', ''))
 
 
 @app.get('/api/trace-measurements/{identity}')

@@ -1,3 +1,17 @@
+const traceLocationIssues = {
+  unknown: 'Identität unbekannt', ambiguous: 'Präfix mehrdeutig', collision: 'Präfixkollision',
+  non_repeater: 'Kein Repeater', same_identity: 'Gleiche Repeater-ID',
+  missing_position: 'Keine Position vorhanden', missing_measurement_time: 'Messzeitpunkt fehlt',
+  position_conflict: 'Standortkonflikt ohne belegte Auflösung',
+  historical_position_conflict: 'Historischer Standortkonflikt',
+  position_unconfirmed: 'Position zum Messzeitpunkt nicht eindeutig bestimmbar'
+};
+
+function traceMapPreviousHop(hops, index) {
+  const from = hops[index - 1], to = hops[index];
+  return 'from_position' in to ? {...from, position: to.from_position} : from;
+}
+
 // SNR[i] was measured at route[i], on reception from route[i - 1].
 // Repeated route entries preserve return measurements; min/max are NOT directions.
 function traceMapSnrSegments(hops) {
@@ -7,7 +21,7 @@ function traceMapSnrSegments(hops) {
     Number.isFinite(hop.position.latitude) && Number.isFinite(hop.position.longitude);
   const identity = hop => hop.public_key || hop.hash;
   for (let i = 1; i < hops.length; i++) {
-    const from = hops[i - 1], to = hops[i];
+    const from = traceMapPreviousHop(hops, i), to = hops[i];
     if (!valid(from) || !valid(to) || !identity(from) || !identity(to) ||
         identity(from) === identity(to) || !Number.isFinite(from.snr_min) ||
         !Number.isFinite(to.snr_min) || (to.snr_max != null && to.snr_max !== to.snr_min)) continue;
@@ -28,10 +42,22 @@ function traceMapSnrText(value) {
 
 // Historical observations have their own map and view; no fetch on map movement.
 let traceMap;
+
+function resizeTraceMap() {
+  const {clientWidth, clientHeight} = traceMap.getContainer();
+  if (!clientWidth || !clientHeight) return false;
+  const size = traceMap.getSize();
+  if (size.x !== clientWidth || size.y !== clientHeight) {
+    traceMap.invalidateSize(); // Leaflet compensates the pixel offset to keep the geographic center.
+  }
+  return true;
+}
+
 (() => {
   let layer, cursor, query, version = 0, controller;
   const selected = new Map();
   let activeGroup, receptionPage = 0;
+  let revision, locationTimer, refreshingLocations, dirtyLocations, lastLocationRefresh = 0;
   const el = id => document.getElementById(`map-trace-${id}`);
   const active = () => !document.getElementById('panel-trace').hidden &&
     !document.getElementById('map-traces').hidden && !document.getElementById('trace-compare-controls').hidden;
@@ -84,7 +110,7 @@ let traceMap;
       if (!point) return;
       view.markers.push(L.circleMarker(point, {radius: 7}).bindTooltip(text('span',
         `#${item.id} · Hop ${i + 1}: ${traceNode(hop)} · SNR ${hop.snr_min ?? 'unbekannt'}`)).addTo(layer));
-      const previous = i > 0 && position(item.hops[i - 1]);
+      const previous = i > 0 && position(traceMapPreviousHop(item.hops, i));
       if (previous && hop.snr_min != null && item.hops[i - 1].snr_min != null) {
         view.segments.push({from: previous, to: point, line: L.polyline([previous, point], {weight: 3}).addTo(layer)});
       }
@@ -222,7 +248,16 @@ let traceMap;
       card.append(text('h3', `${index ? 'Orange' : 'Blau'} · #${item.id} · ${new Date(item.first_seen * 1000).toLocaleString('de-DE')}`),
         text('p', `Quelle: unbekannt · Ziel: nicht gesichert · ${item.hops.length} Routen-Hops · ${item.observed_hops} mit SNR`));
       const list = text('ol', '');
-      item.hops.forEach(hop => list.append(text('li', `${traceNode(hop)} · ${position(hop) ? 'Position aus früherem ADVERT' : 'Historische Position unbekannt oder ausgeblendet'} · SNR: ${hop.snr_min == null ? 'nicht mitgehört' : hop.snr_min + ' dB'}`)));
+      item.hops.forEach((hop, index) => {
+        const issue = repeaterMapVisibility.hidden(hop.public_key, hop.node_type, hop.hash.length / 2)
+          ? traceLocationIssues.collision : traceLocationIssues[hop.location_issue];
+        const location = position(hop) ? 'Position aus früherem ADVERT' : issue || traceLocationIssues.missing_position;
+        const row = text('li', `${traceNode(hop)} · ${location} · SNR: ${hop.snr_min == null ? 'nicht mitgehört' : hop.snr_min + ' dB'}`);
+        if (index && hop.from_location_issue) {
+          row.append(text('span', ` · Position des sendenden Hops: ${traceLocationIssues[hop.from_location_issue]}`));
+        }
+        list.append(row);
+      });
       const remove = text('button', 'Auswahl entfernen');
       remove.type = 'button';
       remove.addEventListener('click', () => { selected.delete(item.id); details();
@@ -240,19 +275,58 @@ let traceMap;
     const current = version;
     checkbox.disabled = true;
     try {
-      const response = await fetch(`/api/map-traces/${item.id}`, {signal: controller?.signal});
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const result = await response.json();
+      const result = await fetchDetail(item.id);
       if (current !== version) return;
       repeaterMapVisibility.addKeys(result.map_repeater_keys);
       if (selected.size >= 2) { checkbox.checked = false; return; }
       selected.set(item.id, result); details();
-      const points = [...selected.values()].flatMap(v => v.hops.map(position).filter(Boolean));
+      const points = [...selected.values()].flatMap(v => v.hops.flatMap((hop, i) =>
+        [position(hop), i && 'from_position' in hop && position(traceMapPreviousHop(v.hops, i))].filter(Boolean)));
       if (points.length && active()) traceMap.fitBounds(L.latLngBounds(points), {padding: [35, 35], maxZoom: 13, animate: false});
     } catch (error) {
       if (current === version && error.name !== 'AbortError') { checkbox.checked = false; el('status').textContent = `Details nicht verfügbar: ${error.message}`; }
     } finally { checkbox.disabled = false; }
   }
+
+  async function fetchDetail(id) {
+    const response = await fetch(`/api/map-traces/${id}`, {signal: controller?.signal});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }
+
+  function refreshLocations() {
+    if (!active() || paused || !dirtyLocations || !selected.size || locationTimer != null || refreshingLocations) return;
+    locationTimer = setTimeout(async () => {
+      locationTimer = null;
+      if (!active() || paused || !selected.size) return;
+      dirtyLocations = false;
+      refreshingLocations = true;
+      lastLocationRefresh = Date.now();
+      const current = version, entries = [...selected];
+      const responses = await Promise.allSettled(entries.map(([id]) => fetchDetail(id)));
+      refreshingLocations = false;
+      let changed = false;
+      for (const [index, response] of responses.entries()) {
+        const [id, previous] = entries[index];
+        if (current !== version || selected.get(id) !== previous || response.status !== 'fulfilled') continue;
+        const updated = response.value;
+        if (JSON.stringify(previous.hops) !== JSON.stringify(updated.hops)) {
+          selected.set(id, updated);
+          changed = true;
+        }
+        repeaterMapVisibility.addKeys(updated.map_repeater_keys);
+      }
+      if (changed) details();
+      refreshLocations();
+    }, Math.max(0, 10000 - (Date.now() - lastLocationRefresh)));
+  }
+
+  window.TraceComparison = {sync: refreshLocations, receive(value, snapshot) {
+    if (value == null || value === revision && !snapshot) return;
+    revision = value;
+    dirtyLocations = selected.size > 0;
+    refreshLocations();
+  }};
 
   function groupLabel(item) {
     const missing = item.hops.filter(h => !h.public_key).length;
@@ -365,7 +439,7 @@ let traceMap;
   repeaterMapVisibility.listeners.add(() => { details(); traceMap?.closePopup(); });
   function resizeMap() {
     if (!document.getElementById('panel-trace').hidden && !document.getElementById('map-traces').hidden) {
-      traceMap.invalidateSize(); // Leaflet compensates the pixel offset to keep the geographic center.
+      if (resizeTraceMap()) window.TraceLinks?.resize();
     }
   }
   window.showTraceMap = function() {
@@ -385,5 +459,6 @@ let traceMap;
     if (layer && !active()) layer.remove();
     else if (layer && !traceMap.hasLayer(layer)) layer.addTo(traceMap);
     resizeMap(); scheduleDraw();
+    refreshLocations();
   };
 })();

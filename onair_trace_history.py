@@ -1,30 +1,20 @@
 """Incremental projection of passive TRACE receptions and directed hop samples."""
 from bisect import bisect_left
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
 import json
 
 from onair_neighbors import distance_km
 from onair_map_visibility import MapVisibility
 from onair_observer_radio import CORE_FIELDS, RadioProfiles, observer_identity, radio_profile_at
 from onair_payload import decode_payload_details
-from onair_positions import ADVERT_WHERE, KEY_EXPR, NormalizedPositions, current_generation
 from onair_trace import WINDOW_SECONDS
+from onair_trace_positions import TracePositionCache
+from onair_trace_quality import DirectionSamples, RULES, assess_link, assess_profile, directional_coverage
 
 BACKFILL_BATCH = 100
 SAME_STAGE_SECONDS = 3
 PAGE = 50
 RADIO_FIELDS = CORE_FIELDS + ('tx_power_dbm', 'preamble_length', 'sync_word', 'radio_ic')
-ADVERT_POSITIONS = f'''SELECT {KEY_EXPR} AS public_key,
-    json_extract(packet_json,'$.decoded.advert.timestamp') AS stamp,
-    json_extract(packet_json,'$.decoded.advert.latitude') AS latitude,
-    json_extract(packet_json,'$.decoded.advert.longitude') AS longitude
-    FROM packets INDEXED BY packets_advert_key_received WHERE {ADVERT_WHERE}
-    AND json_extract(packet_json,'$.decoded.advert.signature_status')='Gültig' '''
-POSITION_CONFLICTS_SQL = '''SELECT DISTINCT public_key FROM trace_advert_positions
-    WHERE public_key IN (SELECT value FROM json_each(?))
-    GROUP BY public_key,stamp
-    HAVING MIN(latitude)<>MAX(latitude) OR MIN(longitude)<>MAX(longitude)'''
 
 
 def migrate(db):
@@ -60,7 +50,6 @@ def migrate(db):
         '''INSERT OR IGNORE INTO trace_backfill
             SELECT 1,COALESCE(MAX(id),0),0,0,COUNT(*)=0 FROM
             (SELECT id FROM packets WHERE kind='TRACE' ORDER BY id DESC LIMIT 1)''',
-        'CREATE VIEW IF NOT EXISTS trace_advert_positions AS ' + ADVERT_POSITIONS,
     ):
         db.execute(sql)
     db.execute('PRAGMA user_version=18')
@@ -263,63 +252,20 @@ class Identities:
         return self.cache[token]
 
 
-def position_conflicts(db, keys):
-    # A signed key reporting two coordinates for one ADVERT timestamp has
-    # insufficient evidence. Unchanged coordinates are coalesced by Schema 16,
-    # so verify only moving keys against the existing per-key ADVERT index.
-    if not keys:
-        return set()
-    moving = [key for key, in db.execute('''SELECT i.public_key
-        FROM position_identity i JOIN position_state s USING(node_id)
-        WHERE i.public_key IN (SELECT value FROM json_each(?)) AND s.generation=?
-        GROUP BY s.node_id
-        HAVING MIN(s.latitude)<>MAX(s.latitude) OR MIN(s.longitude)<>MAX(s.longitude)''',
-        (json.dumps(sorted(keys)), current_generation(db)))]
-    # A direct comparison to a TEXT-affinity column from a JOIN/subquery
-    # can turn the expression index seek into a full index scan in SQLite.
-    if not moving:
-        return set()
-    return {key for key, in db.execute(POSITION_CONFLICTS_SQL, (json.dumps(moving),))}
+def load_locations(db, nodes, cache, *, include_non_repeaters=False):
+    states = ('resolved', 'non_repeater') if include_non_repeaters else ('resolved',)
+    return (cache or TracePositionCache()).load(db, {
+        node['public_key'] for node in nodes if node['state'] in states
+    })
 
 
-def _repeater_keys(identities, tokens):
-    return {node['public_key'] for token in tokens if (node := identities.resolve(token))['state'] == 'resolved'}
-
-
-@dataclass
-class SnrStats:
-    histogram: Counter = field(default_factory=Counter)
-    quality: Counter = field(default_factory=Counter)
-    first: float = float('inf')
-    last: tuple = (-1, 0, 0)
-    latest_snr: int | None = None
-
-    def add(self, stamp, ident, hop, snr, quality):
-        self.histogram[snr] += 1
-        self.quality[quality] += 1
-        self.first = min(self.first, stamp)
-        order = stamp, ident, hop
-        if order > self.last:
-            self.last, self.latest_snr = order, snr
-
-    def result(self):
-        count = sum(self.histogram.values())
-        values = sorted(self.histogram)
-        lower, upper = (count - 1) // 2, count // 2
-        offset = 0
-        for value in values:
-            offset += self.histogram[value]
-            if offset > lower:
-                low = value
-                break
-        for value in values:
-            upper -= self.histogram[value]
-            if upper < 0:
-                high = value
-                break
-        return dict(count=count, last=self.latest_snr / 4, min=values[0] / 4,
-                    median=(low + high) / 8, max=values[-1] / 4,
-                    first_at=self.first, last_at=self.last[0], quality=dict(self.quality))
+def locate(node, locations, stamp):
+    timeline = locations.get(node['public_key'])
+    if timeline is None:
+        return None, node['state']
+    if stamp is None:
+        return None, 'missing_measurement_time'
+    return timeline.at(stamp)
 
 
 def _sample_query(start, end, pair=None):
@@ -343,19 +289,17 @@ def _samples(db, start, end, pair=None):
         yield ident, hop, source, target, snr, stamp, profile, quality, groups[ident]
 
 
-def _visible_link(identities, positions, conflicts, source, target, stamp):
+def _visible_link(identities, locations, source, target, stamp):
     a, b = identities.resolve(source), identities.resolve(target)
     if a['state'] != 'resolved' or b['state'] != 'resolved':
         return None, None, a['state'] if a['state'] != 'resolved' else b['state']
     ka, kb = a['public_key'], b['public_key']
     if ka == kb:
         return None, None, 'same_identity'
-    if ka in conflicts or kb in conflicts:
-        return (a, b), None, 'uncertain_position'
-    pa, pb = positions.at(ka, stamp), positions.at(kb, stamp)
-    if distance_km(pa, pb) is None:
-        return (a, b), None, 'missing_position' if not pa or not pb else 'uncertain_position'
-    return (a, b), (pa, pb), None
+    pa, issue_a = locate(a, locations, stamp)
+    pb, issue_b = locate(b, locations, stamp)
+    issue = issue_a or issue_b
+    return (a, b), None if issue else (pa, pb), issue
 
 
 def _summary(db, start, end):
@@ -367,19 +311,21 @@ def _summary(db, start, end):
     return dict(measurements=groups, partial=partial, undecodable=invalid, receptions=receptions)
 
 
-def links(db, start, end, sf='all', pair=None, offset=0):
+def links(db, start, end, sf='all', pair=None, offset=0, *, position_cache=None):
     """Aggregate the normalized projection and page a single link on demand."""
     identities = Identities(db)
-    positions = NormalizedPositions(db, start, end)
     where, args = _sample_query(start, end, pair)
     tokens = {token for row in db.execute(f'''SELECT DISTINCT source,target FROM trace_sample
         WHERE {where}''', args) for token in row}
-    conflicts = position_conflicts(db, _repeater_keys(identities, tokens))
+    locations = load_locations(db, (identities.resolve(token) for token in tokens), position_cache)
     links_by_key = {}
-    stats = defaultdict(SnrStats)
+    stats = defaultdict(lambda: defaultdict(dict))
     missing = Counter()
     sfs = set()
     visible_ids = set()
+    selected_ids = set()
+    selected_visible_ids = set()
+    observers = set()
     samples = []
     sample_count = 0
     for ident, hop, left, right, snr, stamp, profile, quality, observations in _samples(db, start, end, pair):
@@ -387,9 +333,11 @@ def links(db, start, end, sf='all', pair=None, offset=0):
         if spreading is not None:
             sfs.add(spreading)
         selected = sf == 'all' or sf == ('unknown' if spreading is None else str(spreading))
-        endpoints, points, reason = _visible_link(identities, positions, conflicts, left, right, stamp)
-        if selected and reason and not pair:
-            missing[reason] += 1
+        endpoints, points, reason = _visible_link(identities, locations, left, right, stamp)
+        if selected and not pair:
+            selected_ids.add(ident)
+            if reason:
+                missing[reason] += 1
         if endpoints is None:
             continue
         a, b = endpoints
@@ -401,46 +349,63 @@ def links(db, start, end, sf='all', pair=None, offset=0):
         if pair:
             if selected:
                 sample_count += 1
+                evidence = [o for o in observations if o['snr_count'] > hop]
+                observers.update(o['observer_id'] for o in evidence if o['observer_id'] and o['duplicate_of'] is None)
                 if offset < sample_count <= offset + PAGE:
                     samples.append(dict(measurement_id=ident, hop=hop + 1, source=ka, target=kb,
                         snr=snr / 4, time=stamp, profile=dict(profile), quality=quality, location_issue=reason,
-                        observations=[o['packet_id'] for o in observations if o['snr_count'] > hop]))
+                        observations=[o['packet_id'] for o in evidence]))
             continue
-        if points is not None:
-            visible_ids.add(ident)
-        if selected and points is not None:
+        if points is None:
+            continue
+        visible_ids.add(ident)
+        if selected:
+            selected_visible_ids.add(ident)
             sample_count += 1
             pa, pb = points
             widths = [len(left), len(right)]
             if not forward:
                 a, b, pa, pb, widths = b, a, pb, pa, widths[::-1]
             link = links_by_key.setdefault(key, dict(endpoints=[a, b], positions=[pa, pb],
-                                                       position_at=stamp, prefix_bytes=widths, profiles=[]))
+                                                       position_at=stamp, prefix_bytes=widths))
             # Descending time order makes the newest location evidence the display geometry.
             link['prefix_bytes'] = list(map(min, link['prefix_bytes'], widths))
-        stats[key, profile, forward].add(stamp, ident, hop, snr, quality)
+        directions = stats[key][profile]
+        direction = directions.get(forward)
+        if direction is None:
+            direction = directions[forward] = DirectionSamples()
+        direction.add(stamp, ident, hop, snr, quality)
     if pair:
-        return dict(items=samples, total=sample_count,
+        return dict(items=samples, total=sample_count, observers=sorted(observers),
                     next=offset + PAGE if sample_count > offset + PAGE else None)
-    profiles = {}
-    for (key, profile, forward), values in sorted(stats.items(), key=lambda item: (
-            item[0][0], str(item[0][1]), not item[0][2])):
-        if key not in links_by_key:
-            continue
-        group = profiles.get((key, profile))
-        if group is None:
-            group = profiles[key, profile] = dict(profile=dict(profile), forward=None, reverse=None)
-            links_by_key[key]['profiles'].append(group)
-        group['forward' if forward else 'reverse'] = values.result()
+    for key, link in links_by_key.items():
+        groups = []
+        selected_groups = []
+        selected_samples = []
+        ordered = sorted(stats[key].items(), key=lambda item: str(item[0]))
+        for index, (profile, by_direction) in enumerate(ordered):
+            group = assess_profile(dict(profile), [by_direction.get(True), by_direction.get(False)])
+            groups.append(group)
+            if sf == 'all' or sf == str(group['profile'].get('spreading_factor', 'unknown')):
+                selected_groups.append((index, group))
+                selected_samples.append((profile, by_direction))
+        coverage = {
+            label: directional_coverage(((profile, by_direction[direction]) for profile, by_direction in selected_samples
+                                         if direction in by_direction), end)
+            for label, direction in (('forward', True), ('reverse', False))
+        }
+        link.update(profiles=groups, coverage=coverage, analysis=assess_link(selected_groups, coverage),
+                    distance_km=distance_km(*link['positions']))
     summary = _summary(db, start, end)
     # Every sampled measurement has an observation in the same event window.
     summary.update(without_visible_links=summary['measurements'] - len(visible_ids),
-                   visible_samples=sample_count, unmapped_samples=dict(missing))
+                   visible_samples=sample_count, unmapped_samples=dict(missing),
+                   unmapped_measurements=len(selected_ids - selected_visible_ids))
     return dict(links=list(links_by_key.values()), summary=summary, spreading_factors=sorted(sfs),
-                backfill=status(db), start=start, end=end)
+                analysis_rules=RULES, backfill=status(db), start=start, end=end)
 
 
-def measurement(db, ident):
+def measurement(db, ident, *, position_cache=None):
     row = db.execute('''SELECT wire_key,hash_bytes,route,snrs,first_at,last_at
         FROM trace_measurement WHERE id=?''', (ident,)).fetchone()
     if row is None:
@@ -450,7 +415,8 @@ def measurement(db, ident):
     payload = wire[payload_at:]
     identities = Identities(db)
     tokens = [route[offset:offset + size] for offset in range(0, len(route), size)]
-    conflicts = position_conflicts(db, _repeater_keys(identities, tokens))
+    nodes = [identities.resolve(token) for token in tokens]
+    locations = load_locations(db, nodes, position_cache)
     observations = _observations(db, 'SELECT ? AS measurement_id', (ident,))[ident]
     metadata = {row[0]: row[1:] for row in db.execute('''SELECT o.packet_id,p.origin,
             json_extract(p.packet_json,'$.rssi'),json_extract(p.packet_json,'$.snr'),
@@ -460,18 +426,19 @@ def measurement(db, ident):
         name, rssi, snr, match, reason, observed_at = metadata[observation['packet_id']]
         observation.update(observer_name=name, observer_rssi=rssi, observer_snr=snr,
             radio_at_indexing=dict(match=match, reason=reason, observed_at=observed_at))
-    positions = NormalizedPositions(db, first, last + 1)
     hops = []
-    for index, token in enumerate(tokens):
-        node = identities.resolve(token)
+    for index, node in enumerate(nodes):
         snr = (snrs[index] - 256 if snrs[index] >= 128 else snrs[index]) / 4 if index < len(snrs) else None
         evidence = [o for o in observations if o['duplicate_of'] is None and o['snr_count'] > index]
         stamp = min((o['event_at'] for o in evidence), default=None)
-        if node['public_key'] in conflicts:
-            node = dict(node, state='uncertain_position')
-        point = positions.at(node['public_key'], stamp) if stamp is not None and node['state'] == 'resolved' else None
+        point, issue = locate(node, locations, stamp)
         profile, quality = _profile_assignment(observations, index)
-        hops.append(dict(node, snr=snr, time=stamp, position=point, profile=dict(profile), quality=quality))
+        hop = dict(node, snr=snr, time=stamp, position=point, location_issue=issue,
+                   profile=dict(profile), quality=quality)
+        if index and stamp is not None:
+            from_point, from_issue = locate(nodes[index - 1], locations, stamp)
+            hop.update(from_position=from_point, from_location_issue=from_issue)
+        hops.append(hop)
     return dict(id=ident, tag=f'{int.from_bytes(payload[:4], "little"):08x}',
                 auth_code=f'{int.from_bytes(payload[4:8], "little"):08x}', flags=payload[8],
                 transport_code=wire[2:6].hex() if payload_at == 6 else None,

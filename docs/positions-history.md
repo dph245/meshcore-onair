@@ -1,10 +1,10 @@
-# Historische Positionen für DX und TRACE
+# Historische Positionen für DX
 
 Schema 16 ergänzt eine aus dem Roharchiv abgeleitete Positionshistorie.
 `onair_distance.Positions` bleibt als unveränderte Legacy-Rekonstruktion erhalten.
-DX und TRACE-Kartendetails nutzen dieselbe neue Positionsquelle, behalten aber ihre
-unterschiedlichen Resolver und Knotentypregeln. Map, Nachbarn, MeshLive, manuelle
-Positionen und Replay behalten ihre bisherigen Quellen.
+DX verwendet die Schema-16-Positionsquelle für historische Positionen. TRACE
+verwendet eine eigene zeitbezogene Standortvalidierung auf den ADVERT-Rohdaten.
+[Zeitbezogene TRACE-Standortvalidierung](trace-history.md#zeitbezogene-standortvalidierung)
 
 ## Betriebsarten
 
@@ -26,10 +26,8 @@ werden protokolliert. Die Archive-Instanz hält danach bis zum Neustart an Legac
 fest (`position_failure`). Nach einer Vergleichsabweichung zuerst die Ursache
 klären und lokal neu aufbauen; ein Neustart allein ist keine Reparatur.
 
-DX behält seinen Ergebniscache von 120 Sekunden und zwei Ergebnissen. Ein
-Cachetreffer ist kein neuer Vergleich. TRACE-Details in `compare`/`normalized`
-laden die kleinen Positionsdaten je Aufruf neu; nur der Legacy-Modus behält den
-bisherigen 60-Sekunden-Positionscache. Die TRACE-Gruppencaches bleiben unverändert.
+DX hält bis zu zwei Ergebnisse 120 Sekunden im Cache. Ein Cachetreffer
+führt keinen erneuten Positionsvergleich aus.
 
 ## Tabellen und Zeitregeln
 
@@ -126,8 +124,9 @@ Das Benchmark-Verzeichnis muss neu sein und auf einem Datenträger mit Platz fü
 zwei vollständige SQLite-Kopien liegen. Die Quelle wird ausschließlich read-only
 geöffnet. Das Werkzeug erzeugt eine Arbeitskopie und vor deren Migration eine
 zusätzliche SQLite-Sicherung. Es prüft sämtliche Rohpaketspalten vor/nach Migration,
-misst Backfill und vollständige DX-Auswertungen ohne Ergebniscache, vergleicht alle
-TRACE-Details und stoppt bei einer ungeklärten Abweichung. Alle Messläufe verwenden
+misst Backfill und vollständige DX-Auswertungen ohne Ergebniscache, bildet einen
+Prüfwert über alle TRACE-Details und stoppt bei einer DX-Vergleichsabweichung.
+Alle Messläufe verwenden
 dieselbe migrierte DB und denselben Lesesnapshot. Warm-up erfolgt je Lesepfad;
 die Reihenfolge der drei Messpaare wechselt.
 

@@ -1,5 +1,72 @@
 # Projektstand
 
+## Initiale TRACE-Kartenzeichnung
+
+Stand 27.11.2026. Beim erneuten Öffnen konnte Leaflet 1.9.4
+den abgebrochenen Canvas-Zeichenframe eines entfernten Renderers
+weiter als ausstehend behandeln. Die Ansicht verwendet beim
+Wiederanhängen einen frischen Renderer für die vorhandenen
+Pfad- und Markerobjekte. Die erste Bounds-Berechnung wartet
+auf einen sichtbaren Container mit nutzbarer Größe. Ein
+Chromium-Pixeltest prüft beide Linien ohne Karteninteraktion,
+auch nach Tabwechseln und Layoutänderungen.
+[Initiale Kartenzeichnung](docs/trace-history.md#initiale-kartenzeichnung)
+
+## Zeitbezogene TRACE-Standortvalidierung
+
+Stand 27.11.2026. Die historischen Linkstrecken und der Einzelvergleich
+verwenden dieselben Standortbelege zur Zeit des jeweils empfangenden
+Hops. Die Präfixprüfung bleibt davon unabhängig. Geringe Abweichungen
+bis standardmäßig 25 m zählen als derselbe Standort. Neue Phasen
+brauchen wiederholte eindeutige Belege. Gesperrte Hops bleiben mit SNR
+und konkretem Ausschlussgrund in den Details zugänglich.
+
+- Der echte TRACE `C5355091` ergibt vier eindeutige Repeater und drei
+  bidirektionale Strecken mit den sechs archivierten Richtungswerten.
+  Der Funkfeuer-Präfixschutz und die Sperre weiter widersprüchlich
+  verwendeter vollständiger Keys wurden geprüft.
+- Die Positionsabfrage verwendet indexierte Abrufe für beteiligte
+  Keys und neue ADVERTs. Im realen Archiv lag die wiederholte
+  Gesamtaggregation bei rund 28 ms. Der erste Abruf des gesamten
+  Bestands mit leerem Positionscache dauerte rund 251 ms.
+- 268 Python-Tests, 19 Deno-Skripte und die beiden Chromium-TRACE-
+  Kartenprüfungen bestanden. Der Gzip-Test verwendet echte
+  HTTP-Anfragen auf Loopback. Der frühere Hänger beruht auf der
+  Socket-Sperre der Sandbox.
+
+Regeln, Referenzdaten und Messwerte stehen in der
+[zeitbezogenen Standortvalidierung](docs/trace-history.md#zeitbezogene-standortvalidierung).
+
+## Verständliche TRACE-Netzqualitätsanalyse, Sprint 3
+
+Stand 26.11.2026. Die historische TRACE-Karte bietet Linkqualität,
+Asymmetrie, Messabdeckung und eine theoretische SF7-Reserveprognose.
+Die kompakte Legende filtert Karte und Auswahlliste. Das vorhandene
+Detailpanel führt vom Befund über getrennte Richtungs- und
+Profilstatistiken zu Perzentilen, Diagrammen und Empfangsbelegen.
+
+- Die Bewertung zählt korrelierte TRACE je Richtung und Profil und
+  verwendet bei ausreichender Stichprobe P10. Asymmetrie setzt
+  zeitlich vergleichbare Richtungswerte desselben Profils voraus.
+  In der Messabdeckung zählen zusätzlich Zeitspanne, Aktualität und
+  Güte der Profilzuordnung.
+- Die Modi verwenden die geladenen Aggregate und Kartenobjekte.
+  Moduswechsel lösten null Archivabfragen aus. Einzelwerte und
+  Empfangsbelege laden auf Anforderung. Schema 18 bleibt maßgeblich.
+- Der lokale Gesamtlauf lieferte 106 kartierbare Strecken in
+  91,01 ms Aggregationszeit bei 9,17 s Backfill. Chromium stellte
+  die dekodierten Aggregate nach 26,6–34,3 ms dar. Die Gesamtantwort
+  belegte beim Versand mit Gzip 23.766 Bytes.
+- Für die archivierten Strecken fehlten vollständige zeitlich
+  zugeordnete Observer-Profile. Die numerischen Ratings wurden mit
+  Testdaten geprüft. Die tatsächliche SF7/SF8-Vergleichsmessung
+  bleibt offen. Arbeitsstand lokal im Worktree.
+- 261 Python-Tests, 18 Deno-Skripte und vier Chromium-Prüfungen
+  bestanden. Die visuelle Prüfung umfasste Desktop und Touch im
+  Hoch- und Querformat.
+- Schwellen, Datenqualitätsregeln, Abfrageverhalten und Messprotokoll
+  stehen in der [Netzqualitätsanalyse](docs/trace-history.md#netzqualitätsanalyse).
+
 ## Historische TRACE-Linkstrecken, Sprint 2
 
 Stand 26.11.2026. Schema 18 historisiert die TRACE-Beobachtungen aus

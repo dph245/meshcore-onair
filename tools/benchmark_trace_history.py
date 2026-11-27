@@ -1,6 +1,8 @@
 """Backfill real TRACE rows into a separate, disposable projection database."""
 import argparse
+from collections import Counter
 from contextlib import closing, contextmanager
+from gzip import compress
 import json
 from math import isfinite
 from pathlib import Path
@@ -11,7 +13,8 @@ import sys
 from tempfile import TemporaryDirectory
 from time import perf_counter, sleep
 
-from onair_trace_history import ADVERT_POSITIONS, backfill_batch, links, measurement, migrate, status
+from onair_trace_history import backfill_batch, links, measurement, migrate, status
+from onair_trace_positions import TracePositionCache
 
 DEFAULT_TIMEOUT = 60
 REPEATS = 5
@@ -94,8 +97,6 @@ def connect_source(db, path):
 
 def build_projection(db):
     migrate(db)
-    db.execute('CREATE TEMP VIEW trace_advert_positions AS ' +
-               ADVERT_POSITIONS.replace('FROM packets', 'FROM source.packets'))
     db.commit()
 
 
@@ -116,13 +117,13 @@ def timed_backfill(db, total, run):
     return progress, durations
 
 
-def measure_window(db, start, end, days, run):
+def measure_window(db, start, end, days, run, position_cache):
     times = []
     sql_times = []
     for index in range(1, REPEATS + 1):
         run.detail = f'Aggregation {index}/{REPEATS}'
         before = perf_counter()
-        result = links(db, start, end)
+        result = links(db, start, end, position_cache=position_cache)
         times.append((perf_counter() - before) * 1000)
         run.detail = f'SQL-Stichprobe {index}/{REPEATS}'
         before = perf_counter()
@@ -133,9 +134,20 @@ def measure_window(db, start, end, days, run):
     run.detail = 'JSON kodieren'
     before = perf_counter()
     payload = json.dumps(result, ensure_ascii=False, separators=(',', ':')).encode()
+    json_ms = round((perf_counter() - before) * 1000, 2)
+    before = perf_counter()
+    gzip_bytes = len(compress(payload, compresslevel=3, mtime=0))
+    gzip_ms = round((perf_counter() - before) * 1000, 2)
+    categories = {mode: dict(Counter(link['analysis'][mode]['category'] for link in result['links']))
+                  for mode in ('reserve', 'asymmetry', 'coverage', 'sf7')}
+    profile_directions = [group[direction] for link in result['links'] for group in link['profiles']
+                          for direction in ('forward', 'reverse') if group[direction]]
     return result['links'], payload, dict(days=days, median_ms=round(median(times), 2),
         first_ms=round(times[0], 2), sample_sql_median_ms=round(median(sql_times), 2),
-        json_ms=round((perf_counter() - before) * 1000, 2), json_bytes=len(payload),
+        json_ms=json_ms, json_bytes=len(payload), gzip_ms=gzip_ms, gzip_bytes=gzip_bytes,
+        analysis_categories=categories,
+        profile_directions=len(profile_directions),
+        profile_direction_readings=sum(values['count'] for values in profile_directions),
         links=len(result['links']), **result['summary'])
 
 
@@ -187,11 +199,12 @@ def benchmark(path, fixture_dir=None, sample_id=None, *, run=None):
             results = []
             filenames = []
             end = last + 1
+            position_cache = TracePositionCache(attached_source=True)
             for days in (1, 7, 30, 0):
                 with run.section(f'window_{days}d' if days else 'window_all',
                                  f'{days} Tage auswerten' if days else 'Gesamten Bestand auswerten'):
                     start = max(0, end - days * 86400) if days else 0
-                    map_links, payload, summary = measure_window(db, start, end, days, run)
+                    map_links, payload, summary = measure_window(db, start, end, days, run, position_cache)
                     results.append(summary)
                     if fixture_dir:
                         name = f'trace-links-{days}.json'
@@ -201,15 +214,15 @@ def benchmark(path, fixture_dir=None, sample_id=None, *, run=None):
                 with run.section('single_link', 'Eine Seite Einzelwerte für die erste Linkstrecke laden'):
                     pair = tuple(node['public_key'] for node in map_links[0]['endpoints'])
                     before = perf_counter()
-                    page = links(db, 0, end, 'all', pair)
-                    results[0]['sample_query_all_ms'] = round((perf_counter() - before) * 1000, 2)
-                    results[0]['sample_query_json_bytes'] = len(json.dumps(
+                    page = links(db, 0, end, 'all', pair, position_cache=position_cache)
+                    results[-1]['sample_query_all_ms'] = round((perf_counter() - before) * 1000, 2)
+                    results[-1]['sample_query_json_bytes'] = len(json.dumps(
                         page, ensure_ascii=False, separators=(',', ':')).encode())
             if sample_id is not None:
                 with run.section('sample', f'TRACE-Rohpaket #{sample_id} zuordnen'):
                     ident = db.execute('SELECT measurement_id FROM trace_observation WHERE packet_id=?',
                                        (sample_id,)).fetchone()
-                    example = measurement(db, ident[0]) if ident and ident[0] else None
+                    example = measurement(db, ident[0], position_cache=position_cache) if ident and ident[0] else None
                     if fixture_dir and example:
                         (folder / 'trace-example.json').write_text(json.dumps(example, ensure_ascii=False, indent=2))
                         filenames.append('trace-example.json')

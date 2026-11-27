@@ -240,13 +240,15 @@ def main():
         page.route('**/api/map-traces?*', lambda route: route.fulfill(json=dict(items=[
             dict(id=i, received=1000+i, route=['aa','bb','cc'], observed_hops=3, tag='01')
             for i in [1,2,3,4]], scanned=2, before=None)))
+        conflicted = set()
         def detail(route):
             identity = int(route.request.url.rsplit('/',1)[1])
             tokens = ['aa','bb','cc'] if identity <= 2 else ['aa','bb','cc','bb','aa']
             values = [12,7.5,-10.5] if identity <= 2 else [12,7.5,-10.5,-3,.25] if identity == 3 else [9,-1,5,-7,3]
             route.fulfill(json=dict(id=identity, first_seen=1000+identity, observed_hops=len(tokens),
                 hops=[dict(hash=token, name=token, public_key=token*32, snr_min=values[i], snr_max=values[i],
-                    position=(None if identity == 2 and i == 1 else dict(
+                    location_issue='position_conflict' if identity in conflicted and token == 'bb' else None,
+                    position=(None if (identity == 2 and i == 1) or (identity in conflicted and token == 'bb') else dict(
                     latitude=52+['aa','bb','cc'].index(token)*.1,
                     longitude=10+['aa','bb','cc'].index(token)*.1))) for i,token in enumerate(tokens)]))
         page.route('**/api/map-traces/*', detail)
@@ -269,7 +271,7 @@ def main():
         expect(page.locator('.trace-snr-value').nth(1)).to_have_text('→ −10,5 dB')
         assert page.locator('.trace-snr-label').first.is_visible(), 'No hover needed'
         page.locator('#map-trace-list input').nth(1).check()
-        expect(page.locator('#map-trace-detail')).to_contain_text('Historische Position unbekannt')
+        expect(page.locator('#map-trace-detail')).to_contain_text('Keine Position vorhanden')
         # Unknown intermediate hop adds only 2 markers, never a bridge.
         expect(page.locator('#trace-map .leaflet-overlay-pane path:not(.trace-snr-leader)')).to_have_count(9)
         before = len(trace_requests)
@@ -333,6 +335,10 @@ def main():
         assert page.locator('#panel-map #map-traces').count() == 0
         assert not errors, errors
         performance_regression(page, trace_requests)
+        conflicted.add(3)
+        page.evaluate('window.TraceComparison.receive(23, false)')
+        expect(page.locator('#map-trace-detail')).to_contain_text('Standortkonflikt ohne belegte Auflösung')
+        expect(page.locator('.trace-snr-label[data-trace-id="3"]')).to_have_count(0)
         assert not errors, errors
         grouped_flow(browser)
         browser.close()

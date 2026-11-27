@@ -37,9 +37,12 @@ Die Regel wirkt an folgenden Stellen:
   alte und positionslose Repeater. Im Replay wird diese Liste ermittelt, bevor
   unsichere historische Node-Daten zurückgesetzt werden. Der aktuelle Schutz gilt
   damit auch vor dem Abspielen des zweiten ADVERTs.
-- TRACE: `onair_trace_map.detail()` unterdrückt historische Hop-Positionen nach
-  derselben Regel, auch bei wiederverwendeter Positionshistorie und in den Modi
-  `legacy`, `compare` und `normalized`. Hops, SNR und Empfangsdaten bleiben erhalten.
+- TRACE: Die historischen Linkstrecken und der Einzelvergleich prüfen
+  Präfixe einschließlich ihrer übertragenen Länge. Vier Byte können eine
+  3-Byte-Kollision auflösen. Ist die Identität eindeutig, prüft TRACE die
+  ADVERT-Standortbelege zum jeweiligen Messzeitpunkt. Hops, SNR und
+  Empfangsdaten bleiben erhalten.
+  [Zeitbezogene Standortvalidierung](trace-history.md#zeitbezogene-standortvalidierung)
 - DX besitzt keine eigene Karte, sondern öffnet die Hauptkarte. Weitere eigene
   Leaflet-Karten wurden in `static/` nicht gefunden.
 
@@ -66,8 +69,9 @@ bisherigen Daten und sind kein Zugriffsschutz für gespeicherte Koordinaten.
 
 Die serverseitige Prüfung nutzt die bereits für Karte, Bootstrap, Replay oder
 TRACE-Namensauflösung geladenen Node-Zeilen. Nur die kleine manuelle Referenztabelle
-wird gegebenenfalls zusätzlich gelesen. Kein zusätzlicher Paketarchiv-Scan, keine
-Datenbankabfrage beim Zoomen oder Zeichnen. Der Aufwand ist linear in der Zahl
+wird gegebenenfalls zusätzlich gelesen. Die Präfixprüfung durchsucht keine
+Paketzeilen. Beim Zoomen oder Zeichnen erfolgen keine Datenbankabfragen.
+Der Aufwand der Präfixprüfung ist linear in der Zahl
 bekannter Identitäten. Der Browser hält einen Präfixindex und prüft pro Standort
 mit Set-Zugriffen; ein WebSocket-Batch löst höchstens eine globale Invalidierung aus.
 Bestehende Nachbar-, TRACE- und Positionscaches sowie Delta-Paketdaten bleiben

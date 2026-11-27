@@ -18,7 +18,7 @@ import onair_mqtt as mqtt
 from onair_web import app
 
 
-async def get(path, **params):
+async def request(path, headers=(), **params):
     messages = []
 
     async def receive():
@@ -29,11 +29,16 @@ async def get(path, **params):
 
     await app({'type': 'http', 'asgi': {'version': '3.0'},
                'method': 'GET', 'path': path, 'raw_path': path.encode(),
-               'query_string': urlencode(params).encode(), 'headers': [],
+               'query_string': urlencode(params).encode(), 'headers': list(headers),
                'scheme': 'http', 'server': ('test', 80), 'client': ('test', 1),
                'http_version': '1.1', 'root_path': ''}, receive, send)
-    status = next(m['status'] for m in messages if m['type'] == 'http.response.start')
+    response = next(m for m in messages if m['type'] == 'http.response.start')
     body = b''.join(m.get('body', b'') for m in messages if m['type'] == 'http.response.body')
+    return response['status'], dict(response['headers']), body
+
+
+async def get(path, **params):
+    status, _, body = await request(path, **params)
     return status, json.loads(body)
 
 

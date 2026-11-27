@@ -13,6 +13,8 @@ equal(format(0), '+0,0 dB'); equal(format(.25), '+0,25 dB');
 equal(samples([hop('aa', 9), hop('bb', 0)]), [[[0,true,2]]]);
 equal(samples([hop('aa', 9), hop('bb', null), hop('cc', 5)]), []);
 equal(samples([hop('aa', 9), hop('bb', 3, {position: null}), hop('cc', 5)]), []);
+equal(samples([hop('aa', 9), hop('bb', 3, {from_position: null})]), []);
+equal(samples([hop('aa', 9, {position: null}), hop('bb', 3, {from_position: route[0].position})]), [[[3,true,2]]]);
 equal(samples([hop('aa', 9), hop('bb', 3, {ambiguous: true})]), []);
 // An aggregate range cannot be reinterpreted as two directional measurements.
 equal(samples([hop('aa', 9), hop('bb', 3, {snr_max: 7})]), []);

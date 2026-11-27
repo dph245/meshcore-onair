@@ -25,3 +25,10 @@
   und SNR am empfangenden Hop. Die Übersicht in `static/trace-links.js` verwendet
   dieselbe Leaflet-Karte wie der Einzelvergleich. Modell, Korrelation und
   Offline-Benchmarks stehen in [Historische TRACE-Linkstrecken](docs/trace-history.md).
+- Die Linkbewertung verwendet `RULES` in `onair_trace_quality.py` und
+  rechnet getrennt nach Richtung und exaktem Observer-Profil. Je Richtung
+  und Profil zählt jeder korrelierte TRACE höchstens einmal. Der Browser
+  schaltet Modi, Kategorien und Sortierung auf geladenen Aggregaten um.
+  Einzelwerte und Empfangsbelege laden bei Bedarf. Referenzwerte, Stichprobe
+  und Grenzen der SF7-Schätzung sind in der
+  [Netzqualitätsanalyse](docs/trace-history.md#netzqualitätsanalyse) beschrieben.
